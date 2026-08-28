@@ -1002,7 +1002,12 @@ def _copy_local_reference(source_ref, destination, allowed_exts, max_files=250,
         shutil.copy2(path, dest)
         saved.append(dest)
     if not saved:
-        raise ValueError("경로 안에서 지원되는 원본 파일을 찾지 못했습니다")
+        # ★ **무엇을 넣어야 하는지 같이 말한다**([408] — 막기만 하는 안내는
+        #   없는 안내다). 목록은 `allowed_exts` 에서 그대로 온다 — 여기 베껴
+        #   적으면 갈래마다 다른 목록의 **사본**이 되어 틀린 안내가 된다([162]·[172]).
+        raise ValueError(
+            "경로 안에서 지원되는 원본 파일을 찾지 못했습니다 — 이 화면이 받는 형식은 "
+            + " · ".join(sorted(allowed_exts)) + " 입니다")
     return saved
 
 
@@ -1028,7 +1033,11 @@ def _save_source_submission(fields, files, *, kind, allowed_exts, destination_ro
             raise ValueError("첨부파일은 55MB 이하만 가능합니다")
         ext = os.path.splitext(upload.get("filename") or "")[1].lower()
         if ext not in allowed_exts:
-            raise ValueError("지원되지 않는 원본 파일 형식입니다")
+            # ★ **무엇을 골랐는지와 무엇을 받는지 둘 다** 말한다([408]·[289]).
+            #   목록은 `allowed_exts` 한 곳에서 온다([162]).
+            raise ValueError(
+                "지원되지 않는 원본 파일 형식입니다(" + (ext or "확장자 없음")
+                + ") — 이 화면이 받는 형식은 " + " · ".join(sorted(allowed_exts)) + " 입니다")
         dest = _unique_path(folder, upload.get("filename"))
         with open(dest, "wb") as out:
             out.write(upload["data"])
