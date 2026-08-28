@@ -160,6 +160,12 @@ def _archive_change_source(mtime: float, window_min: int = 40) -> str:
     return ""
 
 
+# ★ 이 낱말은 **읽는 쪽도 본다**([162]) — `session_handoff.hand_edit_signal` 이
+#   이 갈래를 경보에서 내린다.  여기 글자를 바꾸면 그쪽이 **한 건도 안 걸리면서
+#   오류도 안 난다**([165]) — 그러면 [475] 가 없앤 거짓 경보가 되살아난다.
+HAND_EDIT_TOOL_KIND = "기계도구(경보아님)"
+
+
 def _note_hand_edit(entry: dict[str, Any]) -> None:
     """감지 기록 — session_handoff 가 해시 없이 읽는 싼 신호([168])."""
     if os.environ.get("CSOS_SYNTHETIC") == "1":
@@ -575,7 +581,7 @@ def run_once(now: datetime | None = None, settle_seconds: int = SETTLE_SECONDS) 
                 if only_formula:
                     _note_hand_edit({
                         "시각": now.isoformat(timespec="seconds"),
-                        "종류": "기계도구(경보아님)",
+                        "종류": HAND_EDIT_TOOL_KIND,
                         "파일": source.get("name"),
                         "이전sha": str((previous.get("source") or {}).get("sha256") or "")[:12],
                         "현재sha": str(source.get("sha256") or "")[:12],

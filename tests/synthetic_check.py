@@ -19637,6 +19637,22 @@ def t292_500_never_arrives_wordless():
     # ⚠ 404 규칙이 400·403 을 삼키면 안 된다(고칠 자리가 서로 다르다).
     assert 찾기("x", "HTTP_ERROR:400").get("이름") == "필수 값이 빠짐", "404 규칙이 400 을 삼켰다"
 
+    # ★ `NO_VERSION` — 같은 코드에 **조치가 다른 두 갈래**가 숨어 있다(2026-08-27 류지영 실사고).
+    #   `SCH-` 는 정기점검 스케줄 원본에서만 온 예정이라 **앱 DB 에 행이 처음부터 없다** —
+    #   "목록을 다시 받으세요" 를 아무리 해도 안 풀린다([172]·[289]). `[466]` 이
+    #   카드에서 저장 단추를 빼고 [+ 등록하고 완료 처리] 로 바꿨다.
+    #   ⚠ **순서가 곧 계약이다** — 일반 규칙이 먼저 걸리면 좁은 규칙은 영영 안 걸린다.
+    예정 = 찾기("/api/staff/entry", "NO_VERSION:pm:SCH-2026Q3-25D510AD97")
+    assert 예정.get("막음") == "[466]", "[466] 이 고친 갈래에 낱말이 없다 — 매일 ★신규로 뜬다([292])"
+    assert "등록" in " ".join(예정.get("하세요") or []),         "조치가 '목록 새로고침' 이면 아무리 해도 안 풀린다 — 사람을 헛돌린다([172])"
+    일반 = 찾기("/api/staff/entry", "NO_VERSION:pm:PM-2604-219")
+    assert 일반.get("이름") and 일반.get("이름") != 예정.get("이름"),         "일반 NO_VERSION 이 좁은 규칙에 삼켜졌다 — 조치가 서로 다르다([289])"
+    # ★ 일반 갈래에는 **막음을 안 단다** — 반쪽 목록은 실재하는 상태라 매일 회귀가 된다([170]).
+    assert not 일반.get("막음"), "반쪽 목록 갈래에 막음을 붙였다 — 날 때마다 회귀 경보다"
+    # ⚠ 옆 갈래를 안 삼켰나(고칠 자리가 서로 다르다).
+    assert 찾기("/api/staff/entry",
+              "HTTP_ERROR:400 · 화면 데이터 버전이 없습니다").get("막음") == "[249]",         "NO_VERSION 규칙이 옛 '저장 버전 없음' 을 삼켰다"
+
     print("  [292] 문구 없는 500 을 안 보낸다(갈래·자리 포함) · 사전이 500·관리자·"
           "재시도소진을 갈라 잡는다 ✅")
 
@@ -31244,6 +31260,129 @@ def t476_gate_failure_asks_if_source_changed():
         _sh.rmtree(tmp, ignore_errors=True)
 
     print(chr(9989) + " [476] 관문 실패가 '도중에 소스가 바뀌었나'를 묻는다 · traces 가 조치를 읽는다")
+
+
+def t478_hand_edit_alarm_reads_what_the_writer_split():
+    """[478] **쓰는 쪽은 갈랐는데 읽는 쪽이 안 갈랐다** — 손입력 경보.
+
+    `[475]` 가 `realtime_monitor` 를 고쳐 '값은 그대로고 수식만 바뀐 것'을
+    `기계도구(경보아님)` 갈래로 따로 적게 했다.  그런데
+    `session_handoff.hand_edit_signal` 은 **24시간 안 모든 줄**을 세어 그것까지
+    경보로 올렸다 — `expand_rows` 가 행을 늘릴 때마다 인계 맨 위에 거짓 경보가
+    서고, 그 조치는 사람을 *"넣을 값이 없는데 앱에 다시 넣어라"* 로 보낸다([172]).
+    그리고 거짓 경보는 **진짜 손입력을 덮는다**([170]).
+
+    ★ 내리는 근거는 **적힌 것 둘**뿐이다 — 기계가 스스로 적은 갈래 · 사람이 재 보고
+      붙인 `정정`.  판정 문장을 뜯어 짐작하지 않는다([172]).
+    ★ **좁히는 것도 고장이다** — 진짜 손입력은 그대로 경보여야 한다.  (3)(4)가 잰다.
+    ⚠ 진짜 감지 기록에는 **한 글자도 안 쓴다**([247]) — 임시 경로로만 잰다.
+    ⚠ `io`·`json`·`tempfile` 은 이 파일 모듈 수준에 **없다**([324]) — 함수 안에서 들여온다.
+    """
+    import io as _io, json as _json, tempfile as _tf, datetime as _dt, os as _os
+    import ast as _ast
+    import session_handoff as SH
+    import realtime_monitor as RM
+
+    real = SH.HAND_EDIT_LOG
+    d = _tf.mkdtemp()
+    now = _dt.datetime.now()
+
+    def T(h):
+        return (now - _dt.timedelta(hours=h)).isoformat(timespec="seconds")
+
+    def 재기(rows):
+        p = _os.path.join(d, "log.json")
+        _io.open(p, "w", encoding="utf-8").write(_json.dumps(rows, ensure_ascii=False))
+        SH.HAND_EDIT_LOG = p
+        try:
+            return SH.hand_edit_signal()
+        finally:
+            SH.HAND_EDIT_LOG = real     # 모듈 전역은 프로세스 전체의 것이다([371])
+
+    기계 = {"시각": T(1), "종류": RM.HAND_EDIT_TOOL_KIND, "파일": "v621.xlsx"}
+    정정본 = {"시각": T(2), "종류": "내용변경", "파일": "v621.xlsx",
+            "정정": {"때": T(1), "무엇": "재 보니 값이 안 바뀌었다"}}
+    진짜 = {"시각": T(3), "종류": "내용변경", "파일": "v620.xlsx"}
+
+    # (1) 기계 도구가 만든 줄만 있으면 **조용하다**([170]).
+    assert 재기([기계]) is None, (
+        "[478] 기계 도구가 만든 줄을 경보로 올린다 — expand_rows 가 돌 때마다 거짓 경보다")
+
+    # (2) 사람이 재 보고 `정정` 을 붙인 줄도 내린다([475] 가 실제로 붙인 모양).
+    assert 재기([정정본]) is None, (
+        "[478] 재 보니 거짓이던 경보를 계속 올린다 — 진짜 손입력을 덮는다([170])")
+
+    # (3) ★ **진짜 손입력은 그대로 경보다** — 좁히는 것도 고장이다([172]).
+    got = 재기([진짜])
+    assert got and got.get("최근24h") == 1, "[478] 진짜 손입력을 놓쳤다 — 못 잡는 쪽이 더 나쁘다"
+
+    # (4) 섞이면 진짜만 세고 **뺀 것을 숫자로 말한다**([169]).
+    #     그리고 `마지막` 은 **경보 대상**이어야 한다 — 기계 줄이 뒤에 와도 안 밀린다.
+    got = 재기([진짜, 기계])
+    assert got and got.get("최근24h") == 1, "[478] 섞이면 세는 것이 흔들린다"
+    assert got.get("뺀건수") == 1, "[478] 뺀 것을 안 세면 '0건'이 '다 봤다'로 읽힌다([169])"
+    assert (got.get("마지막") or {}).get("파일") == "v620.xlsx", (
+        "[478] 마지막이 기계 줄로 밀렸다 — 인계가 엉뚱한 파일 이름을 댄다")
+
+    # (5) 24시간 밖은 예전 그대로 안 센다.
+    assert 재기([{"시각": T(30), "종류": "내용변경", "파일": "x"}]) is None
+
+    # (6) ★ 낱말은 **한 곳에서 온다**([162]) — 읽는 쪽 소스에 그 글자가 없어야 한다.
+    sh_src = _io.open(SH.__file__, encoding="utf-8", newline="").read()
+    assert "기계도구(경보아님)" not in _t370_code_only(sh_src), (
+        "[478] 읽는 쪽이 낱말을 손으로 적었다 — 쓰는 쪽이 바꾸면 한 건도 안 걸린다([165])")
+    assert RM.HAND_EDIT_TOOL_KIND, "[478] 낱말 상수가 비었다"
+
+    # (7) 낱말을 **못 읽으면 아무것도 안 뺀다** — 예전 그대로 경보다([169]).
+    import sys as _sys
+    saved = _sys.modules.get("realtime_monitor")
+    _sys.modules["realtime_monitor"] = None      # import 가 실패하게 만든다
+    try:
+        got = 재기([기계])
+        assert got and got.get("최근24h") == 1, (
+            "[478] 낱말을 못 읽었는데 뺐다 — 모름을 근거로 진짜 손입력을 지운다([169])")
+    finally:
+        if saved is None:
+            _sys.modules.pop("realtime_monitor", None)
+        else:
+            _sys.modules["realtime_monitor"] = saved
+
+    # (8) 인계 줄이 **뺀 것을 말한다**([169]).
+    #   ⚠ `blockers()` 는 **합성 dict 로 못 부른다** — 스냅샷 칸을 대괄호로 읽어
+    #     죽는다([320]·[424]).  실측 스냅샷을 **읽기만** 하고 칸 하나만 갈아 끼운다.
+    snap = _os.path.join(ROOT, "reports", "세션인계.json")
+    if _os.path.exists(snap):
+        st = _json.load(_io.open(snap, encoding="utf-8"))
+        st["손입력감지"] = {"최근24h": 1, "뺀건수": 2,
+                        "마지막": {"종류": "내용변경", "파일": "v620.xlsx"}}
+        say = " ".join(str(x) for x in SH.blockers(st))
+        assert "손입력" in say and "2건" in say, (
+            "[478] 뺀 것을 조용히 넘긴다 — '1건'만 보면 다 본 줄 안다([169])")
+        st["손입력감지"] = None
+        say = " ".join(str(x) for x in SH.blockers(st))
+        assert "손입력 감지" not in say, "[478] 없는데 경보를 올린다"
+
+    # (9) ★ 계기 자신을 시험한다([272]) — 옛 동작(모든 줄 세기)이면 잡히나.
+    caught = 0
+    src = _io.open(SH.__file__, encoding="utf-8", newline="").read()
+    hurt = src.replace(
+        'if (tool_kind and r.get("종류") == tool_kind) or r.get("정정"):',
+        "if False:")
+    assert hurt != src, "[478] 자기시험 재료를 못 만들었다 — 거르는 문 글자가 바뀌었다"
+    _ast.parse(hurt)        # 문법이 깨지면 그 죽음이 '잡았다'로 오인된다([371])
+    ns = {"__name__": "session_handoff_t478", "__file__": SH.__file__}
+    exec(compile(hurt, SH.__file__, "exec"), ns)
+    p = _os.path.join(d, "hurt.json")
+    _io.open(p, "w", encoding="utf-8").write(_json.dumps([기계], ensure_ascii=False))
+    ns["HAND_EDIT_LOG"] = p      # ⚠ 격리 모듈의 전역은 `ns` 다([247] 2026-08-28 실사고)
+    try:
+        assert ns["hand_edit_signal"]() is None
+    except AssertionError:
+        caught += 1
+    assert caught == 1, (
+        "[478] 계기가 옛 동작을 못 잡는다(%d/1) — 아무것도 안 재는 검사다([272])" % caught)
+
+    print(chr(9989) + " [478] 손입력 경보 — 기계 줄/정정 갈라내기 · 아홉 갈래 · 계기 자기시험 1/1")
 
 
 def t192_synthetic_check_is_harmless():
@@ -44411,6 +44550,7 @@ if __name__ == "__main__":
     t475_hand_edit_alarm_tells_values_from_formulas()
     t476_gate_failure_asks_if_source_changed()
     t477_watchdog_locks_the_archive_net()
+    t478_hand_edit_alarm_reads_what_the_writer_split()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

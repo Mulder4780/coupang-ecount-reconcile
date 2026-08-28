@@ -174,16 +174,35 @@ def hand_edit_signal():
         rows = json.load(open(HAND_EDIT_LOG, encoding="utf-8"))
         if not isinstance(rows, list) or not rows:
             return None
+        # ★ **쓰는 쪽은 갈랐는데 읽는 쪽이 안 갈랐다** (2026-08-28 실사고).
+        #   [475] 가 realtime_monitor 를 고쳐 '값은 그대로고 수식만 바뀐 것'을
+        #   `기계도구(경보아님)` 으로 따로 적게 했다 — 그런데 여기는 **24시간 안
+        #   모든 줄**을 세어 그것까지 경보로 올렸다.  그러면 `expand_rows` 가 행을
+        #   늘릴 때마다 인계 맨 위에 거짓 경보가 서고, 그 조치는 사람을
+        #   *"넣을 값이 없는데 앱에 다시 넣어라"* 로 보낸다([172]).
+        #   그리고 거짓 경보는 **진짜 손입력을 덮는다**([170]).
+        # ★ 내리는 근거는 **지어낸 것이 아니라 적힌 것** 둘뿐이다:
+        #   ① 기계가 스스로 그렇게 적은 갈래 ② 사람이 재 보고 붙인 `정정`([475]).
+        #   판정 문장을 뜯어 짐작하지 않는다 — 넓히면 진짜 손입력이 조용히 사라진다.
+        try:
+            import realtime_monitor
+            tool_kind = realtime_monitor.HAND_EDIT_TOOL_KIND
+        except Exception:                          # noqa: BLE001
+            tool_kind = ""      # 못 읽으면 **아무것도 안 뺀다** — 예전 그대로 경보다([169])
         cut = datetime.now() - timedelta(hours=24)
-        fresh = 0
+        fresh, dropped, last = 0, 0, None
         for r in rows:
             try:
-                if datetime.fromisoformat(_naive_iso(r.get("시각", ""))) >= cut:
-                    fresh += 1
+                if datetime.fromisoformat(_naive_iso(r.get("시각", ""))) < cut:
+                    continue
             except (ValueError, TypeError):
                 continue
-        last = rows[-1]
-        return {"최근24h": fresh, "마지막": last} if fresh else None
+            if (tool_kind and r.get("종류") == tool_kind) or r.get("정정"):
+                dropped += 1
+                continue
+            fresh += 1
+            last = r          # ⚠ 마지막 **경보 대상**이다 — 기계 줄이 뒤에 와도 안 밀린다
+        return {"최근24h": fresh, "마지막": last, "뺀건수": dropped} if fresh else None
     except (OSError, ValueError):
         return None
 
@@ -1871,10 +1890,13 @@ def blockers(st, for_sol=False):
     he = st.get("손입력감지")
     if he:
         last = he.get("마지막") or {}
-        out.append(("엑셀 **손입력 감지** %d건(24시간) — 마지막: %s %s. "
+        # ★ **조용히 빼지 않는다**([169]) — 뺀 것이 있으면 숫자로 말한다.
+        빠짐 = he.get("뺀건수") or 0
+        꼬리 = (" · 기계 도구가 만든 것 %d건은 뺐다(경보 아님)" % 빠짐) if 빠짐 else ""
+        out.append(("엑셀 **손입력 감지** %d건(24시간) — 마지막: %s %s%s. "
                     "손으로 적은 값은 정본(DB)에 반영되지 않는다"
                     % (he.get("최근24h", 0), last.get("종류", ""),
-                       last.get("파일") or last.get("잠금") or ""),
+                       last.get("파일") or last.get("잠금") or "", 꼬리),
                     "적은 사람을 찾아 **앱으로 다시 입력**하도록 안내한다 "
                     "(자동 반영 금지 — 역수입 금지)"))
     for c in st["점유"]:
