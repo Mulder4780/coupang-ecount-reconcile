@@ -44203,8 +44203,19 @@ def t331_desktop_body_never_slides_under_the_fixed_sidebar():
         #   좁은 창에서 그대로 페이지를 넘긴다(실측 900px 에서 26px 넘쳤다).
         assert re.search(r"\.appbar-status\{flex:0 1 auto", css), \
             "앱바 오른쪽 칸이 안 줄어든다 — 좁은 창에서 페이지가 가로로 넘친다"
-        assert ".appbar-status{flex:none" not in css, \
-            "앱바 오른쪽 칸에 flex:none 이 돌아왔다 — [81] 이 고친 그 자리다"
+        # ★ **규칙 단위로 본다**([309]) — 2026-08-28 까지 이 검사는
+        #   `".appbar-status{flex:none"` 이라는 **연속 글자**를 찾았는데, 실제 규칙은
+        #   `{display:flex;align-items:center;...;flex:none;min-width:0}` 이라
+        #   그 글자가 없다. 곧 **통과하면서 아무것도 안 쟀다.**
+        #   그래서 넓은 화면만 고쳐진 채(`@media(min-width:900px)`) 폰은 그대로였고
+        #   ([300]) 형님이 캡처를 보내시고서야 드러났다 — 실측 320px 에서 문서가
+        #   **48px 넘쳐** 상단바·조직도·하단 탭바가 통째로 왼쪽으로 잘렸다.
+        _blocks = re.findall(r"\.appbar-status\{([^}]*)\}", css)
+        assert _blocks, "[368] `.appbar-status` 규칙이 사라졌다 — 이 검사가 눈이 먼다"
+        for _b in _blocks:
+            assert "flex:none" not in _b.replace(" ", ""), (
+                "앱바 오른쪽 칸에 flex:none 이 돌아왔다 — 폰에서 안 줄어들어 화면이"
+                " 가로로 튀어나간다(2026-08-28 실측 320px 넘침 48px · [81]·[300])")
 
         # ⚠ wrap 을 켜면 줄어들 수 있는 칸도 안 줄고 아래로 내려간다(실측 1280px
         #   에서 앱바가 96px → 132px 2줄). 안 잘리게 하려다 화면을 더 밀어낸다.
