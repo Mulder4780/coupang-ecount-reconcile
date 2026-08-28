@@ -224,7 +224,14 @@ def _note(갈래, 왜, 주인=""):
         return False
 
 
-COLLECT_SESSION_NAME = "CSOS 리서치 및 자료 수집_v1"
+# ★ **이름이 아니라 차선으로 적는다** (2026-08-28 형님 지시: "이 창에서만 수집해").
+#   세션 이름은 **기계가 못 본다**([313] — 그래서 2026-08-07 의 이름 규칙이 한 줄도 안
+#   지켜졌다) 그리고 창을 새로 열 때마다 바뀜다 — 상수에 박으면 **반드시 낡는다**.
+#   실측 2026-08-28: `_v1` 이라 적힌 채로 형님이 창을 바꾸셔서, 막힌 사람이 **없는 세션을**
+#   찾아갈 뻔했다([172]). 값은 `collect_gate` 가 **실제로 보는 근거**여야 한다.
+#   ⚠ 역사 인용(위 `_v2`·`_v1`)은 그대로 둔다 — 그때 뭐라 했는지를 잃으면
+#   왜 이 문이 생겼는지도 같이 잃는다([169]).
+COLLECT_SESSION_NAME = "collect 차선을 잡은 창"
 
 
 def is_unattended():
@@ -283,7 +290,7 @@ def guard(why="", 자원=None):
     if why:
         print("  하려던 일: %s" % why)
     print("  왜: %s" % (v["왜"] or "판정을 못 했습니다"))
-    print("  이 일은 '%s' 세션이 합니다(2026-08-22 형님 지시)." % COLLECT_SESSION_NAME)
+    print("  이 일은 **%s** 이 합니다(2026-08-28 형님 지시)." % COLLECT_SESSION_NAME)
     print("  · 이 창이 그 수집 창이면:  python lanes.py --take collect --who claude")
     print("  · 무인 회차(워치독·09:50·증분)는 그대로 돕니다 — 자동 수집은 안 멈춥니다.")
     raise SystemExit(3)

@@ -21574,7 +21574,18 @@ def t225_session_auto_resumes_parked_and_pushes():
         A.ai_claim.load = lambda: {}
         assert A.parked()[0]["가능"] is True, "막던 것이 사라졌는데 '가능'이라 말하지 않는다"
 
-        A._git, A.STATE = fake_git, os.path.join(tempfile.gettempdir(), "t225_state.json")
+        # ⚠ **고정 경로의 자국을 지우고 시작한다** (2026-08-28 실측).
+        #   `worksplit_auto` 는 이 자국에 '이미 넘긴 일'을 적어 두고 다음
+        #   회차에 같은 항목을 **다시 안 넘긴다**([225] — 회차마다 새 표를
+        #   만들면 크레딧이 새고 큰가 쓰레기가 된다). 그러니 앞 관문이 남긴
+        #   파일이 있으면 이 검사는 `handed == []` 로 빨개졌다 — 곳 **관문을 두 번
+        #   연달아 돌리면 죽는 검사**였다. 관문은 회차의 **0단계**라 그대로
+        #   두면 그날 대조가 통째로 안 돌다. 재려는 것은 '풀린 일을 넘기나'이지
+        #   '앞 관문이 뭐를 남겼나'가 아니다([247] 의 사촌 — 검사가 **제 자국**에 매인 자리).
+        _t225_state = os.path.join(tempfile.gettempdir(), "t225_state.json")
+        if os.path.exists(_t225_state):
+            os.remove(_t225_state)
+        A._git, A.STATE = fake_git, _t225_state
         A._hand_to_ai = lambda row, tickets: (handed.append(row.get("id")) or "ticket-fake")
         A.run(dry=False)                                  # 옆 세션이 살아 있다
         assert not any(x[0] == "push" for x in calls), "옆 세션이 살아 있는데 밀었다"
@@ -25866,11 +25877,19 @@ def t387_collect_gate_actually_guards_scripts():
     gs = io.open(os.path.join(here, "collect_gate.py"),
                  encoding="utf-8", newline="").read()
     assert gs.count('COLLECT_SESSION_NAME = "') == 1, "⑧ 세션 이름 자리가 둘이다"
-    assert '_v1"' in gs.split("COLLECT_SESSION_NAME = ")[1][:40], (
-        "⑧ 안내가 가리키는 세션 이름이 v1 이 아니다")
-    # ⚠ 역사 인용(2026-08-19 지시문)은 **그대로 둔다** — 그때 뭐라 했는지를 잃으면
-    #   왜 이 문이 생겼는지도 같이 잃는다([169]). 재는 것은 사람에게 나가는 안내뿐이다.
+    # ★ 얼릴 것은 **계약**이지 그때 쓴 이름이 아니다([39]·[219]).
+    #   2026-08-28 형님 지시로 수집 창이 바뀜는데(`_v1` 세션 → **collect
+    #   차선을 잡은 창**) 옛 검사는 `_v1` 을 글자로 못 박아 두어,
+    #   **지시를 따르는 순간 관문이 빨개졌다.** 그런데 관문은 회차의
+    #   **0단계**라 그대로 두면 그날 대조가 통째로 안 돌다.
+    #   계약은 둘이다 — 안내가 **어느 창인지 말하고** 그 값을 **실제로 찍는다**.
+    이름 = gs.split('COLLECT_SESSION_NAME = "')[1].split('"')[0]
+    assert len(이름.strip()) >= 4, "⑧ 안내가 어느 창인지 안 말한다"
+    # ⚠ 역사 인용(2026-08-19·2026-08-22 지시문)은 **그대로 둔다** — 그때 뭐라
+    #   했는지를 잃으면 왜 이 문이 생겼는지도 같이 잃는다([169]).
     보이는말 = [ln for ln in gs.splitlines() if "print(" in ln]
+    assert any("COLLECT_SESSION_NAME" in ln for ln in 보이는말), (
+        "⑧ 이름을 정해 놓고 안내에 안 찍는다 — 사람은 여전히 어느 창인지 모른다")
     assert not any("_v2" in ln for ln in 보이는말), "⑧ 안내 문구에 옛 이름이 남았다"
 
     # ⑨ 이 거절은 **고장이 아니라 남의 차선 일**이다 — 갈래가 `code` 면 조치가
