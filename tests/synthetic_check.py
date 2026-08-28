@@ -18978,7 +18978,14 @@ def t373_sheet_is_a_wide_modal_that_esc_slides_down():
     h = re.search(r"document\.addEventListener\('keydown', e=>\{\s*\n\s*if\(e\.key !== 'Escape'.*?\n\}\);",
                   html, re.S)
     assert h, "[373] ESC 핸들러를 못 찾았다"
-    got = _t373_run_esc(h.group(0))
+    # ★ 무엇을 닫을지 고르는 자리가 `_escCloser` 로 갈렸다([481]) — 계약(아래에서
+    #   재는 것)은 한 톨도 안 바뀌었고 **판정하는 함수만** 옮겨 갔다. 하네스에
+    #   그것도 같이 싣는다. 얼릴 것은 계약이지 그때 쓴 구조가 아니다([39]·[219]).
+    ec = re.search(r"function _escCloser\(\)\{.*?\n\}", html, re.S)
+    assert ec, ("[373] `_escCloser` 를 못 찾았다 — ESC 로 무엇을 닫을지 정하는"
+                " 자리가 사라졌다([162])")
+    both = ec.group(0) + chr(10) + h.group(0)   # ESC 길은 두 조각이다
+    got = _t373_run_esc(both)
     assert got["그냥ESC"], "[373] ESC 를 눌러도 안 닫힌다 — 형님이 시킨 그것이다"
     assert not got["조합중"] and not got["IME229"], (
         "[373] 한글 조합 중 ESC 로 창이 닫힌다 — 적던 글자가 통째로 사라진다")
@@ -18988,16 +18995,30 @@ def t373_sheet_is_a_wide_modal_that_esc_slides_down():
     assert not got["도면"], "[373] 도면 편집기 위에서 ESC 가 시트를 닫는다 — 저장 안 한 도면을 잃는다"
     assert not got["이미처리됨"], "[373] 더 깊은 곳이 이미 처리한 ESC 를 또 먹는다"
 
-    # (7) 닫는 길을 **새로 만들지 않았다**(`[162]`)
-    assert "closeSheet();" in h.group(0) and "classList.remove('open')" not in h.group(0), (
-        "[373] ESC 가 제 손으로 시트를 닫는다 — 뒤로가기 횟수·층 쌓기가 어긋난다")
+    # (7) 닫는 길을 **새로 만들지 않았다**(`[162]`).
+    #   ⚠ 얼릴 것은 **계약**이지 그때 쓴 이름이 아니다([39]·[219]) — 판정이
+    #     `_escCloser` 로 갈리자 핸들러는 `closer();` 를 부르게 됐고, 계약은 한
+    #     톨도 안 바뀌었는데 `"closeSheet();"` 를 글자로 못 박은 검사만 죽었다.
+    #   ★ 대신 **세게** 잰다: 핸들러와 `_escCloser` **둘 다** 시트 DOM 을 직접
+    #     안 만지는지 본다. 직접 만지면 뒤로가기 횟수·층 쌓기(`_sheetStack`)·
+    #     배경 잠금이 어긋난다.
+    for _who, _src in (("ESC 핸들러", h.group(0)), ("_escCloser", ec.group(0))):
+        for _bad in ("classList.remove('open')", "classList.add('open')",
+                     "style.display", "_sheetStack"):
+            assert _bad not in _src, (
+                "[373] %s 가 제 손으로 시트를 닫는다(%s) — 뒤로가기 횟수·층 쌓기가"
+                " 어긋난다([162])" % (_who, _bad))
+    assert ("closer();" in h.group(0) or "closeSheet();" in h.group(0)), (
+        "[373] ESC 핸들러가 닫기 함수를 안 부른다 — 눌러도 아무 일이 안 일어난다")
 
     # (8) 계기 자기시험(`[272]`) — 문을 하나씩 없애면 정말 잡히는가
+    #   ⚠ 문이 **두 조각에 나뉘어 있다**([481]) — 조합중·입력칸은 핸들러에,
+    #     도면 편집기 문은 `_escCloser` 에 있다. 한 덩어리에서 바꿔야 재료가 선다.
     for why, a, b in (("조합중 문", "if(e.isComposing || e.keyCode === 229) return;", ""),
                       ("입력칸 문", "if(t && t.closest", "if(false && t && t.closest"),
                       ("도면 문", "if(sheet && sheet.querySelector", "if(false && sheet && sheet.querySelector")):
-        broken = h.group(0).replace(a, b, 1)
-        assert broken != h.group(0), "[373] %s 을 못 찾았다 — 이 자기시험이 아무것도 안 잰다" % why
+        broken = both.replace(a, b, 1)
+        assert broken != both, "[373] %s 을 못 찾았다 — 이 자기시험이 아무것도 안 잰다" % why
         bad = _t373_run_esc(broken)
         assert bad["조합중"] or bad["입력칸"] or bad["도면"], (
             "[373] %s 을 없앴는데도 그대로 잡혔다 — 이 검사는 그 문을 재고 있지 않다" % why)
