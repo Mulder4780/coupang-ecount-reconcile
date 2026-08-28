@@ -38195,6 +38195,208 @@ def t486_demo_reject_trace_stays_out_of_evidence():
     print(chr(9989) + " [486] 데모 거절 자국이 실측 증거를 안 건드린다 · 끄지 않고 옮긴다 · 계기 자기시험")
 
 
+def t487_upload_reject_book():
+    """업로드 거절 넷이 사전에서 **사람 말로** 답한다([346]) — 막음은 안 단다([292]).
+
+    2026-08-28: 형님 `CSOS-UPLOAD-400` 신고에서 시작했다. 서버는 무엇을 받는지
+    말하게 고쳤고([408]) 사전은 **왜 그런지**를 말한다.
+    ★ 이 넷은 **정상 거절**이지 고친 고장이 아니다 — 막음을 달면 형식이 안 맞는
+      파일을 올릴 때마다 `★회귀` 가 되어 아무도 안 본다([292]·[170]).
+    """
+    import io as _io, os as _os, re as _re, ast as _ast, sys as _sys
+    if ROOT not in _sys.path:
+        _sys.path.insert(0, ROOT)
+    import error_book as EB
+
+    UP = ["지원되지 않는 원본 파일 형식",
+          "경로 안에서 지원되는 원본 파일을 찾지 못했습니다",
+          "첨부파일은 55MB 이하만",
+          "파일을 선택하거나 URL"]
+
+    # 서버가 `raise` 로 **실제로 내는** 문자열만 모은다. 낱말을 손으로 적으면
+    # 서버가 문구를 바꾼 날 그 갈래가 **한 건도 안 걸리면서 오류도 안 난다**([165]).
+    _s = _io.open(_os.path.join(ROOT, "webapp", "app_server.py"),
+                  encoding="utf-8", newline="").read()
+    srv = set()
+    for _n in _ast.walk(_ast.parse(_s)):
+        if isinstance(_n, _ast.Raise) and _n.exc is not None:
+            for _c in _ast.walk(_n.exc):
+                if isinstance(_c, _ast.Constant) and isinstance(_c.value, str):
+                    srv.add(_c.value)
+
+    # (1) 사전 낱말이 서버가 내는 문구에 **실재하나**([165])
+    for frag in UP:
+        assert any(frag in s for s in srv), (
+            "[487] 사전이 서버에 없는 낱말을 본다: %r — 그 갈래는 영영 안 걸리면서"
+            " 오류도 안 난다([165])" % frag)
+
+    # (2) 넷 다 **막음이 없다**([292])
+    ents = []
+    for frag in UP:
+        e = [x for x in EB.BOOK if frag in x["when"]]
+        assert len(e) == 1, "[487] %r 를 보는 항목이 %d 개다" % (frag, len(e))
+        ents.append(e[0])
+        assert not e[0].get("막음"), (
+            "[487] %r 에 막음을 달았다 — 정상 거절이 매일 ★회귀가 되어 아무도 안"
+            " 본다([292]·[170])" % e[0]["이름"])
+
+    # (3) 진짜 문구로 **찾아지나**([295] — 글자로는 못 잰다)
+    got = EB.look_up("CSOS-UPLOAD-400",
+                     "지원되지 않는 원본 파일 형식입니다(.txt) — 이 화면이 받는 형식은 .xlsx 입니다")
+    assert got and got["이름"] == ents[0]["이름"], "[487] 형식 거절이 사전에 안 걸린다"
+    got2 = EB.look_up("CSOS-UPLOAD-400", "경로 안에서 지원되는 원본 파일을 찾지 못했습니다 — …")
+    assert got2 and got2["이름"] == ents[1]["이름"], "[487] 폴더 갈래가 안 걸린다"
+    assert got["이름"] != got2["이름"], (
+        "[487] 두 갈래가 한 항목에 삼켜졌다 — 조치가 다르다([289])")
+
+    # (4) **받는 형식 목록을 사전에 안 적는다**([162]) — 화면마다 다르다
+    #     (PO 11개 · 입금 7개 · 업무일지 `.xlsx` 하나뿐). 적으면 사본이 되어 곧 틀린다.
+    for e in ents:
+        txt = e["쉬운말"] + e["왜"] + " ".join(e["하세요"])
+        exts = set(_re.findall(r"\.(?:xlsx|xls|csv|pdf|png|jpe?g|webp|zip|eml|txt)\b", txt))
+        assert len(exts) < 3, (
+            "[487] %r 이 받는 형식 목록을 베껴 적었다(%s) — 화면마다 다르므로 곧"
+            " 틀린 안내가 된다([162]·[172])" % (e["이름"], sorted(exts)))
+
+    # (5) 기존 순서 계약이 안 깨졌나([292] — 첫 match 가 이긴다)
+    assert EB.look_up("x", "HTTP_ERROR:400")["이름"] == "필수 값이 빠짐", "[487] 400 갈래를 삼켰다"
+    assert EB.look_up("x", "NO_VERSION:pm:SCH-1")["막음"] == "[466]", "[487] SCH- 갈래를 삼켰다"
+
+    # (6) ★ **막음이 없는 항목에도 `help_for` 가 안 죽는다** — 2026-08-28 실사고.
+    #   `ent["막음"]` 이 대괄호라 `KeyError` 로 **오류 설명 자체가 500 이 됐다**.
+    #   하필 사람이 오류를 겪는 그 순간이고, 그런 항목은 **이미 하나 있었다**.
+    for e in EB.BOOK:
+        h = EB.help_for("t", (e["when"] or ["?"])[0])
+        assert isinstance(h, dict) and "이미막음" in h, (
+            "[487] `help_for` 가 %r 에서 죽는다 — 막음은 선택 칸이다([169])" % e["이름"])
+    # 나머지 칸은 **필수**다 — 빠지면 화면에 빈칸이 조용히 나간다([169]).
+    for e in EB.BOOK:
+        for k in ("이름", "when", "쉬운말", "왜", "하세요"):
+            assert k in e, "[487] 사전 항목 %r 에 필수 칸 %r 이 없다" % (e.get("이름"), k)
+
+    # (7) 계기 자기시험([272]) — 낱말이 어긋나면 (1)이 잡히나
+    bad = "지원되지 않는 원본 파일 형싴"
+    assert not any(bad in s for s in srv), "[487] 자기시험 재료가 실제 문구와 겹친다"
+
+    print("%s [487] 업로드 거절 사전 7/7(막음 없음 · 목록 사본 없음 · help_for 안 죽음)" % chr(9989))
+
+
+def t488_erp_bulk_close_is_reversible():
+    """ERP 단서 일괄완료가 **되돌릴 수 있고 남의 근거를 안 덮는다**.
+
+    형님 지시(2026-08-28): *"ERP에 단서가 있는 건들은 전부 완료 처리 해버려"* ·
+    우려를 말씀드린 뒤 *"전부 진행해"*(재확인).
+    ★★ **ERP 가 완료를 입증한 것이 아니다** — 실측 후보 124건이 `3.오더처리` 99 ·
+      `4.세금계산서발행대기` 21 로 **ERP 기준 발행 전**이다. 그러니 `basis` 가
+      그 사실을 그대로 적어야 한다([169]) — 나중에 "무엇으로 닫았나"를 물을
+      사람이 반드시 있고, 그때 답할 수 있는 것은 그 한 줄뿐이다.
+    ★ 진짜 DB·리포트에는 **한 글자도 안 쓴다**([247]) — 임시 폴더로만.
+    """
+    import io as _io, json as _json, os as _os, sys as _sys
+    import tempfile as _tf, shutil as _sh
+    if ROOT not in _sys.path:
+        _sys.path.insert(0, ROOT)
+    import ledger_db as L
+    import erp_bulk_close as B
+
+    tmp = _tf.mkdtemp(prefix="t488-")
+    keep = (L.DB_PATH, L.DB_DIR, B.CACHE, B.ERP_INDEX, B.REPORT)
+    try:
+        # 모듈 속성은 **프로세스 전체의 것**이다([371]) — finally 로 되돌린다.
+        L.DB_DIR = _os.path.join(tmp, "db")
+        L.DB_PATH = _os.path.join(L.DB_DIR, "t.db")
+        B.CACHE = _os.path.join(tmp, "issues.json")
+        B.ERP_INDEX = _os.path.join(tmp, "erp.json")
+        B.REPORT = _os.path.join(tmp, "out.json")
+
+        def put(rows, index):
+            _io.open(B.CACHE, "w", encoding="utf-8").write(_json.dumps(
+                {"값": {"rows": rows}}, ensure_ascii=False))
+            _io.open(B.ERP_INDEX, "w", encoding="utf-8").write(_json.dumps(
+                {"index": index}, ensure_ascii=False))
+
+        ROWS = [
+            {"구분": "정산", "ID": "JS-1", "프로젝트NO": "UJ1", "문제유형": "선행업무"},
+            {"구분": "정산", "ID": "JS-2", "프로젝트NO": "UJ2", "문제유형": "발행대기"},
+            {"구분": "정산", "ID": "JS-3", "프로젝트NO": "UJ3", "문제유형": "수금끝"},
+            {"구분": "정산", "ID": "JS-4", "프로젝트NO": "UJ4", "문제유형": "ERP없음"},
+            {"구분": "밴드", "ID": "PM-9", "프로젝트NO": "UJ1", "문제유형": "게시미확인"},
+        ]
+        IDX = {"UJ1": {"state": "3.오더처리"}, "UJ2": {"state": "4.세금계산서발행대기"},
+               "UJ3": {"state": "7.수금완료"}}
+        put(ROWS, IDX)
+
+        # (1) 후보를 정확히 고른다 — ERP 있음 · 정산 · JS- · 6·7단계 아님
+        items, why = B.candidates()
+        assert not why, "[488] 후보를 못 골랐다: %s" % why
+        got = sorted(i["settle_id"] for i in items)
+        assert got == ["JS-1", "JS-2"], (
+            "[488] 후보가 %r — JS-3(7.수금완료)은 매일 도는 settlement_completion 몫이고"
+            "([172]) JS-4(ERP 없음)는 지시 범위 밖이며 PM-9(정산 아님)는 닫아도 화면에서"
+            " 안 빠진다([165])" % got)
+
+        # (2) **미리보기가 기본이다**([457]) — --apply 없이는 DB 를 한 글자도 안 건드린다
+        assert B.do_close(False) == 0 and not L.resolutions(), (
+            "[488] 미리보기가 DB 를 건드렸다 — 되돌릴 수 없는 쪽은 사람이 명령할 때만 한다")
+
+        # (3) --apply 면 닫힌다 · status 가 `완료(` 로 시작한다
+        #     (안 그러면 `_issue_truth_rows` 가 화면에서 안 내린다 · [165])
+        B.do_close(True)
+        done = L.resolutions()
+        assert sorted(done) == ["JS-1", "JS-2"], "[488] 닫힌 것이 %r" % sorted(done)
+        assert B.STATUS.startswith("완료("), (
+            "[488] status 가 완료( 로 시작하지 않는다 — 닫아 놓고도 화면에 남는다([165])")
+
+        # (4) basis 가 **ERP 가 입증했다고 거짓말하지 않는다**([169])
+        basis = done["JS-1"]["basis"]
+        assert "3.오더처리" in basis, "[488] basis 에 실제 ERP 단계가 없다"
+        assert "관리자" in basis and "입증한 것이 아니" in basis, (
+            "[488] basis 가 근거를 지어낸다 — 나중에 '무엇으로 닫았나'를 물을 사람이 있다([169])")
+        assert "--undo" in basis, "[488] basis 가 되돌리는 길을 안 알려 준다([408])"
+
+        # (5) **이미 닫힌 건은 안 덮는다** — upsert 라 덮으면 진짜 근거를 잃는다([169])
+        L.resolution_sync([{"settle_id": "JS-1", "project": "UJ1",
+                            "status": "완료(ERP 수금확인)", "basis": "진짜 근거"}])
+        B.do_close(True)
+        assert L.resolutions()["JS-1"]["status"] == "완료(ERP 수금확인)", (
+            "[488] 남의 근거를 덮었다 — 완료(ERP 수금확인) 이 사라졌다([169])")
+
+        # (6) **되돌릴 수 있다** — 이 도구가 찍은 것만 지운다
+        B.do_undo(False)
+        assert L.resolutions().get("JS-2"), "[488] 되돌리기 미리보기가 이미 지웠다"
+        B.do_undo(True)
+        left = L.resolutions()
+        assert "JS-2" not in left, "[488] 되돌렸는데 남아 있다"
+        assert left.get("JS-1", {}).get("status") == "완료(ERP 수금확인)", (
+            "[488] 되돌리기가 **남의 근거까지** 지웠다([172])")
+
+        # (7) **모르면 후보를 안 만든다**([169]) — 근거 없이 완료를 찍지 않는다
+        _io.open(B.ERP_INDEX, "w", encoding="utf-8").write("{}")
+        items3, why3 = B.candidates()
+        assert not items3 and why3, "[488] ERP 색인이 비었는데 후보를 만든다([169])"
+        B.ERP_INDEX = _os.path.join(tmp, "없는파일.json")
+        items4, why4 = B.candidates()
+        assert not items4 and why4, "[488] 색인을 못 읽었는데 후보를 만든다([169])"
+
+        # (8) 계기 자기시험([272]) — 6·7단계 문을 없애면 (1)이 정말 잡히나
+        #   재료를 만들기 **전에** 경로를 되돌린다 — put() 이 B.ERP_INDEX 에 쓰므로
+        #   순서가 뒤집히면 (7)이 비워 둔 파일을 읽어 **아무것도 안 재면서** 죽는다([309]).
+        B.ERP_INDEX = _os.path.join(tmp, "erp.json")
+        put(ROWS, IDX)
+        old = B.ALREADY_AUTO
+        try:
+            B.ALREADY_AUTO = ("__없는단계__",)
+            bad = sorted(i["settle_id"] for i in B.candidates()[0])
+            assert "JS-3" in bad, "[488] 자기시험이 재료를 못 만들었다 — 이 검사는 아무것도 안 잰다"
+        finally:
+            B.ALREADY_AUTO = old
+    finally:
+        (L.DB_PATH, L.DB_DIR, B.CACHE, B.ERP_INDEX, B.REPORT) = keep
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print("%s [488] ERP 단서 일괄완료 8/8(미리보기 기본 · 되돌리기 · 남의 근거 보존)" % chr(9989))
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -45755,6 +45957,8 @@ if __name__ == "__main__":
     t484_handoff_says_the_pc_rebooted()
     t485_stale_dirty_report_does_not_resurrect_ghosts()
     t486_demo_reject_trace_stays_out_of_evidence()
+    t487_upload_reject_book()
+    t488_erp_bulk_close_is_reversible()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
