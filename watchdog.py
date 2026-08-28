@@ -1295,6 +1295,109 @@ def close_upload_notices(dry):
         int(r.get("끝") or 0), int(r.get("실패") or 0), int(r.get("확인못함") or 0))
 
 
+#: 이 회차가 어디까지 갔나 — **죽어도 남는다. 그게 요점이다**([180]).
+PROGRESS = os.path.join(ROOT, "reports", ".워치독_진행.json")
+#: 단계가 터졌을 때의 자취 — `schedule_watch.traces()` 가 `*_오류.json` 을
+#  글로브로 모으므로 목록을 손으로 안 적어도 인계에 실린다([304]·[324]).
+TRACE = os.path.join(ROOT, "reports", "워치독_오류.json")
+#: 회차 주기(30분)를 넘겼을 때만 말한다 — 정상까지 적으면 아무도 안 읽는다([170]).
+ROUND_WARN_MIN = 30
+_STEP_TIMES = []
+
+
+def _note_progress(단계, 상태, 시작):
+    """지금 어느 단계인지·단계마다 몇 초 걸렸는지를 그때그때 디스크에 적는다.
+
+    ★ 자국 하나로 회차를 세우지 않는다 — 못 적어도 그냥 넘어간다.
+    """
+    try:
+        느린 = sorted(_STEP_TIMES, key=lambda x: -x[1])[:5]
+        d = {"단계": 단계, "상태": 상태, "pid": os.getpid(),
+             "회차시작": datetime.fromtimestamp(시작).isoformat(timespec="seconds"),
+             "경과분": round((time.time() - 시작) / 60.0, 1),
+             "끝낸단계": len(_STEP_TIMES),
+             "단계기록": [{"단계": n, "초": round(sec, 1)} for n, sec in _STEP_TIMES],
+             "느린단계": [{"단계": n, "분": round(sec / 60.0, 1)}
+                          for n, sec in 느린 if sec >= 60]}
+        os.makedirs(os.path.dirname(PROGRESS), exist_ok=True)
+        tmp = PROGRESS + ".tmp"
+        open(tmp, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False))
+        os.replace(tmp, PROGRESS)
+    except Exception:
+        pass
+
+
+def _leave_trace(단계, 왜):
+    """터진 단계를 자취로 남긴다 — 완주하면 지운다([228])."""
+    try:
+        os.makedirs(os.path.dirname(TRACE), exist_ok=True)
+        open(TRACE, "w", encoding="utf-8").write(json.dumps(
+            {"때": datetime.now().isoformat(timespec="seconds"),
+             "작업": "쿠팡업무_워치독", "단계": 단계, "무엇": 왜,
+             "어떻게": "그 단계 코드를 본다 — 회차는 나머지를 끝까지 돌았다([175])."},
+            ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _clear_trace():
+    """다음 회차가 끝까지 갔으면 옛 자취를 내린다 — 이미 고쳐진 고장을
+    계속 보고하지 않는다([228])."""
+    try:
+        if os.path.exists(TRACE):
+            os.remove(TRACE)
+    except Exception:
+        pass
+
+
+def _run_step(fn, dry, 시작):
+    """단계 하나를 돌리고 **걸린 시간을 남긴다.**
+
+    ★ 왜 필요한가(2026-08-28 실측): 워치독 회차 555개 중 중앙값은 7.0분인데
+      **19개(3%)가 30분(회차 주기)을 넘겼고** 최대 **354분**이었다.  그 사이
+      서버·회차·인계 감시가 통째로 멈추는데 스케줄러는 '이미 실행 중'으로
+      건너뛰고 **성공이라 적는다**([175]).  그런데 **어느 단계가 먹었는지 아는
+      길이 한 줄도 없었다** — 결과를 끝에 한 번만 찍기 때문이다.  게다가
+      **7회는 자국조차 통째로 사라졌다.**  `daily_run` 이 `[180]`·`[228]` 에서
+      배운 것이 여기 안 와 있었다([300]).
+    ★ 한 단계가 터져도 **회차를 세우지 않는다**([175]) — 나머지 감시가 통째로
+      멈추는 값이 더 크다.  그러나 **삼키지도 않는다**([355]): 갈래와 터진 자리를
+      적어 자취로 남기고, 그 자취가 인계 '먼저 처리할 것'에 오른다.
+    ★ 이름은 함수에서 온다([162]·[340]) — 손으로 적으면 사본이 되어 뒤처진다.
+    """
+    이름 = getattr(fn, "__name__", "?")
+    t0 = time.time()
+    _note_progress(이름, "시작", 시작)
+    try:
+        out = fn(dry)
+    except Exception as e:                                       # noqa: BLE001
+        import traceback
+        tb = traceback.extract_tb(sys.exc_info()[2])
+        자리 = "%s:%d" % (os.path.basename(tb[-1].filename), tb[-1].lineno) if tb else "?"
+        out = "%s 터짐 — %s(%s) @ %s" % (
+            이름, type(e).__name__, (str(e) or "(사유 없음)")[:120], 자리)
+        _leave_trace(이름, out)
+    _STEP_TIMES.append((이름, time.time() - t0))
+    _note_progress(이름, "끝", 시작)
+    return out
+
+
+def slow_note(step_times, 분, warn_min=None):
+    """회차가 주기를 넘겼으면 **어느 단계가 먹었는지** 한 줄로 말한다.
+
+    ★ 넘기지 않았으면 아무 말도 안 한다([170]) · 1분 미만 단계는 안 적는다
+      (전부 적으면 아무도 안 읽는다).
+    """
+    if warn_min is None:
+        warn_min = ROUND_WARN_MIN
+    if 분 <= warn_min:
+        return ""
+    느린 = [(n, sec) for n, sec in sorted(step_times, key=lambda x: -x[1])[:3] if sec >= 60]
+    꼬리 = (" — 오래 걸린 단계: "
+            + ", ".join("%s %.0f분" % (n, sec / 60.0) for n, sec in 느린)) if 느린 else ""
+    return "★ 이 회차가 %.0f분 걸렸다(주기 %d분)%s" % (분, warn_min, 꼬리)
+
+
 def main():
     # 류지영 매니저 입력 중에는 로그 파일조차 갱신하지 않고 즉시 종료한다.
     if is_input_window():
@@ -1308,57 +1411,70 @@ def main():
     # 긴 증분 회차가 도는 동안에도 감시자가 멈춘 것으로 오판하지 않게 시작 심박을 남긴다.
     # pythonw 무인 실행에서도 파일에만 기록하므로 콘솔 창은 생기지 않는다.
     log("워치독 회차 시작" + ("(dry)" if dry else ""))
-    results = [run_incremental_pipeline(dry), sync_uploads(dry), sync_worklog(dry),
-               sync_cloud_queue(dry), heal_server_guard(dry), heal_server(dry),
-               watch_sync_contract(dry),
-               heal_fixed_funnel(dry),
-               # ★ 근거 정정이 **붙여넣기 파일 만들기보다 먼저**다 — 목록에 담을 번호를
-               #   정하는 것이 그 근거다(2026-08-11, `[223]`).
-               heal_band_evidence(dry),
-               heal_stale_pastefiles(dry),
-               heal_autopilot(dry),
-               resume_parked(dry),
-               heal_tunnel(dry), publish_endpoint(dry), clean_reports(dry),
-               # ★ 쓸데없는 파일 정리 — `clean_reports`(30일 넘은 리포트) 뒤다.
-               #   그쪽은 **날짜 도장이 없는 옛 파일**을 지우고 이쪽은 **도장이
-               #   있는 것**을 묶음마다 남긴다 — 기준이 달라 둘 다 필요하다([172]).
-               sweep_files(dry),
-               # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
-               #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
-               mirror_originals(dry),
-               # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
-               #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
-               watch_schedules(dry),
-               # ★ StartWhenAvailable=True 인데도 08-24 일일 세 회차가 빠졌다.
-               #   판정을 만든 **뒤** 한 건만 시작하고 다음 감시를 계속한다.
-               recover_missed_schedules(dry),
-               # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
-               watch_userscript(dry),
-               # ★ 사람 탭이 없는 밴드는 전용 크롬이 대신 긁는다 (2026-08-27).
-               #   `watch_userscript` **뒤**다 — 그 갈래를 근거로 쓴다([162]).
-               heal_band_bridge(dry),
-               # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
-               #   스스로 인계를 못 남긴다(2026-08-17, `[291]`).
-               # ★ 크레딧 창은 **`watch_takeover` 앞**이다 — 이어받기 카드가 '끊긴듯'
-               #   창의 원인을 이 자국에서 읽는다. 뒤에 두면 카드가 언제나 30분 전
-               #   자국을 싣는다(2026-08-22 지시 · `[228]` 과 같은 이유).
-               watch_credit(dry),
-               watch_takeover(dry),
-               # ★ 겹쳐서 양보한 일이 정말 되었나 — 인계보다 먼저다(2026-08-17, `[293]`).
-               watch_coordination(dry),
-               # ★ 조직도 변경이 따라갔나 — `heal_stale_server` 뒤(그가 서버를 갈고
-               #   나서 봐야 한다) · 인계 앞이다(2026-08-13 지시, `[297]`).
-               watch_orgchart(dry),
-               # ★ 정기점검 스케줄 원본이 새로 왔는데 앱 담당자가 안 따라갔나 —
-               #   인계 앞이다(2026-08-19, `[328]`).
-               watch_camp_source(dry),
-               # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
-               #   앱이 끝난 줄 모른다(2026-08-14).
-               close_upload_notices(dry),
-               snapshot_handoff(dry), resume_deferred_apply(dry)]
+    # ★ 순서가 뜻을 갖는다 — 아래 주석이 그 이유다.  이름은 함수에서 오므로
+    #   손으로 적은 사본이 없다([162]·[340]).
+    steps = [run_incremental_pipeline, sync_uploads, sync_worklog,
+             sync_cloud_queue, heal_server_guard, heal_server,
+             watch_sync_contract,
+             heal_fixed_funnel,
+             # ★ 근거 정정이 **붙여넣기 파일 만들기보다 먼저**다 — 목록에 담을 번호를
+             #   정하는 것이 그 근거다(2026-08-11, `[223]`).
+             heal_band_evidence,
+             heal_stale_pastefiles,
+             heal_autopilot,
+             resume_parked,
+             heal_tunnel, publish_endpoint, clean_reports,
+             # ★ 쓸데없는 파일 정리 — `clean_reports`(30일 넘은 리포트) 뒤다.
+             #   그쪽은 **날짜 도장이 없는 옛 파일**을 지우고 이쪽은 **도장이
+             #   있는 것**을 묶음마다 남긴다 — 기준이 달라 둘 다 필요하다([172]).
+             sweep_files,
+             # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
+             #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
+             mirror_originals,
+             # ★ 스케줄러 판정이 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계 문서가
+             #   언제나 30분 전 판정을 싣는다(2026-08-12, `[228]`).
+             watch_schedules,
+             # ★ StartWhenAvailable=True 인데도 08-24 일일 세 회차가 빠졌다.
+             #   판정을 만든 **뒤** 한 건만 시작하고 다음 감시를 계속한다.
+             recover_missed_schedules,
+             # ★ 브라우저 쪽 눈도 인계보다 먼저다 — 같은 이유(2026-08-13, `[247]`).
+             watch_userscript,
+             # ★ 사람 탭이 없는 밴드는 전용 크롬이 대신 긁는다 (2026-08-27).
+             #   `watch_userscript` **뒤**다 — 그 갈래를 근거로 쓴다([162]).
+             heal_band_bridge,
+             # ★ 이어받기 준비도 인계보다 먼저다 — 크레딧이 떨어진 창은 훅이 없어
+             #   스스로 인계를 못 남긴다(2026-08-17, `[291]`).
+             # ★ 크레딧 창은 **`watch_takeover` 앞**이다 — 이어받기 카드가 '끊긴듯'
+             #   창의 원인을 이 자국에서 읽는다. 뒤에 두면 카드가 언제나 30분 전
+             #   자국을 싣는다(2026-08-22 지시 · `[228]` 과 같은 이유).
+             watch_credit,
+             watch_takeover,
+             # ★ 겹쳐서 양보한 일이 정말 되었나 — 인계보다 먼저다(2026-08-17, `[293]`).
+             watch_coordination,
+             # ★ 조직도 변경이 따라갔나 — `heal_stale_server` 뒤(그가 서버를 갈고
+             #   나서 봐야 한다) · 인계 앞이다(2026-08-13 지시, `[297]`).
+             watch_orgchart,
+             # ★ 정기점검 스케줄 원본이 새로 왔는데 앱 담당자가 안 따라갔나 —
+             #   인계 앞이다(2026-08-19, `[328]`).
+             watch_camp_source,
+             # ★ 올린 것의 결과를 뒤따라 알린다 — 5분 스케줄러가 집어간 회차는
+             #   앱이 끝난 줄 모른다(2026-08-14).
+             close_upload_notices,
+             snapshot_handoff, resume_deferred_apply]
+    시작 = time.time()
+    del _STEP_TIMES[:]
+    try:
+        results = [_run_step(fn, dry, 시작) for fn in steps]
+    finally:
+        # ★ 죽어도 여기까지는 남는다 — '아직 도는 중'과 '죽었다'를 가른다([180]).
+        _note_progress("(회차 끝)", "종료", 시작)
+    말 = slow_note(_STEP_TIMES, (time.time() - 시작) / 60.0)
+    if 말:
+        results.append(말)
     if gap:
         results.insert(0, gap)
     log(" | ".join(results))
+    _clear_trace()   # 끝까지 갔으면 옛 자취를 내린다([228])
 
 
 if __name__ == "__main__":

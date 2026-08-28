@@ -713,6 +713,8 @@ def collect():
         # ★ 관문 여유도 여기서 담는다 — blockers 가 파일을 직접 읽으면
         #   합성 스냅샷 검증이 막힌다(t380 실측 · [291]·[404] 와 같은 자리).
         "관문시간": gate_budget(),
+        # ★ 워치독 회차가 주기를 넘겼나 — 담기만 한다([291]·[404] 와 같은 자리).
+        "워치독회차": watchdog_round(),
         "조직도": org_gap(),
         "캠프원본": camp_source_gap(),
         # [188] — 자국은 [359] 가 남기고 여기서 읽는다(다시 세지 않는다).
@@ -1308,6 +1310,40 @@ def gate_share_note(rows):
             % worst, None)
 
 
+def watchdog_round():
+    """워치독 회차가 **주기(30분)를 넘겼나** — 회차가 써 둔 자국을 읽기만 한다.
+
+    ★ 왜 필요한가(2026-08-28 실측): 회차 555개 중 중앙값은 7.0분인데 **19개(3%)가
+      30분을 넘겼고** 최대 **354분**이었다.  그 사이 서버·회차·인계 감시가 통째로
+      멈추는데 스케줄러는 '이미 실행 중'으로 건너뛰고 **성공이라 적는다**([175]).
+    ★ 판정은 `watchdog.slow_note` **한 곳**이다([162]) — 여기서 다시 세면 두 답이 난다.
+    ★ **끝난 회차만** 본다.  도는 중인 것을 '오래 걸렸다'고 하면 정상 회차마다 뜨고,
+      멈춤 자체는 `[385]` 가 로그 나이로 이미 말한다 — 두 목소리를 만들지 않는다([325]).
+    ★ 못 읽으면 아무 말도 안 한다([169]) · 안 넘겼으면 조용하다([170]).
+    """
+    p = os.path.join(BASE, "reports", ".워치독_진행.json")
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except Exception:                                            # noqa: BLE001
+        return {}
+    if not isinstance(d, dict) or d.get("상태") != "종료":
+        return {}                                    # 아직 도는 중이거나 모양이 다르다
+    try:
+        분 = float(d.get("경과분") or 0)
+    except Exception:                                            # noqa: BLE001
+        return {}
+    try:
+        import watchdog as _W
+        warn = float(_W.ROUND_WARN_MIN)
+    except Exception:                                            # noqa: BLE001
+        warn = 30.0
+    if 분 <= warn:
+        return {}
+    느린 = [x for x in (d.get("느린단계") or []) if isinstance(x, dict)][:3]
+    return {"분": round(분, 1), "한도분": warn, "느린단계": 느린,
+            "끝낸단계": d.get("끝낸단계"), "언제": d.get("회차시작") or ""}
+
+
 def gate_budget():
     """관문(합성검증)이 한도에 얼마나 붙었나 — 회차가 써 둔 자국을 **읽기만** 한다.
 
@@ -1566,6 +1602,21 @@ def blockers(st, for_sol=False):
                     % (round(_m * 100), _tot / 60.0, _lim / 60.0,
                        (_slow.get("무엇") or "?")[:60], _slow.get("초"), _why),
                     _fix))
+    # ★ 워치독 회차가 **주기를 넘기면** 그 사이 감시가 통째로 멈춘다 — 그런데
+    #   스케줄러는 '이미 실행 중'으로 건너뛰고 성공이라 적는다([175]).  어느 단계가
+    #   먹었는지는 회차가 남긴 자국만 안다([228] 을 워치독으로 · 2026-08-28).
+    _wd = st.get("워치독회차") or {}
+    if isinstance(_wd, dict) and _wd.get("분"):
+        _slow = ", ".join(
+            "%s %s분" % (str(x.get("단계"))[:40], x.get("분"))
+            for x in (_wd.get("느린단계") or []))
+        out.append((
+            "[워치독] 지난 회차가 **%s분** 걸렸다(주기 %s분) — 그 사이 서버·회차·인계 "
+            "감시가 멈췄고 스케줄러는 '이미 실행 중'으로 건너뛰며 성공이라 적는다. "
+            "오래 걸린 단계: %s"
+            % (_wd.get("분"), int(_wd.get("한도분") or 30), _slow or "1분 넘긴 단계 없음"),
+            "type reports" + chr(92) + ".워치독_진행.json"
+            "   # 단계별 초가 들어 있다 (제한시간을 먼저 늘리지 말 것 · 분담판 [38])"))
     # ★ **원본이 실제로 실렸을 때만** 건너뛴다(`[169]`). 스케줄러 감시를 못 읽은 날
     #   빼 버리면 그 경보가 통째로 사라진다 — '다른 데 있겠지'는 근거가 아니다.
     borrowed_ok = bool((st.get("스케줄러") or {}).get("경보"))

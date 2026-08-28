@@ -30653,6 +30653,204 @@ def t471_no_lone_cr_in_tracked_text():
           "(추적 %s) %s" % ("전부" if listed else "못 물음", chr(9989)))
 
 
+def t472_watchdog_step_trace():
+    """[472] 워치독이 **단계마다 자국을 남기고 반드시 완주한다** (2026-08-28 실측).
+
+    실측 회차 555개: 중앙값 **7.0분**인데 **19개(3%)가 30분(회차 주기)을 넘겼고**
+    최대 **354분**, 그리고 **7회는 자국조차 통째로 사라졌다**(결과를 끝에 한 번만
+    찍기 때문이다).  그 사이 서버·회차·인계 감시가 멈추는데 스케줄러는 '이미 실행
+    중'으로 건너뛰고 **성공이라 적는다**([175]) — 그런데 **어느 단계가 먹었는지 아는
+    길이 한 줄도 없었다**.  `daily_run` 이 [180]·[228] 에서 배운 것이 여기 안 와
+    있었다([300]).
+
+    ★ 글자로는 '정말 남는가'를 못 잰다([295]) — **불러서** 잰다.
+    ⚠ 진짜 자국(reports/.워치독_진행.json·워치독_오류.json)에는 **한 글자도 안 쓴다**
+      ([247]) — 임시 경로로 갈아 끼우고 `finally` 로 되돌린다([371]).
+    """
+    import importlib
+    import tempfile as _tf
+    import shutil as _sh
+    import io as _io
+    W = importlib.import_module("watchdog")
+    sh = importlib.import_module("session_handoff")
+
+    # (1) `slow_note` 세 갈래 — 넉넉하면 조용([170]) · 넘기면 이름을 대고([228])
+    #     1분 미만은 안 적는다(전부 적으면 아무도 안 읽는다).
+    assert W.slow_note([("a", 600)], 7.0) == "", "주기 안인데 말한다 — 매 회차 뜨면 아무도 안 본다([170])"
+    말 = W.slow_note([("a", 300), ("b", 90), ("c", 5)], 45.0)
+    assert "45분" in 말 and "a 5분" in 말 and "b 2분" in 말, "오래 걸린 단계를 안 댄다: %r" % (말,)
+    assert "c" not in 말.split("오래 걸린 단계")[-1], "1분 미만까지 적는다"
+    짧 = W.slow_note([("a", 5)], 45.0)
+    assert 짧 and "오래 걸린 단계" not in 짧, "다 짧은데 없는 범인을 지목한다([172]): %r" % (짧,)
+
+    # (2)(3)(4) 자국 — 진짜 경로를 임시로 갈아 끼운다([247]).
+    d = _tf.mkdtemp(prefix="t472_")
+    keep = (W.PROGRESS, W.TRACE, list(W._STEP_TIMES))
+    try:
+        W.PROGRESS = os.path.join(d, "진행.json")
+        W.TRACE = os.path.join(d, "오류.json")
+        del W._STEP_TIMES[:]
+        본것 = []
+
+        def 정상(dry):
+            # 단계 **도중**에도 자국이 있어야 한다 — 죽으면 그것만 남는다([180]).
+            본것.append(os.path.exists(W.PROGRESS))
+            return "정상 결과"
+
+        def 터짐(dry):
+            raise ValueError("일부러 터뜨림")
+
+        t0 = __import__("time").time()
+        r1 = W._run_step(정상, True, t0)
+        assert r1 == "정상 결과", "정상 단계의 결과를 바꿔 버린다"
+        assert 본것 == [True], "단계가 도는 **중에는** 자국이 없다 — 죽으면 아무것도 안 남는다([180])"
+
+        r2 = W._run_step(터짐, True, t0)
+        assert isinstance(r2, str) and "터짐" in r2 and "ValueError" in r2, (
+            "단계가 터졌는데 회차를 세웠거나 갈래를 안 적는다([175]·[355]): %r" % (r2,))
+        assert "일부러 터뜨림" in r2, "사유를 삼켰다([355])"
+        assert os.path.exists(W.TRACE), (
+            "터진 단계의 자취를 안 남긴다 — `schedule_watch.traces()` 가 못 모은다([304])")
+        tr = json.load(_io.open(W.TRACE, encoding="utf-8"))
+        assert tr.get("단계") == "터짐" and tr.get("무엇"), "자취에 단계·사유가 없다"
+
+        prog = json.load(_io.open(W.PROGRESS, encoding="utf-8"))
+        assert prog.get("끝낸단계") == 2, "끝낸 단계를 안 센다"
+        assert len(prog.get("단계기록") or []) == 2, "단계별 초를 안 남긴다([228])"
+
+        W._clear_trace()
+        assert not os.path.exists(W.TRACE), (
+            "완주했는데 옛 자취를 안 내린다 — 이미 고쳐진 고장을 계속 보고한다([228])")
+    finally:
+        W.PROGRESS, W.TRACE = keep[0], keep[1]
+        del W._STEP_TIMES[:]
+        W._STEP_TIMES.extend(keep[2])
+        _sh.rmtree(d, ignore_errors=True)
+
+    # (5) 단계 표는 **함수 객체**다 — 이름을 손으로 적으면 사본이 되어 뒤처진다([162]·[340]).
+    wsrc = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    i0 = wsrc.index("    steps = [run_incremental_pipeline,")
+    i1 = wsrc.index("resume_deferred_apply]", i0)
+    # ★ **규칙을 세기 전에 설명을 걷어낸다** — 이 저장소가 열두 번째 밟는
+    #   자리다([301]-9·[302]·[309]·[332]·[339]·[370]·[399]·[404]·[410]·[452]).
+    #   주석에 `watch_takeover` 라고 적혀 있어 순서 검사가 그것을 먼저 집었다.
+    블록 = _t370_code_only(wsrc[i0:i1])
+    assert "(dry)" not in 블록, (
+        "단계 표가 다시 **호출**로 돌아갔다 — 그러면 시간도 자국도 안 남는다")
+    assert "_run_step(fn, dry, " in wsrc, "단계를 감싸는 자리가 없다"
+    assert 'del _STEP_TIMES[:]' in wsrc, "회차마다 시간을 안 비운다 — 지난 회차가 섞인다"
+    assert '_note_progress("(회차 끝)"' in wsrc and "finally:" in wsrc, (
+        "죽어도 '(회차 끝)' 표식을 안 남긴다 — '도는 중'과 '죽었다'가 구별 안 된다([180])")
+
+    # (6) **순서가 곧 계약이다** — 주석이 이유를 적어 둔 쌍만 얼린다([39]).
+    #     전부 얼리면 새 단계를 넣을 때마다 헛되이 깨진다.
+    def _앞(a, b):
+        return 블록.index(a) < 블록.index(b)
+    assert _앞("watch_schedules", "snapshot_handoff"), (
+        "스케줄러 판정이 인계 뒤로 갔다 — 인계가 언제나 30분 전 판정을 싣는다([228])")
+    assert _앞("watch_userscript", "heal_band_bridge"), (
+        "다리가 크롬수집 판정보다 먼저다 — 그 갈래를 근거로 쓴다([162])")
+    assert _앞("watch_credit", "watch_takeover"), (
+        "크레딧 자국이 이어받기 뒤로 갔다 — 카드가 30분 전 자국을 싣는다([228])")
+    assert _앞("clean_reports", "sweep_files"), "파일 정리 순서가 뒤집혔다([172])"
+    assert _앞("watch_coordination", "snapshot_handoff"), (
+        "조율 판정이 인계 뒤로 갔다([293])")
+
+    # (7) 인계는 **담긴 것을 읽기만** 한다 — 파일을 직접 읽으면 합성 스냅샷으로
+    #     부르는 검증이 통째로 막힌다([291]·[404]·[407] 이 세 번 겪은 자리다).
+    hsrc = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    bi = hsrc.index("def blockers(")
+    _nx = hsrc.find(chr(10) + "def ", bi + 1)
+    body = hsrc[bi:_nx if _nx > 0 else len(hsrc)]      # 그 함수까지만 본다
+    # ⚠ 재려는 것은 **그 파일을 여는가** 이지 *이름이 나오는가* 가 아니다.
+    #   조치 칸에 파일 이름을 적는 것은 정당하다([448] — 실재하는 자국을 가리킨다).
+    _direct = [ln for ln in body.splitlines()
+               if "워치독_진행" in ln
+               and ("open(" in ln or "json.load" in ln
+                    or "os.path.join" in ln)]
+    assert not _direct, (
+        "blockers 가 자국 파일을 직접 읽는다 — 합성 스냅샷 검증이 막힌다([291]): %r"
+        % (_direct[:1],))
+    assert 'st.get("워치독회차")' in body, "담긴 것을 안 읽는다"
+    assert '"워치독회차": watchdog_round(),' in hsrc, "collect 가 안 담는다([328])"
+
+    # (8) 갈래 셋 — 넘김만 말하고 도는 중·못 읽음은 조용하다([169]·[170]·[325]).
+    d2 = _tf.mkdtemp(prefix="t472h_")
+    base_keep = sh.BASE
+    try:
+        os.makedirs(os.path.join(d2, "reports"))
+        p2 = os.path.join(d2, "reports", ".워치독_진행.json")
+        sh.BASE = d2
+
+        def 써(obj):
+            _io.open(p2, "w", encoding="utf-8").write(json.dumps(obj, ensure_ascii=False))
+
+        assert sh.watchdog_round() == {}, "자국이 없는데 말한다([169])"
+        써({"상태": "시작", "경과분": 200, "느린단계": []})
+        assert sh.watchdog_round() == {}, (
+            "**도는 중**인 회차를 '오래 걸렸다'고 한다 — 정상 회차마다 뜬다([325])")
+        써({"상태": "종료", "경과분": 7.0, "느린단계": []})
+        assert sh.watchdog_round() == {}, "주기 안인데 말한다([170])"
+        써({"상태": "종료", "경과분": 163.0, "끝낸단계": 30,
+            "회차시작": "2026-08-28T06:01:00",
+            "느린단계": [{"단계": "mirror_originals", "분": 120.0}]})
+        got = sh.watchdog_round()
+        assert got.get("분") == 163.0 and got.get("느린단계"), "넘겼는데 조용하다: %r" % (got,)
+    finally:
+        sh.BASE = base_keep
+        _sh.rmtree(d2, ignore_errors=True)
+
+    # 인계가 실제로 그 줄을 싣는가 — 실측 스냅샷은 **읽기만** 하고 칸 하나만 갈아 끼운다([247]).
+    snap = None
+    for cand in ("reports/세션인계.json", "reports/session_handoff.json"):
+        try:
+            snap = json.load(_io.open(os.path.join(ROOT, cand), encoding="utf-8"))
+            break
+        except Exception:
+            continue
+    if snap is None:
+        print("   [472] 스냅샷을 못 읽어 인계 문구는 못 쟀다 — 통과라는 뜻이 아니다")
+    else:
+        st = dict(snap)
+        st["워치독회차"] = {"분": 163.0, "한도분": 30,
+                            "느린단계": [{"단계": "mirror_originals", "분": 120.0}]}
+        lines = [t for t, _ in sh.blockers(st)]
+        assert any("[워치독]" in t and "163" in t for t in lines), (
+            "회차가 163분 걸렸는데 인계가 조용하다([328])")
+        st2 = dict(snap)
+        st2["워치독회차"] = {}
+        assert not any("[워치독] 지난 회차" in t for t in sh.blockers(st2)), (
+            "정상 회차에도 뜬다 — 매일 뜨면 아무도 안 본다([170])")
+
+    # (9) 계기 자기시험([272]) — 문을 없애면 잡히나.
+    잡음 = 0
+    _real = W.slow_note
+    try:
+        W.slow_note = lambda step_times, 분, warn_min=None: ""   # 넘겨도 말 안 함
+        try:
+            assert W.slow_note([("a", 300)], 45.0), "x"
+            print("   [472] ⚠ 계기 자기시험: 말하기를 없앴는데 (1)이 안 잡았다")
+        except AssertionError:
+            잡음 += 1
+    finally:
+        W.slow_note = _real
+    _realrun = W._run_step
+    try:
+        def 옛방식(fn, dry, 시작):
+            return fn(dry)          # 시간·자국을 안 남기던 옛 동작
+        W._run_step = 옛방식
+        try:
+            W._run_step(lambda dry: (_ for _ in ()).throw(ValueError("x")), True, 0)
+            print("   [472] ⚠ 계기 자기시험: 예외를 안 잡는데 (3)이 안 잡았다")
+        except ValueError:
+            잡음 += 1
+    finally:
+        W._run_step = _realrun
+    assert 잡음 == 2, "계기 자기시험 %d/2 — 이 검사는 아무것도 안 재고 있다([272])" % 잡음
+
+    print("[472] 워치독 단계 자국 " + chr(9989))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -43447,6 +43645,7 @@ if __name__ == "__main__":
     t469_slow_stage_says_share()
     t470_rev_says_what_changed()
     t471_no_lone_cr_in_tracked_text()
+    t472_watchdog_step_trace()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
