@@ -5805,11 +5805,60 @@ def read_exec_details(master, base_date=""):
                     status=r.get("청구상태"), source="세금계산서")
              for r in s06 if is_2026_settlement(r) and norm_date(r.get("세금계산서발행일")) == base_date],
             f"06_거래서류청구수금 · 세금계산서발행일={base_date} · 세금계산서합계", "amount")
-    add("입금액 (당일)",
-        [detail(r, when="입금일", amount=r.get("입금액"),
-                status=r.get("청구상태"), source="입금")
-         for r in s06 if is_2026_settlement(r) and norm_date(r.get("입금일")) == base_date],
-        f"06_거래서류청구수금 · 입금일={base_date} · 입금액", "amount")
+    # ★ 입금액(당일) — 근거는 **`7. 입금내역` 원본**이다([257] · 형님 [233] 지시의
+    #   나머지).  06시트 `입금일` 은 **0/750행**이라 이 지표가 구조적으로 언제나 0
+    #   이었다 — 그 0 은 '입금이 없었다'가 아니라 **'못 셈'** 이다([169]·[339]).
+    _dep_doc, _dep_when = ((None, "") if DEMO else _deposit_daily())
+    if isinstance(_dep_doc, dict):
+        _dep_rows = []
+        for _r in (_dep_doc.get("행") or []):
+            _day = norm_date(_r.get("일자"))
+            if not _day or _day != base_date:
+                continue
+            _dep_rows.append({
+                "프로젝트NO": "", "ID": "", "레코드ID": "", "종류": "",
+                "프로젝트명": str(_r.get("적요") or ""),
+                "캠프명": str(_r.get("거래처") or ""),
+                "일자": _day, "금액": _metric_number(_r.get("금액")),
+                "문제": "", "상태": "",
+                "담당자": "", "출처": "입금내역 · %s" % str(_r.get("출처") or ""),
+            })
+        add("입금액 (당일)", _dep_rows,
+            "7. 입금내역(은행·정리표 원본) · 입금일=%s · 입금액" % base_date, "amount")
+        _dep_last = str(_dep_doc.get("마지막입금일") or "")
+        _dep_m = details["입금액 (당일)"]
+        _dep_m["근거갈래"] = "입금내역"
+        _dep_m["근거"] = {"원천": "7. 입금내역",
+                          "입금행": int(_dep_doc.get("건수") or 0),
+                          "마지막입금": _dep_last,
+                          "집계시각": _dep_when,
+                          "파일": list(_dep_doc.get("원천") or [])}
+        # ★ **'0' 이 정직한 0인지 묻는다**([169] · 세금계산서와 같은 모양).  실측
+        #   2026-08-28 기준 입금 원본이 **2026-07-27** 에서 멈춰 있다 — 그대로 두면
+        #   화면이 매일 '입금 0원'을 확언하고 대표는 '오늘 입금이 없었다'로 읽는다.
+        # ★ 그리고 **조치가 갈린다**([289]) — 여기서는 코드가 아니라 **입금 원본을
+        #   올리는 것**이 답이다.
+        if not _dep_last:
+            _경2 = ("입금 집계에서 날짜를 한 건도 못 읽었다 — 이 숫자는 '0원'이 아니라 "
+                   "**'못 셈'** 이다")
+        elif base_date > _dep_last:
+            _경2 = ("`7. 입금내역`의 마지막 입금이 **%s** 다 — 기준일 %s 까지의 자료가 "
+                   "아직 안 들어왔다. 이 0 은 '입금이 없었다'가 아니라 **'못 셈'** 이다 "
+                   "(입금 원본을 `7. 입금내역`에 올리면 다음 회차부터 세어진다)"
+                   % (_dep_last, base_date))
+        else:
+            _경2 = ""
+        if _경2:
+            _dep_m["근거경고"] = _경2
+            _dep_m["basis"] += " · ⚠ " + _경2
+    else:
+        # ★ 집계를 못 읽었으면 **예전 자리에 그대로 두고** 못 셈이라 말하게 둔다([169]).
+        #   아래 `_dep` 블록이 왜 못 세는지를 덧붙인다.
+        add("입금액 (당일)",
+            [detail(r, when="입금일", amount=r.get("입금액"),
+                    status=r.get("청구상태"), source="입금")
+             for r in s06 if is_2026_settlement(r) and norm_date(r.get("입금일")) == base_date],
+            f"06_거래서류청구수금 · 입금일={base_date} · 입금액", "amount")
     # ★ 잔여 금액 둘 — **ERP 진행상태**가 근거다([233]). 06시트 `미청구액` 은 값이
     #   있는 행이 1/750, `미수금액` 은 **0/750** 이라 화면이 '잔여 미수금액 0' 을
     #   확언하고 있었다 — 그 0 은 '못 받을 돈이 없다'가 아니라 '못 셈'이다([169]).
@@ -5895,9 +5944,12 @@ def read_exec_details(master, base_date=""):
             _d = details.get(_label)
             if not _d:
                 continue
-            if _d.get("근거갈래") == "ERP":
-                # ★ 이 지표는 06시트 열을 **더 안 쓴다**([233]). 죽은 열로 경보하면
-                #   거짓 경보가 되어 진짜 경보를 덮는다([170]).
+            if _d.get("근거갈래") and _d.get("근거갈래") != "06시트":
+                # ★ 이 지표는 06시트 열을 **더 안 쓴다**(`ERP` [233] · `입금내역` [257]).
+                #   죽은 열로 경보하면 거짓 경보가 되어 진짜 경보를 덮는다([170]).
+                # ★ 갈래 이름을 표로 늘어놓지 않는다([162]) — 새 근거가 생길 때마다
+                #   여기를 같이 고쳐야 하면 언젠가 한쪽만 고쳐지고, 그때 그 지표에만
+                #   **틀린 경고**가 붙는다(실측 2026-08-28: 입금내역 갈래가 그랬다).
                 continue
             _h = _G.column_health(s06, _col)
             _d["근거"] = _h
@@ -5922,8 +5974,8 @@ def read_exec_details(master, base_date=""):
         for _label, _d in list(details.items()):
             if not isinstance(_d, dict) or _d.get("kind") != "amount":
                 continue
-            if _d.get("근거갈래") == "ERP":
-                continue          # 06시트 열과 무관하다([233])
+            if _d.get("근거갈래") and _d.get("근거갈래") != "06시트":
+                continue          # 06시트 열과 무관하다([233]·[257])
             _d["근거"] = None
             _d["근거경고"] = ("근거 열을 못 쟀다(%s) — 이 숫자를 확언하지 말 것"
                             % type(_e).__name__)
@@ -5931,8 +5983,12 @@ def read_exec_details(master, base_date=""):
     # ★ 넷째 `입금액 (당일)` 은 **ERP 로도 못 센다** — 판매 색인에 입금일이 없다([169]).
     #   지어내지 않고 06시트에 그대로 두되 **왜 못 세는지**를 같이 적는다([289] —
     #   조치가 다르면 갈래도 달라야 한다).
+    # ★ 갈래를 가른다([169]) — `7. 입금내역` 집계를 읽었으면 **이 문구는 거짓**이다
+    #   (그 자료가 이미 내놓고 있다).  화면에 틀린 조치를 적으면 사람이 엉뚱한 데를
+    #   고치러 간다([172]).
     _dep = details.get("입금액 (당일)")
-    if isinstance(_dep, dict) and _dep.get("근거경고"):
+    if (isinstance(_dep, dict) and _dep.get("근거경고")
+            and _dep.get("근거갈래") != "입금내역"):
         _더 = (" · ERP 판매 색인에는 **입금일이 없어** ERP 로도 못 센다 — 이 숫자를 "
               "세려면 `7. 입금내역`이 날짜와 금액을 구조화해 내놔야 한다")
         _dep["근거경고"] += _더
@@ -6907,6 +6963,33 @@ def _build_erpdocs():
 # ★ 여기서 Z: 를 훑지 않는다([168]). 읽는 것은 이미 만들어진 캐시·리포트 파일뿐이다.
 KIM_TABLE_PATH = os.path.join(ROOT, "reports", "김미영_매출실적_2026.json")
 ERP_PRJ_INDEX = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json")
+
+
+def _deposit_daily():
+    """입금 집계를 **파일에서만** 읽는다([257]).  없으면 없다고 말한다.
+
+    ★ 여기서 `receipt_fill.load_deposits()` 를 부르면 안 된다 — Z:(SMB) 를 훑어
+      **실측 40.0초**다(2026-08-28).  웹 요청 하나가 그만큼 서면 폰은 그냥 실패로
+      본다([168]·[197]).  만드는 쪽은 09:50 회차의 `입금 대조·자동입력` 단계다.
+
+    ★ 파일 이름을 여기 적지 않는다([162]) — `receipt_fill.DEPOSIT_DAILY_NAME` 이
+      정본이다.  이름이 갈리면 이 지표만 **조용히 0건**이 되면서 오류도 안 난다([165]).
+
+    ★ 못 읽은 것을 '입금 0건'으로 접지 않는다([169]) — `None` 을 돌려주면 부르는 쪽이
+      예전 06시트 갈래로 떨어져 **'못 셈'** 이라 말한다.
+    """
+    try:
+        import receipt_fill as _rf
+        path = os.path.join(ROOT, "reports", _rf.DEPOSIT_DAILY_NAME)
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict) or not isinstance(data.get("행"), list):
+            return None, ""
+        when = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+        return data, when
+    except Exception:
+        return None, ""
+
 # 김미영 표 낱말 → 우리 유형. '유료AS' 는 **계산서가 끊긴 돌발AS** 다
 # (무상·보험은 애초에 계산서가 없다 — 발행월 집계에서는 둘이 같은 것을 가리킨다).
 KIM_KIND_MAP = {"정기점검": "정기점검", "유료AS": "돌발AS"}

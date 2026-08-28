@@ -37,6 +37,10 @@ sys.path.insert(0, BASE_DIR)
 AMOUNT_TOL = 1          # 원 단위 반올림 차이만 허용
 DEPOSIT_HASH_CACHE = os.path.join(REPORT_DIR, "receipt_hashes.json")
 DEPOSIT_PARSE_CACHE = os.path.join(REPORT_DIR, "receipt_rows.json")
+#: 화면이 읽는 입금 집계 파일 이름 — **이름은 여기 한 곳**이다([162]).
+#: 읽는 쪽(webapp/app_server.py 의 대표 보고)이 제 손으로 적으면 이름이 갈리는 날
+#: 그 지표만 **조용히 0건**이 되면서 오류도 안 난다([165]).
+DEPOSIT_DAILY_NAME = "입금_집계.json"
 
 
 def _load_json(path, default):
@@ -510,6 +514,42 @@ def billing_totals(master):
             "입금기록액": paid, "최대1건": biggest}
 
 
+def save_daily(receipts, files, report_dir=None):
+    """화면이 읽을 입금 집계를 남긴다 — 대표 보고 `입금액 (당일)` 의 근거([257]).
+
+    왜 파일로 남기나 — `load_deposits()` 는 Z:(SMB) 를 훑어 **실측 40.0초**다
+    (2026-08-28).  웹 요청에서 부르면 화면이 그만큼 선다([168]).  그래서 **만드는
+    쪽(09:50 회차)이 남기고 화면은 읽기만** 한다.
+
+    ★ `마지막입금일` 을 반드시 담는다.  실측 2026-08-28 기준 입금 원본이 **2026-07-27**
+      에서 멈춰 있다 — 그것을 모르면 화면이 매일 '입금 0원'을 **확언**하고 대표는 그것을
+      '오늘 입금이 없었다'로 읽는다.  **'0원'과 '못 셈'은 다른 사실이다**([169]).
+
+    ★ 여기서 판정하지 않는다 — 담는 것은 **사실**뿐이고, '못 셈인가'를 가르는 것은
+      읽는 쪽이다.  판정을 두 곳에서 하면 언젠가 갈린다([162]).
+    """
+    days = sorted(str(r["일자"]) for r in receipts if r.get("일자"))
+    doc = {
+        "만든때": datetime.now().isoformat(timespec="seconds"),
+        "건수": len(receipts),
+        "합계": sum(float(r.get("금액") or 0) for r in receipts),
+        "첫입금일": days[0] if days else "",
+        "마지막입금일": days[-1] if days else "",
+        "원천": [os.path.basename(x) for x in files],
+        "행": [{"일자": str(r.get("일자") or ""),
+                "거래처": str(r.get("거래처") or ""),
+                "금액": float(r.get("금액") or 0),
+                "적요": str(r.get("적요") or ""),
+                "전표": str(r.get("전표") or ""),
+                "출처": str(r.get("출처") or "")}
+               for r in receipts],
+    }
+    d = report_dir or REPORT_DIR
+    os.makedirs(d, exist_ok=True)
+    _save_json(os.path.join(d, DEPOSIT_DAILY_NAME), doc)
+    return doc
+
+
 def summarize(receipts, files, master=None, save=True):
     """입금 현황 정리 — 콘솔엔 집계만, 상세는 reports/ 로."""
     import collections
@@ -529,6 +569,13 @@ def summarize(receipts, files, master=None, save=True):
     if not save:
         return
     os.makedirs(REPORT_DIR, exist_ok=True)
+    # ★ 화면이 읽을 집계를 **같이** 남긴다([257]).  마크다운은 사람이 읽는 글이라
+    #   화면이 못 읽는다 — 그래서 대표 보고가 이 숫자를 여태 06시트 죽은 열로 세고
+    #   있었다.  자국 하나로 이 회차를 죽이지 않는다([169]).
+    try:
+        save_daily(receipts, files)
+    except Exception as e:
+        print("  ! 입금 집계 파일을 못 남겼습니다: %s: %s" % (type(e).__name__, e))
     out = os.path.join(REPORT_DIR, "입금현황.md")
     with open(out, "w", encoding="utf-8") as f:
         f.write("# 쿠팡 입금 현황\n\n")

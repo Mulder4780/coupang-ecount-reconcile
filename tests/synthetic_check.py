@@ -3014,7 +3014,12 @@ def _t233_erp_paths(A, path):
     assert "2026-06-30" in (i["세금계산서 발행액 (당일)"].get("근거경고") or ""), \
         "마지막 계산서가 언제인지 안 말한다"
 
-    # ⓖ 입금액은 **ERP 로도 못 센다** — 그 이유를 적는다([289])
+    # ⓖ 입금액이 **06시트 갈래로 떨어졌을 때**는 왜 못 세는지 적는다([289]).
+    #    ★ 얼리는 것은 **계약**이지 그때 쓴 문구가 아니다([39]·[219]).  [257] 뒤로
+    #      갈래가 둘이 됐고, `7. 입금내역` 집계를 읽은 갈래에서는 이 문구가 **거짓**
+    #      이라 안 붙는다 — 그쪽은 [473] 이 따로 잰다.  여기 하네스는 그 원천을 꺼
+    #      두었으므로 이 줄은 **폴백 갈래**를 재는 것이다.
+    assert not i["입금액 (당일)"].get("근거갈래"),         "이 하네스는 입금 집계를 꺼 둔다 — 새 갈래로 갔다면 원천이 안 꺼진 것이다([211])"
     assert "입금일이 없어" in (i["입금액 (당일)"].get("근거경고") or ""), \
         "ERP 로도 못 세는 이유를 안 적는다 — 사람이 ERP 를 뒤지러 간다([172])"
 
@@ -3074,14 +3079,20 @@ def t49_exec_metric_drilldown_and_sheet_scroll(tmp):
     # ★ 합성 워크북 검사가 **진짜 ERP 자료를 읽으면 안 된다**([247]·[409]).
     #   [233] 뒤로 잔여 둘과 계산서 당일은 ERP 가 근거이므로, 여기서는 그 원천을
     #   꺼서 **06시트 폴백**(= ERP 를 못 읽었을 때의 길)을 잰다.
+    # ★ `입금액 (당일)` 도 같다([257]) — 안 끄면 이 검사가 **진짜 `reports/입금_집계.json`**
+    #   을 읽어, 그 파일이 있고 없고에 따라 초록·빨강을 오간다([211]).  새 갈래는
+    #   [473] 이 합성 문서로 따로 잰다.
     _erp_real, _docs_real = A._erp_state_index, A.get_erpdocs
+    _dep_real = A._deposit_daily
     try:
         A._erp_state_index = lambda: (None, "")
         A.get_erpdocs = lambda: {}
+        A._deposit_daily = lambda: (None, "")
         d = A.read_exec_details(path, "2026-07-28")
         _t233_erp_paths(A, path)
     finally:
         A._erp_state_index, A.get_erpdocs = _erp_real, _docs_real
+        A._deposit_daily = _dep_real
     assert d["청구액 (당일)"]["count"] == 1 and d["청구액 (당일)"]["amount"] == 11000
     assert d["세금계산서 발행액 (당일)"]["count"] == 1
     assert d["입금액 (당일)"]["count"] == 1
@@ -7175,9 +7186,16 @@ def t247_chrome_collect_report_round_trip():
     # ④ 워치독 배선 — snapshot_handoff 보다 **먼저**.
     wd = open(os.path.join(root, "watchdog.py"), encoding="utf-8").read()
     assert "def watch_userscript(" in wd, "워치독에 크롬수집 감시 단계가 없다"
-    body = wd[wd.find("def main("):]
-    a, b = body.find("watch_userscript("), body.find("snapshot_handoff(")
+    # ★ 얼리는 것은 **계약**이지 그때 쓴 호출 모양이 아니다([39]·[219]).  [472] 가
+    #   단계를 `_run_step(fn, ...)` 이 도는 **함수 목록**으로 바꾸자 계약은 그대로인데
+    #   `"watch_userscript("` 를 찾던 이 줄만 죽었다 — 관문은 daily_run 의 0단계라
+    #   그날 대조가 통째로 안 돈다.
+    # ★ 규칙을 세기 전에 **설명을 걷어낸다**([301]-9) — 그 단계 순서를 적어 둔 주석에
+    #   두 이름이 다 나온다.
+    body = _t370_code_only(wd[wd.find("def main("):].split(chr(10) + "def ", 1)[0])
+    a, b = body.find("watch_userscript"), body.find("snapshot_handoff")
     assert a > 0, "watch_userscript 가 main() 회차 목록에 없다 — 만들어 놓고 안 부른다"
+    assert b > 0, "snapshot_handoff 가 main() 회차 목록에 없다"
     assert a < b, "watch_userscript 가 snapshot_handoff 뒤다 — 인계가 늘 30분 전 판정을 싣는다"
 
     # ⑤ 인계는 '못 읽음'과 '정상'을 가른다.
@@ -8690,7 +8708,7 @@ def t201_upload_intake(tmp):
     batch = open(os.path.join(ROOT, "원본자료자동정리.bat"), encoding="utf-8").read()
     assert daily.index("upload_intake.py") < daily.index("ecount_reconcile.py"), \
         "업로드 분류가 전체 대조보다 늦다"
-    assert "sync_uploads(dry)" in watchdog and "전체 대조 시작" in watchdog
+    assert "sync_uploads" in _t_wd_steps() and "전체 대조 시작" in watchdog
     # ★ 회차가 **어디서** 도는지는 바뀔 수 있다 — `.bat` 이 러너를 부르면 한 겹
     #   따라간다(`[304]` 의 `task_scripts` 와 같은 규칙). 2026-08-19 실사고: 네 단계를
     #   `source_tidy_run.py` 로 옮기자(단계마다 제한을 걸려고) 이 글자 검사가 빨개졌는데
@@ -12506,7 +12524,7 @@ def t189_worklog_reflects_without_hands():
 
     # ② 올리면 기다리지 않는다 — 워치독(30분)이 바뀐 일지를 스스로 본다
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "def sync_worklog(" in wd and "sync_worklog(dry)" in wd, \
+    assert "def sync_worklog(" in wd and "sync_worklog" in _t_wd_steps(wd), \
         "워치독이 일지를 안 본다 — 오후에 올린 일지는 다음 날 09:50 까지 안 간다"
     assert 'work_log_sync.py"), "--queue"' in wd.replace("'", '"') or \
         '"work_log_sync.py"), "--queue"' in wd, "대조를 큐로 넣지 않는다"
@@ -13336,7 +13354,7 @@ def t162_band_comments_collected():
     #   댓글 수집을 붙인 날 붙여넣기 파일 4개가 전부 그 이전 것이었다 — 그대로
     #   붙여넣었으면 댓글이 한 건도 안 들어오는데 수집은 '성공'으로 끝났을 것이다.
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "def heal_stale_pastefiles" in wd and "heal_stale_pastefiles(dry)," in wd, \
+    assert "def heal_stale_pastefiles" in wd and "heal_stale_pastefiles" in _t_wd_steps(wd), \
         "낡은 붙여넣기 파일을 아무도 다시 안 만든다 — 30분 워치독에 걸려 있어야 한다"
     heal = wd.split("def heal_stale_pastefiles")[1].split("\ndef ", 1)[0]
     # 2026-08-11: 판정 기준이 '만드는 쪽'별로 갈렸다(수집_* 는 mk_mt, 나머지는 js_mt —
@@ -14001,7 +14019,7 @@ def t190_autopilot_retries_without_failure_cascade():
     assert "INCREMENTAL_RETURN_CODE = 75" in daily and \
         'got.get("returncode") == INCREMENTAL_RETURN_CODE' in daily, \
         "09:50 회차가 정상 증분 rc75를 실패·재시도로 센다([217])"
-    assert "heal_autopilot(dry)" in watch, "워치독에 안 묶이면 대기열은 사람이 눌러야만 돈다"
+    assert "heal_autopilot" in _t_wd_steps(watch), "워치독에 안 묶이면 대기열은 사람이 눌러야만 돈다"
     assert '"autopilot": autopilot_status' in server and '/api/autopilot' in server
     assert "run_tree(command" in agent, "AI CLI가 SMB형 timeout에서 회차를 영원히 붙든다"
     assert 'newline=""' in font, "글꼴 왕복이 CRLF를 LF로 바꾸면 파일 전체가 달라진다"
@@ -14628,8 +14646,7 @@ def t195_incremental_source_to_db_to_archive():
         "uploadAutomationKakao", "showMoreChecks", "wtShowMore",
     ):
         assert marker in live, "자동화 관제 UX 누락: " + marker
-    results_line = watchdog_src.split("results = [", 1)[1].split("]", 1)[0]
-    assert results_line.strip().startswith("run_incremental_pipeline(dry)"), \
+    assert _t_wd_steps(watchdog_src)[:1] == ["run_incremental_pipeline"], \
         "느린 Z: 일지 작업보다 증분 자동화가 뒤에 있다"
     assert "RepetitionInterval" in installer and "New-TimeSpan -Minutes 5" in installer
     assert "IgnoreNew" in installer and "--once" in installer
@@ -16465,12 +16482,10 @@ def t228_scheduler_rounds_are_watched():
     assert "def watch_schedules(" in wd, "워치독에 스케줄러 감시 단계가 없다"
     # 목록만 뽑되 **주석은 걷어낸다** — 설명에 적힌 검증번호(`[228]`)의 대괄호를
     # 목록 끝으로 읽으면 배선이 멀쩡한데 검증이 실패한다.
-    block = re.search(r"results = \[(.*?)\]\s*\n", wd, re.S)
-    assert block, "워치독 회차 목록을 못 찾겠다"
-    steps = "\n".join(l for l in block.group(1).splitlines()
-                      if not l.strip().startswith("#"))
-    assert "watch_schedules(dry)" in steps, "감시 단계가 회차 목록에 안 들어 있다"
-    assert steps.index("watch_schedules(dry)") < steps.index("snapshot_handoff(dry)"), \
+    steps = _t_wd_steps(wd)
+    assert steps, "워치독 회차 목록을 못 찾겠다"
+    assert "watch_schedules" in steps, "감시 단계가 회차 목록에 안 들어 있다"
+    assert steps.index("watch_schedules") < steps.index("snapshot_handoff"), \
         "인계 스냅샷 뒤에 있다 — 인계 문서가 언제나 30분 전 판정을 싣는다"
 
     # 인계는 **다시 묻지 않는다**(비싼 조회는 캐시 뒤에, `[168]`)
@@ -17474,6 +17489,33 @@ def t370_a_window_whose_pid_was_replaced_still_owns_its_lane():
     print("✅ [370] pid 가 갈려도 차선 주인은 sid — 조용한 창은 그대로 회수")
 
 
+def _t_wd_steps(src=None):
+    """워치독 회차가 실제로 도는 **단계 이름**을 순서대로 준다.
+
+    ★ 얼릴 것은 **계약**(그 단계가 회차에 있나 · 순서가 맞나)이지 그때 쓴 호출
+      모양이 아니다([39]·[219]).  2026-08-28: [472] 가 단계를
+      `results = [_run_step(fn, dry, 시작) for fn in steps]` 로 바꾸자
+      `"X(dry)"` 를 글자로 찾던 검사 **24줄**이 한꺼번에 죽었다 — 계약은 그대로인데.
+      관문은 `daily_run` 의 **0단계**라 그날 아침 대조가 통째로 안 돈다.
+
+    ★ 글자가 아니라 **AST** 로 읽는다 — 주석에도 단계 이름이 나오고([301]-9)
+      정의 줄(`def watch_takeover(dry):`)도 같은 글자다.
+    """
+    import ast as _ast
+    text = src if src is not None else open(
+        os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+    for node in _ast.walk(_ast.parse(text)):
+        if not (isinstance(node, _ast.FunctionDef) and node.name == "main"):
+            continue
+        for st in _ast.walk(node):
+            if not (isinstance(st, _ast.Assign) and isinstance(st.value, (_ast.List, _ast.Tuple))):
+                continue
+            names = [e.id for e in st.value.elts if isinstance(e, _ast.Name)]
+            if len(names) >= 5:      # 단계 목록은 수십 개다 — 짧은 목록과 가른다
+                return names
+    return []
+
+
 def _t370_code_only(text):
     """설명 글(독스트링·주석)을 걷어낸다 — 규칙을 세기 전에 하는 일이다.
 
@@ -18280,8 +18322,9 @@ def t378_existing_watchdog_absorbs_and_audits_new_features():
     assert W.watch_sync_contract(True).startswith("화면동기화 계약 정상"), \
         W.watch_sync_contract(True)
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "watch_sync_contract(dry)" in wd and \
-           wd.index("watch_sync_contract(dry)") < wd.index("snapshot_handoff(dry)"), \
+    _st = _t_wd_steps(wd)
+    assert "watch_sync_contract" in _st and \
+           _st.index("watch_sync_contract") < _st.index("snapshot_handoff"), \
         "동기화 감시가 인계 뒤에 있어 같은 회차에 담당 에이전트가 못 본다"
     for forbidden in ("start ", "os.startfile", "chrome.exe", "msedge.exe"):
         body = wd.split("def watch_sync_contract", 1)[1].split("\ndef ", 1)[0].lower()
@@ -19655,8 +19698,9 @@ def t291_takeover_is_narrow_and_never_seizes():
     for 금지 in ("--free", "--force", "enqueue(", "openpyxl", "--apply"):
         assert 금지 not in src, "이어받기 계기가 뭔가를 건드린다: " + 금지
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    # ⚠ `index` 는 **정의 줄**을 먼저 집는다 — 단계 목록은 파일 끝이라 `rindex` 다.
-    assert wd.rindex("watch_takeover(dry)") < wd.rindex("snapshot_handoff(dry)"), \
+    # ★ 순서는 **단계 목록**에서 잰다([219]) — 글자로 재면 정의 줄·주석이 잡힌다.
+    _st = _t_wd_steps(wd)
+    assert _st.index("watch_takeover") < _st.index("snapshot_handoff"), \
         "인계 스냅샷보다 뒤에 있으면 인계는 늘 30분 전 판정을 싣는다"
     assert "import takeover" in open(os.path.join(ROOT, "session_handoff.py"),
                                      encoding="utf-8").read(), \
@@ -20544,9 +20588,9 @@ def t223_superseded_evidence_heals_itself():
 
     # ⑦ 파일에 넣지 않은 것은 자동이 아니다 — 회차에 매여 있나, 순서는 맞나
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    body = wd.split("def main")[1]
-    assert "heal_band_evidence(" in body, "워치독이 안 부른다 — 사람이 또 손으로 고쳐야 한다"
-    assert body.index("heal_band_evidence(") < body.index("heal_stale_pastefiles("), \
+    body = _t_wd_steps(wd)      # ★ 호출 모양이 아니라 **단계 목록**으로 잰다([219])
+    assert "heal_band_evidence" in body, "워치독이 안 부른다 — 사람이 또 손으로 고쳐야 한다"
+    assert body.index("heal_band_evidence") < body.index("heal_stale_pastefiles"), \
         "붙여넣기 파일을 먼저 만든다 — 틀린 근거로 만든 목록이 그대로 사람 손에 간다"
     print("  [223] 추월된 근거 자동 정정 — 모순만 · 지어내지 않음 · 캐시 불변 · "
           "낡음은 보존 · 워치독 선행 ✅")
@@ -21553,7 +21597,7 @@ def t225_session_auto_resumes_parked_and_pushes():
          A._git, A.STATE, A._hand_to_ai) = real
 
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "def resume_parked(" in wd and "resume_parked(dry)," in wd, \
+    assert "def resume_parked(" in wd and "resume_parked" in _t_wd_steps(wd), \
         "워치독 회차에 붙어 있지 않다 — 붙지 않은 것은 자동이 아니다"
     sh = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
     assert '"세션자동화": session_auto()' in sh, "인계 문서가 '풀린 일'을 읽지 않는다"
@@ -25667,12 +25711,12 @@ def t389_credit_window_pauses_ai_and_resumes_itself():
     wsrc = io.open(os.path.join(root, "watchdog.py"),
                    encoding="utf-8", newline="").read()
     assert "def watch_credit(" in wsrc, "⑦ 워치독에 크레딧 단계가 없다"
-    assert "watch_credit(dry)" in wsrc, "⑦ 단계를 만들어 두고 부르지 않는다"
+    assert "watch_credit" in _t_wd_steps(wsrc), "⑦ 단계를 만들어 두고 부르지 않는다"
     # ⑧ **`watch_takeover` 앞**이어야 한다 — 뒤에 두면 이어받기 카드가 언제나
     #    30분 전 자국을 싣는다([228] 과 같은 이유)
     #    ⚠ `index` 를 쓰면 **정의 줄**(`def watch_takeover(dry):`)을 호출부로 착각한다 —
     #      만들면서 그대로 걸렸다. 호출은 언제나 마지막 등장이다.
-    assert wsrc.rindex("watch_credit(dry)") < wsrc.rindex("watch_takeover(dry)"), (
+    assert _t_wd_steps(wsrc).index("watch_credit") < _t_wd_steps(wsrc).index("watch_takeover"), (
         "⑧ 크레딧 자국이 이어받기 카드보다 뒤에 적힌다 — 카드가 낡은 값을 싣는다")
 
     # ⑨ 인계는 **소진일 때만** 올리고, 여기서 기록을 다시 훑지 않는다([168][170])
@@ -29455,7 +29499,7 @@ def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
     # ★ 배선이 없으면 이 단계는 **없는 것과 같다**([328]).
     wd = _io.open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8", newline="").read()
     code = _t370_code_only(wd)
-    assert "heal_band_bridge(dry)," in code, (
+    assert "heal_band_bridge" in _t_wd_steps(code), (
         "[460] 워치독 main() 이 다리 단계를 안 부른다 — 함수만 있고 안 부르면 없는 것과 같다([328])")
     # 판정은 **빌린다**([162]) — 여기서 다시 재면 두 화면이 다른 답을 한다.
     body = code[code.index("def heal_band_bridge"):code.index("def _bridge_minimize")]
@@ -29793,8 +29837,7 @@ def t463_cleanup_runs_and_never_decides_the_rollback_keep():
     # ★ 통글자로 세면 **정의 줄까지 세어진다**([309]) — `def sweep_files(dry):` 안에
     #   그 글자가 그대로 있어, 호출을 빼도 통과했다(2026-08-27 자기시험이 잡았다).
     #   그래서 **단계 목록이 있는 함수 안**에서만 본다.
-    wmain = _t303_enclosing_func(code, "results = [run_incremental_pipeline")
-    assert "sweep_files(dry)" in wmain, "[463] 워치독 단계 목록에서 안 부른다([328])"
+    assert "sweep_files" in _t_wd_steps(code), "[463] 워치독 단계 목록에서 안 부른다([328])"
     assert "cleanup_files" in code, "[463] 워치독이 정리 도구를 안 들여온다"
     # 갈래 이름을 워치독이 제 손으로 적으면 사본이 되어 한쪽만 고쳐진다([162])
     for n in ("회차산출물", "파이썬캐시", "찌꺼기"):
@@ -29914,8 +29957,7 @@ def t464_origin_mirror_copies_and_never_flips_the_address_early():
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
     wcode = _t370_code_only(wd)
     assert "def mirror_originals(" in wcode, "[464] 워치독에 원본 이전 단계가 없다"
-    wmain = _t303_enclosing_func(wcode, "results = [run_incremental_pipeline")
-    assert "mirror_originals(dry)" in wmain, "[464] 워치독 단계 목록에서 안 부른다([328])"
+    assert "mirror_originals" in _t_wd_steps(wcode), "[464] 워치독 단계 목록에서 안 부른다([328])"
     # (13) 도는 회차에는 양보한다 — Z: 를 같이 긁으면 양쪽이 다 느려진다([313])
     wmir = _t303_enclosing_func(wcode, "def mirror_originals(")
     assert "coordinate" in wmir and "running()" in wmir, (
@@ -30851,6 +30893,204 @@ def t472_watchdog_step_trace():
     print("[472] 워치독 단계 자국 " + chr(9989))
 
 
+def t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest():
+    """[257] 대표 보고 `입금액 (당일)` — 근거는 `7. 입금내역` 이고, 자료가 안 왔으면 '못 셈'이라 말한다.
+
+    왜 이 검사가 있나 — 이 지표는 06시트 `입금일` 이 **0/750행**이라 **구조적으로
+    언제나 0** 이었다(2026-08-28 실측).  대표는 그 0 을 '오늘 입금이 없었다'로 읽는다 —
+    **'0원'과 '못 셈'은 다른 사실이다**([169]·[339]).
+
+    ★ 진짜 `7. 입금내역`(Z:)도 진짜 집계 파일도 **한 글자도 안 건드린다**([247]·[211]) —
+      임시 워크북과 목으로만 잰다.  `load_deposits()` 는 실측 **40.0초**라 관문이
+      그것을 부르면 그 자체가 [211] 의 병이다.
+    """
+    import importlib
+    import tempfile as _tf
+    import datetime as _dt
+    import types as _types
+    _rf = importlib.import_module("receipt_fill")
+
+    # (1) 만드는 쪽 — 사실만 담고 판정하지 않는다.
+    d = _tf.mkdtemp(prefix="t473_")
+    rows = [{"일자": _dt.date(2026, 7, 27), "금액": 1000.0, "거래처": "가",
+             "적요": "ㄱ", "전표": "", "출처": "a.xlsx"},
+            {"일자": _dt.date(2026, 3, 11), "금액": 2500.5, "거래처": "나",
+             "적요": "ㄴ", "전표": "", "출처": "b.xlsx"}]
+    _rf.save_daily(rows, ["/x/a.xlsx", "/y/b.xlsx"], report_dir=d)
+    p = os.path.join(d, _rf.DEPOSIT_DAILY_NAME)
+    assert os.path.exists(p), "[257] save_daily 가 집계 파일을 안 남긴다"
+    with open(p, encoding="utf-8") as fh:
+        got = json.load(fh)
+    assert got["건수"] == 2 and abs(got["합계"] - 3500.5) < 0.01, got
+    assert got["마지막입금일"] == "2026-07-27", (
+        "[257] `마지막입금일` 이 없으면 화면이 '0원'과 '못 셈'을 못 가른다: %r"
+        % got.get("마지막입금일"))
+    assert got["첫입금일"] == "2026-03-11", got
+    assert len(got["행"]) == 2 and got["행"][0]["일자"] == "2026-07-27", got["행"][:1]
+
+    # (2) 이름은 한 곳이다([162]) — 읽는 쪽이 제 손으로 적으면 갈리는 날 조용히 0건이 된다([165]).
+    _srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    assert "_rf.DEPOSIT_DAILY_NAME" in _srv, (
+        "[257] app_server 가 파일 이름을 직접 적고 있다 — 이름은 receipt_fill 이 정한다([162])")
+    assert chr(34) + "입금_집계.json" + chr(34) not in _srv, (
+        "[257] app_server 에 집계 파일 이름이 박혔다 — 사본이 둘이면 한쪽만 고쳐진다([162])")
+
+    # (3) 웹 요청에서 Z: 를 훑지 않는다([168]) — load_deposits 는 실측 40.0초다.
+    # ★ 규칙을 세기 전에 **설명을 걷어낸다** — 이 저장소가 열세 번째 밟은 자리다
+    #   ([301]-9·[302]·[309]·[332]·[339]·[370]·[452]·[472]).  이 함수의 독스트링이
+    #   "load_deposits 를 부르면 안 된다"고 적어 두므로 안 걷으면 **제 설명에 걸린다**.
+    _dep_src = _t370_code_only(
+        _srv.split("def _deposit_daily(", 1)[1].split(chr(10) + "def ", 1)[0])
+    assert "load_deposits" not in _dep_src, (
+        "[257] _deposit_daily 가 load_deposits 를 부른다 — 웹 요청이 40초 선다([168])")
+
+    # (4)~(8) 읽는 쪽 — 합성 워크북으로 **실행해서** 잰다([295]).
+    xp = os.path.join(d, "dep.xlsx")
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    def sheet(name, headers, body):
+        ws = wb.create_sheet(name)
+        for _ in range(3):
+            ws.append([])
+        ws.append(headers)
+        for r in body:
+            ws.append(r)
+
+    sheet("06_거래서류청구수금",
+          ["정산ID", "원천업무ID", "프로젝트NO", "캠프명", "작업완료일(자동)", "업무구분", "담당자",
+           "거래명세서발행일", "거래명세서합계", "세금계산서발행일", "세금계산서합계",
+           "입금일", "입금액", "미청구액", "미수금액", "작업대비거래명세서차액",
+           "문제내용", "청구상태", "검증결과"],
+          [["JS-1", "AS-1", "UJ1", "합성캠프", "2026-07-28", "돌발AS", "김기사",
+            "2026-07-28", 11000, "", 0, "", 0, 0, 0, 0, "", "", ""]])
+    sheet("02_돌발AS접수", ["접수ID", "프로젝트NO", "캠프명", "접수일자", "담당기사"], [])
+    sheet("04_정기점검", ["점검ID", "프로젝트NO", "캠프명", "점검예정일", "담당기사"], [])
+    sheet("07_불일치누락현황",
+          ["업무기준연도(자동·숨김)", "최상위 업무키", "원천업무ID", "프로젝트NO",
+           "문제상세", "조치상태"], [])
+    sheet("15_세금계산서관리",
+          ["정산ID", "발행기한임박여부", "기한초과여부", "법정발행기한",
+           "발행금액", "발행상태(자동)", "아리바청구상태"], [])
+    sheet("17_문서대조현황", ["정산ID", "경고내용", "우선순위", "PO상태", "거래명세서상태"], [])
+    wb.save(xp)
+
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    A = importlib.import_module("app_server")
+    DOC = {"만든때": "2026-08-28T09:30:00", "건수": 3, "합계": 6000.0,
+           "첫입금일": "2026-07-20", "마지막입금일": "2026-07-27",
+           "원천": ["26년도 쿠팡 입금내역.xlsx"],
+           "행": [{"일자": "2026-07-28", "거래처": "쿠팡로지스틱스", "금액": 5000.0,
+                   "적요": "입금", "전표": "", "출처": "a.xlsx"},
+                  {"일자": "2026-07-28", "거래처": "모벤티스", "금액": 1000.0,
+                   "적요": "입금2", "전표": "", "출처": "a.xlsx"},
+                  {"일자": "2026-07-20", "거래처": "딴날", "금액": 9999.0,
+                   "적요": "", "전표": "", "출처": "a.xlsx"}]}
+    # ★ 목은 **모듈 속성**이라 프로세스 전체의 것이다 — finally 로 되돌린다([371]).
+    _erp, _docs, _dep = A._erp_state_index, A.get_erpdocs, A._deposit_daily
+    try:
+        A._erp_state_index = lambda: (None, "")   # 진짜 ERP 색인을 안 읽는다([211])
+        A.get_erpdocs = lambda: {}
+
+        def run(depfn):
+            A._deposit_daily = depfn
+            return A.read_exec_details(xp, "2026-07-28").get("입금액 (당일)") or {}
+
+        a = run(lambda: (DOC, "2026-08-28 09:30"))
+        assert a.get("근거갈래") == "입금내역", a.get("근거갈래")
+        assert a.get("count") == 2 and abs(a.get("amount") - 6000.0) < 0.01, (
+            "[257] 그날 입금 두 건 6,000원을 못 셌다: %r" % (a.get("amount"),))
+        assert (a.get("근거") or {}).get("원천") == "7. 입금내역", a.get("근거")
+        # 정직한 0 — 자료가 기준일까지 안 왔으면 그렇게 말한다([169]).
+        경 = a.get("근거경고") or ""
+        assert "못 셈" in 경 and "2026-07-27" in 경, ("[257] 자료 밀림을 안 말한다: %r" % 경)
+
+        D2 = dict(DOC)
+        D2["마지막입금일"] = "2026-07-28"
+        b = run(lambda: (D2, "2026-08-28 09:30"))
+        assert not b.get("근거경고"), (
+            "[257] 자료가 기준일까지 왔는데도 경고한다 — 정상까지 울면 아무도 안 본다([170]): %r"
+            % b.get("근거경고"))
+
+        c = run(lambda: (None, ""))
+        assert not c.get("근거갈래") and c.get("amount") == 0, (
+            "[257] 집계를 못 읽었으면 06시트 갈래로 떨어져야 한다([169]): %r" % c.get("근거갈래"))
+        assert "ERP 판매 색인" in (c.get("basis") or ""), (
+            "[257] 06시트 갈래에서 '왜 못 세는지'가 사라졌다([169])")
+        assert "ERP 판매 색인" not in (a.get("basis") or ""), (
+            "[257] 새 갈래에 옛 문구가 붙는다 — 그 자료가 이미 내놓는데 거짓말이다([172])")
+    finally:
+        A._erp_state_index, A.get_erpdocs, A._deposit_daily = _erp, _docs, _dep
+
+    # (9) 감시자 — 06시트가 아닌 갈래로는 죽은 열 경보를 안 낸다. **ERP 도 그대로**([172]).
+    G = importlib.import_module("exec_report_guard")
+    S06 = [{"입금일": "", "세금계산서합계": "", "미청구액": "", "미수금액": "",
+            "거래명세서발행일": "2026-07-28", "거래명세서합계": 1000} for _ in range(750)]
+
+    def _details(kind):
+        out = {}
+        for lbl in G.MONEY_COLUMNS:
+            out[lbl] = {"kind": "amount", "amount": 0, "count": 0, "rows": [], "basis": "b"}
+        out["입금액 (당일)"]["근거갈래"] = kind
+        return out
+
+    def _guard(kind, mod=None):
+        g = mod or G
+        _s, _r, _d2 = g._sheet06, A.get_exec_report, A.DEMO
+        try:
+            g._sheet06 = lambda: S06
+            A.DEMO = False
+            A.get_exec_report = lambda day=None: {"details": _details(kind), "meta": {}}
+            st = g.build()
+        finally:
+            g._sheet06, A.get_exec_report, A.DEMO = _s, _r, _d2
+        return (len([x for x in st["먼저볼것"] if "입금일" in x]),
+                (st["잰것"].get("입금액 (당일)") or {}).get("근거갈래"))
+
+    n_dep, k_dep = _guard("입금내역")
+    n_erp, _ = _guard("ERP")
+    n_06, k_06 = _guard("")
+    assert n_dep == 0, "[257] 새 근거를 쓰는데 06시트 죽은 열로 경보한다 — 거짓 경보([170])"
+    assert n_erp == 0, "[233] ERP 갈래까지 경보한다 — 좁히는 것도 고장이다([172])"
+    assert n_06 == 1, "[339] 06시트 갈래는 여전히 경보해야 한다 — 진짜 경보를 죽였다"
+    assert k_dep == "입금내역" and k_06 == "06시트", (
+        "[169] 무엇으로 세는지 '잰것'에 안 남는다: %r %r" % (k_dep, k_06))
+
+    # (10) **회차가 실제로 부르나**([328]) — 코드가 있는 것과 도는 것은 다른 말이다.
+    _rfsrc = open(os.path.join(ROOT, "receipt_fill.py"), encoding="utf-8").read()
+    _sum = _rfsrc.split("def summarize(", 1)[1].split(chr(10) + "def ", 1)[0]
+    assert "save_daily(receipts, files)" in _sum, (
+        "[328] summarize 가 save_daily 를 안 부른다 — 09:50 회차가 집계를 안 남긴다")
+
+    # (11) 계기 자기시험([272]) — 옛 동작을 넣으면 정말 잡히나.
+    잡음 = 0
+    _gsrc = open(os.path.join(ROOT, "exec_report_guard.py"), encoding="utf-8").read()
+    old = _gsrc.replace('if 기준 and 기준 != "06시트":', 'if 기준 == "ERP":', 1)
+    assert old != _gsrc, "[272] 자기시험 재료가 안 만들어졌다 — 앵커가 어긋났다"
+    ns = {"__name__": "_t473_guard", "__file__": os.path.join(ROOT, "exec_report_guard.py")}
+    exec(compile(old, "<t473-guard>", "exec"), ns)
+    fake = _types.SimpleNamespace(**ns)
+    try:
+        n_old, _ = _guard("입금내역", mod=fake)
+        if n_old != 0:
+            잡음 += 1
+    except Exception:
+        잡음 += 1
+
+    _rf_old = _rfsrc.replace('"마지막입금일": days[-1] if days else "",',
+                             '"마지막입금일": "",', 1)
+    assert _rf_old != _rfsrc, "[272] 자기시험 재료가 안 만들어졌다 — 앵커가 어긋났다"
+    ns2 = {"__name__": "_t473_rf", "__file__": os.path.join(ROOT, "receipt_fill.py")}
+    exec(compile(_rf_old, "<t473-rf>", "exec"), ns2)
+    d2 = _tf.mkdtemp(prefix="t473b_")
+    bad = ns2["save_daily"](rows, ["/x/a.xlsx"], report_dir=d2)
+    if not bad.get("마지막입금일"):
+        잡음 += 1
+    assert 잡음 == 2, (
+        "[272] 계기가 옛 동작을 못 잡는다 — 이 검사는 아무것도 안 재고 있다: %d/2" % 잡음)
+    print(chr(9989), "[473] 입금액(당일) — `7. 입금내역` 근거 · 자료가 안 왔으면 '못 셈'이라 말한다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -31110,13 +31350,13 @@ def t297_orgchart_change_is_seen_without_crying_wolf():
 
     # ⑦ 회차에 걸려 있고 **인계 스냅샷보다 먼저**다 — 뒤에 두면 인계가 늘 30분 전 판정을 싣는다.
     wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "watch_orgchart(dry)" in wd, "워치독 30분 단계에 안 걸려 있다"
+    assert "watch_orgchart" in _t_wd_steps(wd), "워치독 30분 단계에 안 걸려 있다"
     # ★ 순서는 **부르는 목록 안에서** 잰다 — 파일 전체로 재면 함수 정의 자리가 잡혀
     #   늘 통과하거나 늘 실패한다(글자 검사가 눈머는 자리다).
-    block = wd.split("results = [", 1)[1]
-    assert block.index("watch_orgchart(dry),") < block.index("snapshot_handoff(dry)"), \
+    block = _t_wd_steps(wd)
+    assert block.index("watch_orgchart") < block.index("snapshot_handoff"), \
         "조직도 감시가 인계 스냅샷보다 뒤에 있다 — 인계가 늘 30분 전 판정을 싣는다"
-    assert block.index("heal_server(dry)") < block.index("watch_orgchart(dry),"), \
+    assert block.index("heal_server") < block.index("watch_orgchart"), \
         "서버를 갈기 전에 조직도를 본다 — 방금 간 서버를 '옛 코드'라 적게 된다"
 
     # ⑧ 인계는 **여기서 다시 세지 않는다**([168]) — 회차가 써 둔 것을 읽기만 한다.
@@ -37168,7 +37408,7 @@ def t259_upload_tells_and_finish_tells_too():
     assert "notify.sweep_uploads()" in srv[fin:fin + 700], \
         "회차가 끝나도 결과를 안 알린다 — 아무도 화면을 안 열면 알림이 영영 안 간다"
     wd = rd("watchdog.py")
-    assert "close_upload_notices" in wd and "close_upload_notices(dry)," in wd, \
+    assert "close_upload_notices" in wd and "close_upload_notices" in _t_wd_steps(wd), \
         "워치독 단계에 없다 — 5분 스케줄러가 집어간 회차는 결과가 영영 안 온다"
 
     # ── ② 성공 칸 이름을 짝짓지 않는다([165]) ────────────────────────────────
@@ -37520,7 +37760,9 @@ def t265_staff_server_manager_has_three_independent_recovery_lines():
                   "류지영·오종현 업무센터"):
         assert token in guard, "담당자 업무센터 감시 누락: " + token
     watchdog = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "def heal_server_guard(" in watchdog and "heal_server_guard(dry), heal_server(dry)" in watchdog, \
+    _st = _t_wd_steps(watchdog)
+    assert "def heal_server_guard(" in watchdog and "heal_server_guard" in _st \
+           and _st.index("heal_server") - _st.index("heal_server_guard") == 1, \
         "guard↔tunnel 둘이 같이 죽었을 때 독립 워치독 복구선이 없다"
     installer = open(os.path.join(ROOT, "install_server_guard_schedule.ps1"), encoding="utf-8").read()
     for token in ("schtasks.exe", "/SC MINUTE /MO 5", "-AllowStartIfOnBatteries",
@@ -40531,8 +40773,9 @@ def t328_camp_source_staleness_is_seen():
 
     # (7) 워치독 단계가 **인계보다 먼저** 온다 — 뒤에 두면 늘 30분 전 판정을 싣는다.
     wd = _io.open(_os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
-    assert "watch_camp_source(dry)" in wd, "워치독 단계에 안 걸렸다"
-    assert wd.index("watch_camp_source(dry),") < wd.index("snapshot_handoff(dry), resume_deferred_apply"), \
+    _st = _t_wd_steps(wd)
+    assert "watch_camp_source" in _st, "워치독 단계에 안 걸렸다"
+    assert _st.index("watch_camp_source") < _st.index("snapshot_handoff"), \
         "인계보다 뒤에 있으면 늘 한 박자 늦은 판정을 싣는다"
     fnbody = wd[wd.index("def watch_camp_source("):]
     fnbody = fnbody[:fnbody.index("\ndef ", 5)]
@@ -43646,6 +43889,7 @@ if __name__ == "__main__":
     t470_rev_says_what_changed()
     t471_no_lone_cr_in_tracked_text()
     t472_watchdog_step_trace()
+    t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
