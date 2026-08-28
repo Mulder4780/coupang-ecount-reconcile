@@ -36461,6 +36461,107 @@ def t474_excel_is_archive_only_readonly_lock():
     print(chr(9989) + " [474] 엑셀은 저장용 — 보관본 읽기 전용 잠금(읽기는 그대로 · 배선 · 자기시험)")
 
 
+
+def t475_hand_edit_alarm_tells_values_from_formulas():
+    """[475] 손입력 경보 — **값이 바뀐 것만** 경보한다 (2026-08-28 실사고).
+
+    2026-08-27 21:43 `[P1] 관리대장 손입력 감지` 는 **거짓이었다.** v620 대 v621 을
+    실제로 대 보니 값이 바뀐 칸 **0개** · 수식 **72칸**(`05_신규납품설치` 66~70행에
+    채번 수식이 심어진 것 = `expand_rows` 가 행을 늘린 것)이었다. 그 도구는
+    `batch` 표에도 보관본 자국에도 아무것도 안 남겨 **행을 늘릴 때마다 손입력으로
+    오판된다** — 그리고 거짓 경보는 진짜 손입력을 덮는다([170]).
+    그 경보가 형님 몫으로 하루를 남아 "앱에 다시 넣으세요" 라고 말했는데
+    **넣을 값이 없었다**([172] 틀린 지목).
+
+    ⚠ 진짜 관리대장·감지 기록은 한 글자도 안 건드린다([247]) — 임시 xlsx 로만 잰다."""
+    import tempfile as _tf, shutil as _sh, warnings as _w
+    _w.filterwarnings("ignore")
+    import openpyxl
+    import ledger_diff as LD
+
+    d = _tf.mkdtemp(prefix="t475_")
+    try:
+        def mk(path, cells):
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "02_돌발AS접수"
+            for ref, v in cells.items():
+                ws[ref] = v
+            wb.save(path)
+            wb.close()
+
+        v1 = os.path.join(d, "관리대장_v100.xlsx")
+        v2 = os.path.join(d, "관리대장_v101.xlsx")
+
+        # (1) 수식만 바뀌면 값 0 — 경보가 아니다(이 사고의 본체)
+        mk(v1, {"A1": "캠프", "B1": None})
+        mk(v2, {"A1": "캠프", "B1": "=IF($A1=\"\",\"\",1)"})
+        r = LD.changed_cells(v1, v2)
+        assert r["못함"] is None, ("[475] 못 갈랐다: %s" % r["못함"])
+        assert r["값수"] == 0, ("[475] 수식을 값으로 센다: %s" % r["값"])
+        assert r["수식"] >= 1, "[475] 수식 차이를 아예 못 본다"
+        assert "값이 바뀐 칸은 없습니다" in LD.describe(r), "[475] 말이 갈리지 않는다"
+
+        # (2) 값이 바뀌면 잡고 **어느 칸인지 짚는다**(예전엔 '앱으로 입력' 한 마디뿐)
+        mk(v2, {"A1": "캠프", "C3": "김필우"})
+        r2 = LD.changed_cells(v1, v2)
+        assert r2["값수"] >= 1, "[475] 값 변경을 못 잡는다"
+        assert any(x[1] == "C3" for x in r2["값"]), ("[475] 칸을 못 짚는다: %s" % r2["값"])
+        say = LD.describe(r2)
+        assert "C3" in say and "앱에서 다시" in say, ("[475] 짚어 주지 않는다: %s" % say)
+
+        # (3) 못 읽으면 **모른다고 말한다** — '값 0'(경보 아님)으로 뭉개면
+        #     진짜 손입력이 조용히 사라진다([169])
+        r3 = LD.changed_cells(os.path.join(d, "없는파일.xlsx"), v2)
+        assert r3["못함"], "[475] 없는 앞 버전을 조용히 넘긴다"
+        assert "못 갈랐" in LD.describe(r3), "[475] 못 갈랐다고 말하지 않는다"
+
+        # (4) 앞 버전 찾기 — 같은 폴더와 OLD 둘 다
+        assert LD.previous_version(v2) == v1, "[475] 같은 폴더의 vN-1 을 못 찾는다"
+        old_dir = os.path.join(d, "OLD")
+        os.makedirs(old_dir, exist_ok=True)
+        _sh.move(v1, os.path.join(old_dir, os.path.basename(v1)))
+        assert LD.previous_version(v2) == os.path.join(old_dir, os.path.basename(v1)),             "[475] OLD 로 옮겨진 앞 버전을 못 찾는다"
+        assert LD.previous_version(os.path.join(d, "이름에버전없음.xlsx")) is None,             "[475] 버전이 없는 이름에 아무거나 돌려준다"
+    finally:
+        _sh.rmtree(d, ignore_errors=True)
+
+    # (5) 배선 — 값 0이면 경보를 안 올리고, 못 갈랐으면 올린다([328]·[169])
+    rm = _t370_code_only(open(os.path.join(ROOT, "realtime_monitor.py"),
+                              encoding="utf-8").read())
+    i_hand = rm.find("hand_edit_verdict(previous.get")
+    i_diff = rm.find("ledger_diff.changed_cells(")
+    i_issue = rm.find('"master_hand_edit", "P1"')
+    assert i_hand > 0 and i_issue > 0, "[475] 손입력 판정 자리를 못 찾았다"
+    assert i_hand < i_diff < i_issue, "[475] 경보를 올리기 전에 값·수식을 안 가른다"
+    seg = rm[i_diff:i_issue]
+    assert 'not diff_res.get("못함")' in seg,         "[475] 못 갈랐는데도 경보를 내린다 — 진짜 손입력이 사라진다([169])"
+    assert 'not diff_res.get("값수")' in seg, "[475] 값 0 을 근거로 안 쓴다"
+    # 비싸므로 의심이 선 뒤에만 부른다([168]) — if hand 안쪽이어야 한다
+    assert rm.find("if hand:", i_hand) < i_diff, "[475] 의심 전에 비싼 비교를 한다([168])"
+
+    # (6) 계기 자기시험([272]) — 수식을 값으로 세던 옛 동작이면 (1)이 잡혀야 한다
+    _src = open(os.path.join(ROOT, "ledger_diff.py"), encoding="utf-8").read()
+    _broken = _src.replace(
+        "                    if isinstance(ov, tuple) or isinstance(nv, tuple) or of or nf:",
+        "                    if False:", 1)
+    assert _broken != _src, "[475] 자기시험 재료를 못 만들었다"
+    ns = {"__name__": "_t475_broken", "__file__": os.path.join(ROOT, "ledger_diff.py")}
+    exec(compile(_broken, "<t475-broken>", "exec"), ns)
+    d2 = _tf.mkdtemp(prefix="t475b_")
+    try:
+        a2 = os.path.join(d2, "x_v1.xlsx")
+        b2 = os.path.join(d2, "x_v2.xlsx")
+        wb = openpyxl.Workbook(); wb.active["A1"] = None; wb.save(a2); wb.close()
+        wb = openpyxl.Workbook(); wb.active["A1"] = "=1+1"; wb.save(b2); wb.close()
+        rb = ns["changed_cells"](a2, b2)
+        assert rb["값수"] >= 1, "[475] 수식 거르기를 없앴는데도 값 0 이다 — 이 검사는 아무것도 안 잰다"
+    finally:
+        _sh.rmtree(d2, ignore_errors=True)
+
+    print(chr(9989) + " [475] 손입력 경보 — 값·수식을 갈라 거짓 경보를 막는다(칸을 짚는다 · 배선 · 자기시험)")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -44009,6 +44110,7 @@ if __name__ == "__main__":
     t472_watchdog_step_trace()
     t473_deposit_metric_reads_a_file_and_asks_if_zero_is_honest()
     t474_excel_is_archive_only_readonly_lock()
+    t475_hand_edit_alarm_tells_values_from_formulas()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

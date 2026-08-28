@@ -553,19 +553,52 @@ def run_once(now: datetime | None = None, settle_seconds: int = SETTLE_SECONDS) 
                        or _archive_change_source(master_mtime))
             hand, hand_why = hand_edit_verdict(previous.get("source"), source, machine)
             if hand:
-                active.append(_issue(
-                    "master_hand_edit", "P1", "관리대장 손입력 감지 — 앱 전용 입력 위반",
-                    hand_why + " · 손으로 적은 값은 정본(DB)에 들어가지 않음",
-                    "적은 사람을 찾아 앱으로 다시 입력하도록 안내 (자동 반영 금지 — 역수입 금지)",
-                ))
-                _note_hand_edit({
-                    "시각": now.isoformat(timespec="seconds"),
-                    "종류": "내용변경",
-                    "파일": source.get("name"),
-                    "이전sha": str((previous.get("source") or {}).get("sha256") or "")[:12],
-                    "현재sha": str(source.get("sha256") or "")[:12],
-                    "근거": hand_why,
-                })
+                # 값이 바뀌었나, 수식·구조만 바뀌었나 — 갈라야 한다([170]).
+                #   2026-08-27 21:43 경보는 **거짓이었다**: v620 대 v621 을 실제로
+                #   대 보니 값이 바뀐 칸 0개 · 수식 72칸(expand_rows 가 행을 늘리며
+                #   채번 수식을 심은 것)이었다. 그 도구는 batch 표에도 보관본 자국에도
+                #   아무것도 안 남겨 **행을 늘릴 때마다 손입력으로 오판된다** —
+                #   그리고 거짓 경보는 진짜 손입력을 덮는다.
+                #   ⚠ 비싸다(실측 12.6초) — 의심이 선 뒤에만 부른다([168]).
+                diff_res, diff_say = None, ""
+                try:
+                    import ledger_diff
+                    diff_res = ledger_diff.changed_cells(
+                        ledger_diff.previous_version(str(master)), str(master))
+                    diff_say = ledger_diff.describe(diff_res)
+                except Exception as _dexc:
+                    diff_res, diff_say = None, "차이를 못 갈랐습니다: %s" % _dexc
+                # 값이 하나도 안 바뀌었고 **못 갈랐다는 말도 없을 때만** 내린다.
+                #   모름을 '값 없음' 으로 뭉개면 진짜 손입력이 조용히 사라진다([169]).
+                only_formula = (bool(diff_res) and not diff_res.get("못함")
+                                and not diff_res.get("값수"))
+                if only_formula:
+                    _note_hand_edit({
+                        "시각": now.isoformat(timespec="seconds"),
+                        "종류": "기계도구(경보아님)",
+                        "파일": source.get("name"),
+                        "이전sha": str((previous.get("source") or {}).get("sha256") or "")[:12],
+                        "현재sha": str(source.get("sha256") or "")[:12],
+                        "근거": hand_why,
+                        "판정": diff_say,
+                    })
+                else:
+                    active.append(_issue(
+                        "master_hand_edit", "P1", "관리대장 손입력 감지 — 앱 전용 입력 위반",
+                        hand_why + " · 손으로 적은 값은 정본(DB)에 들어가지 않음 · " + diff_say,
+                        "적은 사람을 찾아 위 칸의 값을 앱으로 다시 입력하도록 안내 "
+                        "(자동 반영 금지 — 역수입 금지)",
+                    ))
+                    _note_hand_edit({
+                        "시각": now.isoformat(timespec="seconds"),
+                        "종류": "내용변경",
+                        "파일": source.get("name"),
+                        "이전sha": str((previous.get("source") or {}).get("sha256") or "")[:12],
+                        "현재sha": str(source.get("sha256") or "")[:12],
+                        "근거": hand_why,
+                        "판정": diff_say,
+                        "칸": [list(x) for x in (diff_res or {}).get("값", [])][:20],
+                    })
             forks = [
                 p for version, p in versions[:-1]
                 if p.stat().st_mtime > master.stat().st_mtime + 60
