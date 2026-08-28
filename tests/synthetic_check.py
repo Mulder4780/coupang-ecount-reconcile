@@ -36717,6 +36717,149 @@ def t475_hand_edit_alarm_tells_values_from_formulas():
     print(chr(9989) + " [475] 손입력 경보 — 값·수식을 갈라 거짓 경보를 막는다(칸을 짚는다 · 배선 · 자기시험)")
 
 
+def t477_watchdog_locks_the_archive_net():
+    """[477] 잠금 **그물** — 워치독이 30분마다 "안 잠겼으면 잠근다".
+
+    ★ 왜 그물인가 — `[474]` 의 배선은 **반쪽이었다.** vN+1 을 만드는 도구가
+      다섯인데(`ledger_writer`·`expand_rows`·`fix_ids`·`dedupe_rows`·
+      `findings_sheet`) 잠금을 건 것은 `ledger_writer` 하나뿐이었고,
+      **2026-08-27 v621 을 만든 것은 `expand_rows`** 였다. 다섯 곳에 각각
+      붙이면 사본이 다섯이 된다([162]) — 그래서 **여기 한 곳**이 어느 도구가
+      만들었든 잡는다.
+
+    ★ 진짜 관리대장·진짜 잠금은 **한 글자도 안 건드린다**([247]) — 목으로만 잰다.
+      `sys.modules` 는 프로세스 전체의 것이라 `finally` 로 되돌린다([371]).
+    ⚠ `ast` 는 이 파일 모듈 수준에 **없다**([324]) — 함수 안에서 들여온다.
+    """
+    import ast as _ast
+
+    wd = open(os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+
+    # (1) 배선 — 함수만 있고 회차 목록에 없으면 **없는 것과 같다**([328]).
+    steps = _t_wd_steps(wd)
+    assert "lock_ledger_archive" in steps, (
+        "[477] 잠금 단계가 워치독 회차 목록에 없다 — 함수만 있으면 안 돈다([328])")
+
+    src = _t303_enclosing_func(wd, "def lock_ledger_archive(")
+    assert src, "[477] lock_ledger_archive 를 못 찾았다"
+
+    class _AL(object):
+        """archive_lock 목 — `lock` 을 **어떻게** 불렀는지까지 적어 둔다."""
+
+        def __init__(self, on=True, locked=False, in_use=False):
+            self._on, self._locked, self._in_use = on, locked, in_use
+            self.calls = []
+
+        def enabled(self):
+            return self._on
+
+        def is_locked(self, p):
+            return self._locked
+
+        def lock(self, p, check_in_use=False):
+            self.calls.append(check_in_use)
+            if check_in_use and self._in_use:
+                return False, "쓰는 중이다(다음 회차가 다시 본다)"
+            return True, "잠갔다"
+
+    class _WP(object):
+        """workbook_patch 목 — `latest_master` 는 **SystemExit 을 던진다**."""
+
+        def __init__(self, boom=None):
+            self._boom = boom
+
+        def latest_master(self):
+            if self._boom is not None:
+                raise self._boom
+            return (os.path.join(ROOT, "없는폴더", "v999.xlsx"), 999)
+
+    def _run(al, wp, dry=False, code=None):
+        body = code if code is not None else src
+        keep = {}
+        for name, mod in (("archive_lock", al), ("workbook_patch", wp)):
+            keep[name] = sys.modules.get(name)
+            sys.modules[name] = mod
+        try:
+            ns = {"__name__": "t477_iso"}
+            exec(compile(body, "<t477>", "exec"), ns)
+            return ns["lock_ledger_archive"](dry)
+        finally:
+            for name, old in keep.items():   # 모듈 표는 프로세스 전체의 것이다([371])
+                if old is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = old
+
+    # (2) 사람이 껐으면 **조용하다** — 고장이 아니다([169]·[126] 되돌리기 한 줄).
+    al = _AL(on=False)
+    assert _run(al, _WP()) == "", "[477] 꺼 둔 상태까지 말하면 매 회차 잔소리가 된다"
+    assert al.calls == [], "[477] 꺼져 있는데 잠갔다 — 되돌리기 한 줄이 뜻을 잃는다"
+
+    # (3) 이미 잠겼으면 **조용하다**([170] — 정상까지 말하면 아무도 안 읽는다).
+    al = _AL(locked=True)
+    assert _run(al, _WP()) == "", "[477] 이미 잠긴 것까지 말하면 30분마다 같은 줄이 뜬다"
+    assert al.calls == [], "[477] 이미 잠겼는데 또 잠갔다"
+
+    # (4) 미리보기는 **말만 하고 안 잠근다**.
+    al = _AL(locked=False)
+    say = _run(al, _WP(), dry=True)
+    assert "999" in say, "[477] 미리보기가 어느 버전인지 말해야 사람이 판단한다"
+    assert al.calls == [], "[477] 미리보기가 실제로 잠갔다"
+
+    # (5) 안 잠겼으면 잠근다 — 그리고 **쓰는 중인지 먼저 본다**([104] 류지영 우선).
+    al = _AL(locked=False)
+    say = _run(al, _WP())
+    assert al.calls == [True], (
+        "[477] check_in_use 없이 잠갔다 — 쓰는 중이면 그 사람의 입력이 날아간다([104])")
+    assert "999" in say and "앱" in say, "[477] 잠갔으면 무엇을 했는지 말한다"
+
+    # (6) 쓰는 중이면 물러나되 **그 사실을 말한다**([169]).
+    al = _AL(locked=False, in_use=True)
+    say = _run(al, _WP())
+    assert say and "쓰는 중" in say, (
+        "[477] 물러난 것을 조용히 넘기면 안 잠긴 줄을 아무도 모른다([169])")
+
+    # (7) 상태를 못 읽으면 **'모름'이라 말한다** — False 로 뭉개지 않는다([169]).
+    al = _AL(locked=None)
+    say = _run(al, _WP())
+    assert say and "못" in say, "[477] 못 읽은 것을 '이미 잠김'으로 치면 계기가 눈이 먼다"
+    assert al.calls == [], "[477] 상태를 모르는데 잠갔다"
+
+    # (8) 관리대장을 못 찾아도 **회차를 안 죽인다** — `latest_master` 는 SystemExit 이다.
+    al = _AL(locked=False)
+    say = _run(al, _WP(boom=SystemExit("관리대장을 찾을 수 없음: Z:/일일보고")))
+    assert say and "관리대장" in say, (
+        "[477] SystemExit 을 안 받으면 이 단계 하나가 워치독 회차를 통째로 죽인다")
+
+    # (9) ★ 계기 자신을 시험한다([272]) — 문을 없애면 정말 잡히나.
+    caught = 0
+
+    hurt = src.replace(", check_in_use=True)", ")")
+    assert hurt != src, "[477] 자기시험 재료를 못 만들었다 — check_in_use 낱말이 바뀌었다"
+    _ast.parse(hurt)        # 문법이 깨지면 그 죽음이 '잡았다'로 오인된다([371])
+    try:
+        a = _AL(locked=False)
+        _run(a, _WP(), code=hurt)
+        assert a.calls == [True]
+    except AssertionError:
+        caught += 1
+
+    hurt = src.replace("if st is True:", "if False:")
+    assert hurt != src, "[477] 자기시험 재료를 못 만들었다 — 조용 갈래가 바뀌었다"
+    _ast.parse(hurt)
+    try:
+        a = _AL(locked=True)
+        assert _run(a, _WP(), code=hurt) == ""
+        assert a.calls == []
+    except AssertionError:
+        caught += 1
+
+    assert caught == 2, (
+        "[477] 계기가 옛 동작을 못 잡는다(%d/2) — 아무것도 안 재는 검사다([272])" % caught)
+
+    print(chr(9989) + " [477] 잠금 그물 — 회차 배선 · 일곱 갈래 · 계기 자기시험 2/2")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -44267,6 +44410,7 @@ if __name__ == "__main__":
     t474_excel_is_archive_only_readonly_lock()
     t475_hand_edit_alarm_tells_values_from_formulas()
     t476_gate_failure_asks_if_source_changed()
+    t477_watchdog_locks_the_archive_net()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
