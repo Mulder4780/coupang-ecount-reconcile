@@ -37262,6 +37262,716 @@ def t479_daily_run_names_the_reboot():
     print(chr(9989) + " [479] 재부팅 지목 — 배선 · 재는 자리 한 곳 · 네 갈래 · 계기 자기시험 2/2")
 
 
+
+def t480_work_flow_adds_a_stage_without_touching_excel():
+    """[480] 단계 낱말을 **앱에서 더한다** — 관리대장(엑셀)을 안 건드린다.
+
+    2026-08-28 형님 지시: **"현재단계 진행상태에 '택배발송' 추가 해줘"**.
+    넣을 자리는 `10_코드관리!G13`(비어 있다)이지만 2026-08-10 정본 규칙이
+    **새 Excel 직접 mutator 를 금지**하고 2026-08-24 지시가 *"엑셀은 저장용으로만"*
+    이다. 그래서 낱말을 더하는 길은 앱 DB 뿐이고, 그것이 `[196]` 이 이관 대기
+    목록에 적어 둔 방향 그대로다.
+
+    얼리는 것은 **되돌아가면 안 되는 계약**이다([39]):
+      ① 새 Excel mutator 를 안 만들었다 — 읽기(`read_only=True`)만 남는다
+      ② `build()` 가 **실제로** 앱 추가분을 묻는다 — 함수만 있으면 없는 것과 같다([328])
+      ③ ★ **기본단계·완료단계는 관리대장에서만 온다**([166]) — 앱 추가분이 그
+         자리를 차지하면 Z: 가 끊긴 날 새 접수가 엉뚱한 단계로 박힌다(2026-08-18
+         실측: 그 자리가 **'취소'** 가 됐다 · [243])
+      ④ 관리대장에 이미 있는 낱말은 안 받는다 — 두 출처면 어느 쪽이 정본인지
+         아무도 모른다([162]) · 두 번 더해도 한 번(멱등)
+      ⑤ **되돌릴 수 있다** — `remove_stage` 가 짝이다
+      ⑥ 못 읽으면 **빈 목록이되 이유를 말한다**([169]·[172])
+      ⑦ 엑셀을 보는 사람에게는 안 보인다는 사실을 리포트가 적는다([169])
+      ⑧ 계기 자신도 시험한다([272])
+
+    ★ 실측 증거(`reports/업무흐름_정의.json`·앱 DB)는 **한 글자도 안 건드린다**([247])
+      — 임시 DB·임시 REPORT_DIR 로만 잰다. `definition(refresh=True)` 가 진짜
+      리포트를 덮으므로 그 경로부터 돌린다.
+    ⚠ Z: 를 한 번도 안 훑는다([211]) — `_read_master`·`_used_words`·`_flow` 를
+      목으로 갈고 `finally` 로 되돌린다(모듈 속성은 프로세스 전체의 것이다 · [371]).
+    """
+    from pathlib import Path
+    import app_store as _AS
+    import work_flow as _WF
+
+    src = open(os.path.join(ROOT, "work_flow.py"), encoding="utf-8").read()
+    code = _t370_code_only(src)     # ⚠ 규칙을 세기 전에 설명을 걷는다([301]-9)
+
+    # ① 새 Excel mutator 를 안 만들었다(2026-08-10 정본 규칙)
+    for word in ("wb.save(", "workbook_patch", "zip_patch"):
+        assert word not in code, (
+            "[480] work_flow 가 엑셀을 고치려 한다(%s) — 낱말을 더하는 길은"
+            " 앱 DB 뿐이다(2026-08-10 정본 규칙 · 2026-08-24 지시)" % word)
+    assert "read_only=True" in code, (
+        "[480] 관리대장을 읽기 전용으로 안 연다 — 열어 두면 다음 사람이 고치기 쉽다")
+
+    # ② 배선 — 함수만 있고 안 부르면 **없는 것과 같다**([328])
+    body = _t303_enclosing_func(src, "def build(")
+    assert body and "extra_stages(" in body, (
+        "[480] build() 가 앱 추가분을 안 묻는다 — 더해도 화면에 안 나온다([328])")
+
+    MASTER = {"원본": "관리대장 v999", "갈래": {
+        "as": {"낱말": ["신규접수", "기사배정", "작업완료"], "출처": "10_코드관리!G열"},
+        "pm": {"낱말": ["예정", "완료"], "출처": "10_코드관리!K열"}}}
+
+    real = (_WF._read_master, _WF._used_words, _WF._flow,
+            _WF.REPORT_DIR, _WF.DEF_PATH, dict(_WF._MEM))
+    with tempfile.TemporaryDirectory(prefix="csos-t480-") as td:
+        st = _AS.AppStore(Path(td) / "app.db").initialize()
+        import app_store as _mod
+        real_default = _mod.default_store
+        try:
+            _mod.default_store = lambda: st          # 함수 안 import 라 모듈 속성을 간다
+            _WF._used_words = lambda: {}
+            _WF._flow = lambda: []
+            _WF.REPORT_DIR = td
+            _WF.DEF_PATH = os.path.join(td, "def.json")
+            _WF._MEM.update(at=0.0, **{"def": None})
+
+            def _mk(master):
+                _WF._read_master = (lambda: master)
+                _WF._MEM.update(at=0.0, **{"def": None})
+                return _WF.build()
+
+            d = _mk(MASTER)
+            as_ = (d.get("갈래") or {}).get("as") or {}
+            assert [s["단계"] for s in as_["단계"]] == MASTER["갈래"]["as"]["낱말"], as_
+            assert as_.get("기본단계") == "신규접수", as_.get("기본단계")
+
+            # ④ 관리대장에 있는 낱말은 안 받는다 · 두 번 더해도 한 번
+            r = _WF.add_stage("as", "작업완료", actor="t480")
+            assert r.get("더함") is False and "관리대장" in str(r.get("msg")), r
+            r = _WF.add_stage("as", "택배발송", actor="t480", why="형님 지시")
+            assert r.get("더함") is True, r
+            r = _WF.add_stage("as", "택배발송", actor="t480")
+            assert r.get("더함") is False, "[480] 두 번 더하면 두 줄이 된다(멱등 아님): %r" % r
+
+            got, why = _WF.extra_stages("as")
+            assert got == ["택배발송"] and not why, (got, why)
+
+            d = _mk(MASTER)
+            as_ = (d.get("갈래") or {}).get("as") or {}
+            words = [s["단계"] for s in as_["단계"]]
+            assert words == ["신규접수", "기사배정", "작업완료", "택배발송"], words
+            src_of = {s["단계"]: s["출처"] for s in as_["단계"]}
+            assert src_of["택배발송"] == "앱에서 더함", src_of
+            assert src_of["작업완료"] == "관리대장 목록", src_of
+
+            # ③ ★ 기본단계·완료단계는 **관리대장에서만** 온다([166])
+            assert as_.get("기본단계") == "신규접수", (
+                "[480] 앱 추가분이 기본단계를 밀었다: %r" % as_.get("기본단계"))
+            assert "택배발송" not in (as_.get("완료단계") or []), as_.get("완료단계")
+            # 다른 갈래(pm)는 한 글자도 안 바뀐다 — 좁히는 것도 고장이다([172])
+            pm_ = (d.get("갈래") or {}).get("pm") or {}
+            assert [s["단계"] for s in pm_["단계"]] == ["예정", "완료"], pm_
+
+            # ⑦ 엑셀에는 안 보인다는 사실을 리포트가 적는다([169])
+            note = " ".join(str(x) for x in (d.get("경고") or [])) + json.dumps(
+                d, ensure_ascii=False)
+            assert "앱에서 더함" in note, "[480] 앱 추가분이라는 표시가 어디에도 없다"
+
+            # ③-b ★ 관리대장을 **못 읽었을 때** 앱 추가분이 그 자리를 안 차지한다
+            d2 = _mk(None)
+            as2 = (d2.get("갈래") or {}).get("as") or {}
+            assert as2.get("기본단계") in ("", None), (
+                "[480] 관리대장을 못 읽었는데 기본단계를 지어냈다: %r" % as2.get("기본단계"))
+
+            # ⑤ 되돌릴 수 있다
+            r = _WF.remove_stage("as", "택배발송", actor="t480")
+            assert r.get("뺌") is True, r
+            assert _WF.extra_stages("as")[0] == [], _WF.extra_stages("as")
+            r = _WF.remove_stage("as", "없던낱말", actor="t480")
+            assert r.get("뺌") is False, "[480] 없던 낱말을 뺐다고 한다: %r" % r
+
+            # ⑧ 계기 자기시험([272]) — 기본단계를 `official[0]` 로 되돌리면 잡히나
+            caught = 0
+            _WF.add_stage("as", "택배발송", actor="t480", why="자기시험")
+            master_only = {"갈래": {"as": {"낱말": []}}}      # 관리대장이 빈 갈래
+            d3 = _mk(master_only)
+            as3 = (d3.get("갈래") or {}).get("as") or {}
+            if as3.get("기본단계") == "택배발송":
+                caught += 1        # 옛 동작이면 앱 추가분이 기본단계가 된다
+            assert caught == 0, (
+                "[480] 관리대장이 빈 갈래인데 앱 추가분이 기본단계가 됐다([166])")
+            # 옛 코드였다면 그랬을 것이라는 것을 **글자로** 확인한다([39])
+            assert 'master_words[0] if master_words else ""' in code, (
+                "[480] 기본단계가 관리대장 낱말에서만 온다는 근거가 코드에서 사라졌다"
+                " — `official[0]` 로 되돌아가면 Z: 가 끊긴 날 새 접수가 엉뚱한"
+                " 단계로 박힌다([166]·[243])")
+        finally:
+            _mod.default_store = real_default
+            (_WF._read_master, _WF._used_words, _WF._flow,
+             _WF.REPORT_DIR, _WF.DEF_PATH) = real[:5]
+            _WF._MEM.clear()
+            _WF._MEM.update(real[5])
+
+    # ⑥ 못 읽으면 빈 목록이되 **이유를 말한다**([169]·[172])
+    def _boom():
+        raise RuntimeError("DB 를 못 읽었다")
+    try:
+        _mod2 = __import__("app_store")
+        keep = _mod2.default_store
+        _mod2.default_store = _boom
+        got, why = _WF.extra_stages("as")
+    finally:
+        _mod2.default_store = keep
+    assert got == [] and why, (
+        "[480] 못 읽었는데 조용히 빈 목록만 준다 — 이유를 같이 줘야 화면이 적는다([169])")
+
+    print(chr(9989) + " [480] 단계 낱말을 앱에서 더한다 — 엑셀 안 건드림 · 기본단계는"
+          " 관리대장에서만 · 멱등 · 되돌리기 · 못 읽으면 이유")
+
+
+def t481_every_modal_can_be_closed_three_ways():
+    """[481] 모달 닫는 길 **셋**을 앱 전체에 — X · 바깥 클릭 · ESC.
+
+    2026-08-28 형님 지시: **"모달 창에 닫기 버튼을 추가하고 앱 전체적으로 모달창
+    바깥을 클릭하면 모달창이 닫히는 구조로 앱전체 반영, 그리고 ESC 눌러도 창이
+    닫히는 구조로 알고리즘 정리해"** (캡처에 빨간 ✕ 를 그려 표시하셨다).
+
+    ★ 재고 나서 고쳤다([67]) — 셋 중 둘은 이미 있었다. 어긋난 것은 **같은 앱인데
+      캘린더 시트에는 X 가 있고 상세 시트에는 없었던 것**([300])이고, 배경 클릭과
+      ESC 는 **둘 다 눈에 안 보이는 손잡이**라 형님은 닫을 길이 없다고 보셨다.
+
+    ★ **그러다 진짜 결함을 찾았다**(2026-08-28 실측). 캘린더·프로젝트 시트가
+      **제 ESC 핸들러를 따로 갖고 있었다** — `_escCloser` 주석은 *"시트마다 제
+      핸들러를 달면 셋이 서로 먼저 잡으려 다툰다"* 고 적어 두고 그 둘이 그대로
+      살아 있었다(약속만 하고 안 지킨 자리 · [169]). 둘 다 멱등이고 그 시트에
+      입력칸이 없어 **평소에는 두 번 돌아도 결과가 같아서 안 보였다.** 그런데
+      `dlgCancel` 의 `stopPropagation()` 은 **같은 document 에 붙은 다른 리스너를
+      못 막으므로**(그것은 `stopImmediatePropagation` 이다) 확인창을 띄운 채
+      ESC 를 누르면 **확인창과 캘린더가 같이 닫혔다.** 이제 한 곳으로 모았다.
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① `.sheet` 에 X 가 있고 **`closeSheet`(≠`closeSheetAll`)** 를 부른다 —
+         목록→상세로 파고들었으면 **한 겹만** 되돌아가야 자리를 안 잃는다([417])
+      ② 그 클래스에 **모양이 있다**([310]) · 굳은 색을 안 쓴다([332])
+      ③ **시트를 닫는 ESC 는 `_escCloser` 만 거친다**([162])
+      ④ **위에 뜬 것부터** 닫는다 · 도면 편집기 위에서는 아무것도 안 한다
+      ⑤ 한글 조합 중·입력칸·확인창에서는 **안 닫는다**([275])
+      ⑥ 계기 자신도 시험한다([272])
+
+    ★ **글자로는 '정말 위에 뜬 것부터 닫나'를 못 잰다**([295]) — `_escCloser` 를
+      실제 소스에서 떼어 node 로 **실행해서** 잰다. 스텁으로 때우지 않는다([366]).
+    ⚠ node 는 `proc_guard.run_tree` 로 부른다 — 그냥 부르면 검은 창이 뜬다([270]·[272]).
+    """
+    import json as _j
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    def _fn(name):
+        """중괄호 짝으로 JS 함수 하나를 뽑는다 — `_t303_enclosing_func` 는 파이썬 전용이다."""
+        i = live.index("function " + name + "(")
+        d, started = 0, False
+        for j in range(i, len(live)):
+            c = live[j]
+            if c == "{":
+                d += 1
+                started = True
+            elif c == "}":
+                d -= 1
+                if started and d == 0:
+                    return live[i:j + 1]
+        raise AssertionError("[481] 짝을 못 맞춤: " + name)
+
+    # ① `.sheet` 의 X — 자리와 **무엇을 부르는가**
+    mark = 'class="sheet-x"'
+    assert mark in live, (
+        "[481] 상세 시트에 닫기(✕)가 없다 — 형님이 캡처에 그려 표시하신 그 자리다")
+    seg = live[live.index(mark):live.index(mark) + 260]
+    assert "closeSheet()" in seg and "closeSheetAll" not in seg, (
+        "[481] X 가 `closeSheet` 를 안 부른다 — `closeSheetAll` 이면 목록까지"
+        " 통째로 닫혀 파고든 자리를 잃는다([417]): %r" % seg[:160])
+
+    # ② 모양이 실재한다([310]) · 굳은 색을 안 쓴다([332])
+    css = live[:live.rindex("</style>")]
+    rule = re.search(r"\.sheet\s+\.sheet-x\s*\{([^}]*)\}", css)
+    assert rule, "[481] `.sheet-x` 에 CSS 가 없다 — 마크업만 넣으면 회색 글씨가 된다([310])"
+    assert not re.search(r"#[0-9A-Fa-f]{3,8}\b", rule.group(1)), (
+        "[481] `.sheet-x` 가 굳은 색을 쓴다 — 어두운 화면에서 안 보인다([332]): %r"
+        % rule.group(1)[:120])
+
+    # ③ 시트를 닫는 ESC 는 **`_escCloser` 만** 거친다([162]).
+    #   ⚠ 리스너 개수를 세지 않는다 — 도면 편집기·팔레트·확인창·빠른 패널은 제
+    #     ESC 를 쓰는 것이 맞고, 그것까지 세면 멀쩡한 코드가 빨개진다([172]).
+    #     재려는 것은 **시트를 닫는 손잡이가 둘이 아닌가** 하나다.
+    code = _t370_code_only(live)     # ⚠ 규칙을 세기 전에 설명을 걷는다([301]-9)
+    closers = ("calCloseSheet(", "pjCloseSheet(", "closeSheet(")
+    for m in re.finditer("Escape", code):
+        near = code[max(0, m.start() - 220):m.start() + 220]
+        if "_escCloser" in near:
+            continue
+        hit = [w for w in closers if w in near]
+        assert not hit, (
+            "[481] `_escCloser` 를 안 거치고 ESC 에서 시트를 직접 닫는 자리가 있다"
+            "(%s) — 확인창을 띄운 채 ESC 를 누르면 둘이 같이 닫힌다([162]): %r"
+            % (" · ".join(hit), near[:180]))
+
+    # ⑤ 빼앗지 않는다 — 되돌아가면 안 되는 것만 글자로 얼린다([39])
+    for word, why in (
+            ("defaultPrevented", "확인창이 먼저 잡은 ESC 를 빼앗는다"),
+            ("isComposing", "한글 조합 중 ESC 에 창을 닫아 적던 글자를 잃는다"),
+            ("contenteditable", "입력칸에 커서가 있어도 닫아 적던 것을 잃는다([275])")):
+        assert word in code, "[481] ESC 가 %s (`%s` 가 사라졌다)" % (why, word)
+
+    # ③④ 갈래 여섯을 **실행해서** 잰다([295])
+    esc = _fn("_escCloser")
+    i, j = esc.index("const pj ="), esc.index("if(typeof sheetIsOpen")
+    old = (esc[:i] + esc[j:]).replace("function _escCloser(", "function _escOld(", 1)
+
+    NL = chr(10)
+    js = NL.join([
+        "let ELS={};const $=id=>ELS[id]||null;",
+        "const el=open=>({classList:{contains:c=>c==='open'&&open},querySelector:()=>null});",
+        "let sheetOpen=false;",
+        "function sheetIsOpen(){return sheetOpen;}",
+        "function closeSheet(){return 'closeSheet';}",
+        "function calCloseSheet(){return 'calCloseSheet';}",
+        "function pjCloseSheet(){return 'pjCloseSheet';}",
+        esc, old,
+        "const plain={classList:{contains:()=>false},querySelector:()=>null};",
+        "const O=[];const N=f=>f?(f.name||String(f)):null;",
+        "ELS={};sheetOpen=false;O.push(N(_escCloser()));",
+        "ELS={sheet:plain};sheetOpen=true;O.push(N(_escCloser()));",
+        "ELS={sheet:plain,calSheet:el(true)};O.push(N(_escCloser()));",
+        "ELS={sheet:plain,calSheet:el(true),pjSheet:el(true)};O.push(N(_escCloser()));",
+        "ELS={sheet:plain,calSheet:el(false)};O.push(N(_escCloser()));",
+        "ELS={sheet:{classList:{contains:()=>false},querySelector:()=>({})}};"
+        "sheetOpen=true;O.push(N(_escCloser()));",
+        "ELS={sheet:plain,calSheet:el(true),pjSheet:el(true)};sheetOpen=true;"
+        "O.push(N(_escOld()));",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t481.js")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=60, drain_timeout=10)
+    assert r.returncode == 0, "[481] ESC 하네스가 죽었다: %s" % (r.stderr or "")[:300]
+    o = _j.loads((r.stdout or "[]").strip().splitlines()[-1])
+    assert len(o) == 7, o
+    assert o[0] is None, "[481] 아무것도 안 열렸는데 닫으려 한다: %r" % o[0]
+    assert o[1] == "closeSheet", "[481] 상세 시트를 안 닫는다: %r" % o[1]
+    assert o[2] == "calCloseSheet", "[481] 위에 뜬 캘린더를 안 닫는다: %r" % o[2]
+    assert o[3] == "pjCloseSheet", "[481] 가장 위 창을 안 닫는다: %r" % o[3]
+    assert o[4] == "closeSheet", "[481] 닫힌 캘린더를 건너뛰지 않는다: %r" % o[4]
+    assert o[5] is None, (
+        "[481] 도면 편집기 위에서 시트를 닫는다 — 저장 안 한 도면을 잃는다: %r" % o[5])
+
+    # ⑥ 계기 자기시험([272]) — 위에 뜬 것부터 고르는 문을 없애면 잡히나
+    assert o[6] != "pjCloseSheet", (
+        "[481] 옛 동작(상세만 보는 판)이 가장 위 창을 골랐다 — 이 검사는"
+        " 아무것도 안 재고 있다([272]): %r" % o[6])
+
+    print(chr(9989) + " [481] 모달 닫는 길 셋 — X(closeSheet) · 모양 · ESC 한 곳 ·"
+          " 갈래 여섯 · 조합/입력칸/확인창 존중 · 계기 자기시험")
+
+
+def t482_error_popup_keeps_the_server_reason():
+    """[482] 오류 팝업이 **서버가 준 이유**를 버리지 않는다 · 실패도 자국을 남긴다.
+
+    2026-08-28 형님이 자료를 올리시다 `CSOS-UPLOAD-400` 을 받으시고 팝업이 시킨
+    대로 캡처를 보내 주셨다([346] 이 설계한 그대로 값을 했다). 그런데 그 팝업에
+    **서버가 왜 거절했는지가 한 글자도 없었다** — "앱이 처음 보는 오류입니다" 뿐.
+
+    ★ 서버는 이유를 **정확히** 보낸다(`str(exc)[:320]`). 버린 것은 화면이다 —
+      `errorHelp` 가 `detail` 을 `신고문구` 에만 담고 본문에는 안 실었다.
+      [289]·[365] 가 여러 번 배운 '봉투를 버리는' 자리인데 여기 안 와 있었다([300]).
+    ★ **자국도 없었다**([169]). 성공 갈래에는 `uxEvent('tap','receipt-upload')` 가
+      있는데 실패 갈래에만 없어서, 형님이 캡처를 안 보내셨으면 **아무 데도 안
+      남았다** — 몇 번 나는지 모르면 뿌리를 영영 못 잡는다.
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① 팝업 본문에 **서버 사유가 실린다** — 사전에 없는 오류일수록 그 한 줄이
+         유일한 단서다
+      ② 사전에 있으면 **쉬운말이 먼저**다 — 기술 문구를 앞에 세우면 사람이 읽어야
+         할 말이 영어·코드에 묻힌다([170])
+      ③ 사유가 없으면 그 칸을 **안 만든다** — 빈 상자는 고장으로 읽힌다
+      ④ 400 과 **연결 실패** 둘 다 ux 자국을 남긴다
+      ⑤ 계기 자신도 시험한다([272])
+
+    ★ **글자로는 '정말 본문에 실리나'를 못 잰다**([295]) — 본문을 만드는 조각을
+      실제 소스에서 떼어 node 로 **실행해서** 잰다.
+    """
+    import json as _j
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    i = live.index("async function errorHelp(")
+    j = live.index("const pick = await dlgAsk(", i)
+    frag = live[live.index("const body =", i):j]
+    assert "detail" in frag, (
+        "[482] 팝업 본문에 서버 사유가 한 글자도 안 실린다 — 그러면 '겉은 오류인데"
+        " 왜인지는 못 읽는' 자리가 된다([289]·[365])")
+
+    NL = chr(10)
+    js = NL.join([
+        "function esc2(s){return String(s==null?'':s);}",
+        "function mk(h, detail, _code, steps){",
+        frag,
+        "  return body;}",
+        "const H={앎:true, 이름:'저장 버전 없음', 쉬운말:'쉬운말입니다',"
+        " 왜:'왜인지입니다', 하세요:[]};",
+        "const UNK={앎:false, 이름:'오류', 쉬운말:'저장·조회가 되지 않았습니다.',"
+        " 왜:'', 하세요:[]};",
+        "const O=[];",
+        "O.push(mk(H,'RECEIPT_EXT: .hwp 는 못 받습니다','CSOS-UPLOAD-400',''));",
+        "O.push(mk(UNK,'RECEIPT_EXT: .hwp 는 못 받습니다','CSOS-UPLOAD-400',''));",
+        "O.push(mk(H,'','CSOS-UPLOAD-400',''));",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t482.js")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=60, drain_timeout=10)
+    assert r.returncode == 0, "[482] 팝업 하네스가 죽었다: %s" % (r.stderr or "")[:300]
+    o = _j.loads((r.stdout or "[]").strip().splitlines()[-1])
+    assert len(o) == 3, o
+
+    # ① 서버 사유가 본문에 실린다
+    assert "RECEIPT_EXT" in o[0], (
+        "[482] 팝업이 서버 사유를 버렸다 — 형님이 받으신 그 화면이다: %r" % o[0][:200])
+    assert "RECEIPT_EXT" in o[1], "[482] 사전에 없는 오류에도 사유를 안 싣는다"
+
+    # ② 쉬운말이 먼저다([170])
+    assert o[0].index("쉬운말입니다") < o[0].index("RECEIPT_EXT"), (
+        "[482] 기술 문구가 쉬운말보다 앞에 있다 — 읽어야 할 말이 영어·코드에 묻힌다([170])")
+
+    # ③ 사유가 없으면 그 칸을 안 만든다
+    assert "서버가 알려 준 이유" not in o[2], (
+        "[482] 사유가 없는데 빈 상자를 만든다 — 빈 상자는 고장으로 읽힌다")
+
+    # ④ 400 과 연결 실패 **둘 다** 자국을 남긴다([169])
+    rs = live.index("async function receiptSubmit(")
+    body = live[rs:live.index(NL + "async function", rs + 10)]
+    assert body.count("uxEvent('error','/api/staff/receipt-upload'") >= 2, (
+        "[482] 업로드 실패가 ux 자국을 안 남긴다 — 형님이 캡처를 안 보내시면"
+        " 아무 데도 안 남는다([169]). 400 갈래와 연결 실패 갈래 둘 다 필요하다")
+    assert "'NETWORK · '" in body, "[482] 연결 실패 갈래의 자국이 없다"
+
+    # ⑤ 계기 자기시험([272]) — 옛 동작(사유를 안 싣는 판)이면 잡히나
+    old = re.sub(r"\+ \(detail \? `<p class=\"norm\"[\s\S]*?: ''\)", "+ ''", frag, count=1)
+    assert old != frag, "[482] 자기시험 재료를 못 만들었다 — 이 검사는 얼릴 것을 못 짚는다"
+    js2 = js.replace(frag, old, 1)
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t482b.js")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js2)
+        r2 = run_tree(["node", f], timeout=60, drain_timeout=10)
+    assert r2.returncode == 0, "[482] 자기시험 하네스가 죽었다: %s" % (r2.stderr or "")[:200]
+    o2 = _j.loads((r2.stdout or "[]").strip().splitlines()[-1])
+    assert "RECEIPT_EXT" not in o2[0], (
+        "[482] 사유 줄을 없앴는데도 본문에 사유가 있다 — 이 검사는 아무것도"
+        " 안 재고 있다([272])")
+
+    print(chr(9989) + " [482] 오류 팝업이 서버 사유를 싣는다 — 쉬운말 먼저 · 빈 칸 없음 ·"
+          " 업로드 실패 자국 둘 · 계기 자기시험")
+
+
+def t483_schedule_plan_is_hidden_not_deleted():
+    """[483] 스케줄 원본에서 온 예정도 **목록에서 지운다** — 지우지 않고 숨긴다.
+
+    2026-08-28 류지영 매니저 요청(형님 전달 · 캡처): *"이건은 아직 앱에 등록되지
+    않은 예정입니다 라고 되어잇는데 **이것도 삭제가능하게 해주세여**"* ·
+    형님 지시 **"삭제 가능하게 기능 추가 전체적으로"**.
+
+    ★ 재고 나서 범위를 정했다([67]) — `as` 610건은 **전부** 앱 DB 에 있어 예전부터
+      지워졌고, 막히던 것은 **`SCH-` 71건 하나**였다. ID 가 없는 2건은 ERP 에서 온
+      완료 실적이라 열쇠도 못 만든다 — **안 건드렸다**([172]).
+
+    ★ **지우면 다음 회차가 도로 만든다.** 이 예정의 원천은 류지영 정기점검 스케줄
+      원본이고 앱 DB(`work_item`)에 행이 **아예 없어** `soft_delete_work` 가 못 돈다.
+      지우는 시늉만 하고 다음 날 되살아나면 사람은 앱을 못 믿는다([355] 캠프 숨김).
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① 열쇠 **모양**으로 갈래를 가른다 — `PM-`·`UJ` 가 이 길로 오면 그 건은 앱 DB
+         행이 있어 `soft_delete_work` 로 지워야 하는데, 숨김으로 처리하면 감사로그도
+         되살리기도 그쪽 규칙을 못 탄다. **두 갈래가 섞이면 어느 쪽 규칙이 도는지
+         아무도 모른다**
+      ② **사유 없이는 못 숨긴다** — 몇 달 뒤 "이 점검 왜 없지"에 답할 한 줄이다([355])
+      ③ 숨기면 거르는 자리가 보고, **되살리면 그대로 돌아온다**
+      ④ 다른 기기가 먼저 고쳤으면 **덮지 않는다**(낙관잠금)
+      ⑤ 거르는 자리가 **셋**이고 모두 같은 열쇠(`일정ID`)로 본다 — 카드에서 지운 것이
+         달력에 남으면 "삭제가 안 된다"로 읽힌다
+      ⑥ 새 엔드포인트를 안 만들었다([162]) — 삭제·되살리기가 **권한·사유 검사 뒤**에
+         갈래만 가른다
+      ⑦ **못 읽으면 안 거른다**([169]·[172]) — 이것 하나 때문에 정기점검 목록이
+         통째로 비면 고치려던 것보다 나쁘다
+      ⑧ 화면 — `plan` 갈래에 삭제가 있고 **저장·청구 제외는 여전히 없다**([169])
+      ⑨ 계기 자신도 시험한다([272])
+
+    ★ 실측 앱 DB 는 **한 글자도 안 건드린다**([247]) — 임시 DB 로만 잰다.
+    """
+    from pathlib import Path
+    import app_store as _AS
+    import pm_plan_hide as _PH
+
+    SCH = "SCH-2026Q3-DB260990C2"          # 형님 캡처의 그 예정
+    OTHER = "SCH-2026Q3-25D510AD97"
+
+    # ① 열쇠 모양으로 가른다
+    for good in (SCH, OTHER, SCH.lower()):
+        assert _PH.valid_id(good), "[483] `SCH-` 를 못 알아본다: %r" % good
+    for bad in ("PM-2604-219", "UJ2601384", "", None, "SCH-2026Q3-XYZ", "SCH-26Q3-DB260990C2"):
+        assert not _PH.valid_id(bad), (
+            "[483] `%r` 이 숨김 길로 들어온다 — 앱 DB 행이 있는 건은 `soft_delete_work`"
+            " 로 지워야 한다(두 갈래가 섞이면 어느 쪽 규칙이 도는지 아무도 모른다)" % bad)
+
+    real = _PH._store
+    with tempfile.TemporaryDirectory(prefix="csos-t483-") as td:
+        st = _AS.AppStore(Path(td) / "app.db").initialize()
+        _PH._store = lambda: st
+        try:
+            assert _PH.hidden_ids() == set(), _PH.hidden_ids()
+
+            # ② 사유 없이는 못 숨긴다
+            try:
+                _PH.set_hidden(SCH, True, actor="ryu", expected_version=0)
+                raise AssertionError(
+                    "[483] 사유 없이 숨겨 버렸다 — 몇 달 뒤 아무도 설명 못 한다([355])")
+            except AssertionError:
+                raise
+            except _PH.입력오류:
+                pass
+
+            # ① 앱 DB 행이 있는 건은 이 길로 못 온다
+            try:
+                _PH.set_hidden("PM-2604-219", True, actor="ryu", reason="지움",
+                               expected_version=0)
+                raise AssertionError("[483] `PM-` 가 숨김 길로 들어왔다")
+            except AssertionError:
+                raise
+            except _PH.입력오류:
+                pass
+
+            # ③ 숨기면 거르는 자리가 본다
+            res = _PH.set_hidden(SCH, True, actor="ryu",
+                                 reason="이 캠프는 점검 대상이 아님",
+                                 camp="구미1MB(초곡리)", plan_date="2026-09-02")
+            assert res.get("숨김") is True, res
+            assert _PH.hidden_ids() == {SCH}, _PH.hidden_ids()
+            m, why = _PH.hidden_map()
+            assert not why and m[SCH].get("왜"), (
+                "[483] 왜 지웠는지가 안 실려 오면 되살릴지 판단할 근거가 없다: %r" % m)
+            assert m[SCH].get("캠프명") == "구미1MB(초곡리)", m[SCH]
+
+            # ④ 다른 기기가 먼저 고쳤으면 덮지 않는다
+            try:
+                _PH.set_hidden(SCH, False, actor="oh", expected_version=0)
+                raise AssertionError("[483] 낡은 판으로 덮어썼다 — 낙관잠금이 없다")
+            except AssertionError:
+                raise
+            except _AS.VersionConflict:
+                pass
+
+            # ③ 되살리면 그대로 돌아온다
+            _, ver = _PH.get_one(SCH)
+            back = _PH.set_hidden(SCH, False, actor="ryu", expected_version=ver)
+            assert back.get("숨김") is False, back
+            assert _PH.hidden_ids() == set(), (
+                "[483] 되살렸는데 아직 숨겨져 있다: %r" % _PH.hidden_ids())
+        finally:
+            _PH._store = real
+
+    # ⑦ 못 읽으면 **안 거른다** — 목록이 통째로 비면 고치려던 것보다 나쁘다
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as _A
+
+    def _boom():
+        raise RuntimeError("DB 를 못 읽었다")
+    keep = _PH.hidden_ids
+    try:
+        _PH.hidden_ids = _boom
+        assert _A._hidden_plan_ids() == set(), (
+            "[483] 못 읽었는데 뭔가를 거른다 — 정기점검 목록이 통째로 빌 수 있다([172])")
+        _PH.hidden_ids = lambda: {SCH}
+        assert _A._hidden_plan_ids() == {SCH}, "[483] 읽었는데 안 거른다"
+    finally:
+        _PH.hidden_ids = keep
+
+    src = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    code = _t370_code_only(src)     # ⚠ 규칙을 세기 전에 설명을 걷는다([301]-9)
+
+    # ⑤ 거르는 자리가 셋이고 **모두 같은 열쇠**로 본다
+    n = code.count("_hidden_plan_ids()")
+    assert n >= 4, (
+        "[483] 거르는 자리가 %d 곳뿐이다 — 카드 목록·앱 캘린더·프로젝트 이력 셋이"
+        " 다 봐야 한다(정의 1 + 부르는 곳 3). 카드에서 지운 것이 달력에 남으면"
+        " '삭제가 안 된다'로 읽힌다" % n)
+    for m in re.finditer(r"_hidden_plans = _hidden_plan_ids\(\)", code):
+        near = code[m.end():m.end() + 700]
+        assert "일정ID" in near and "_hidden_plans" in near, (
+            "[483] 거르는 자리가 `일정ID` 로 안 본다 — 열쇠가 어긋나면 한 건도"
+            " 안 걸리면서 오류도 안 난다([165]): %r" % near[:200])
+
+    # ⑥ 새 엔드포인트를 안 만들었다([162]) · 갈래는 **권한·사유 검사 뒤**다
+    for fname, want in (("def delete_staff_work(", "True"), ("def restore_staff_work(", "False")):
+        body = _t303_enclosing_func(src, fname)
+        assert body and "_plan_hide_target(record_key)" in body, (
+            "[483] %s 가 `SCH-` 갈래를 안 가른다 — 앱 DB 행이 없어 그대로 죽는다" % fname)
+        assert "_hide_plan_row(record_key, " + want in body, (
+            "[483] %s 의 갈래가 %s 로 안 간다" % (fname, want))
+        gate = body.index("_plan_hide_target(record_key)")
+        assert body.index("_staff_work_target(") > gate, (
+            "[483] %s 가 앱 DB 를 먼저 뒤진다 — `SCH-` 는 거기 행이 없어 그 줄에서"
+            " 죽는다(2026-08-28 실측: 되살리기가 그래서 ValueError 였다)" % fname)
+
+    # ⑧ 화면 — 삭제는 생겼고 **저장·청구 제외는 여전히 없다**([169])
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    plan = live[live.index("if(_unreg==='plan')"):]
+    plan = plan[:plan.index("if(_unreg==='half')")] if "if(_unreg==='half')" in plan[:4000] \
+        else plan[:2000]
+    assert "wtDelete(" in plan, (
+        "[483] 예정 갈래에 [목록에서 지우기] 가 없다 — 류지영 매니저 요청 그 자리다")
+    assert "saveInputs" not in plan and "청구 제외" not in plan.replace("청구 제외도 할 수 없", ""), (
+        "[483] 예정 갈래에 저장·청구 제외가 생겼다 — 그 둘은 앱 DB 행이 있어야 한다."
+        " 할 수 있는 것만 주고 못 하는 것은 그대로 말한다([169])")
+    assert "되살릴 수 있습니다" in plan, (
+        "[483] 지우면 되살릴 수 있다는 말이 없다 — 사람은 영영 지운 줄 안다")
+    for cls in ("wt-acts", "wt-acthint", "btn danger"):
+        probe = cls.replace(" ", ".")
+        assert re.search(r"\." + probe.replace(".", r"\s*\.") + r"[\s,{]", live), (
+            "[483] `%s` 에 CSS 가 없다 — 마크업만 넣으면 회색 글씨가 된다([310])" % cls)
+
+    # ⑨ 계기 자기시험([272]) — 모양 검사를 없애면 `PM-` 가 이 길로 들어오나
+    caught = 0
+    keep_re = _PH.ID_RE
+    try:
+        _PH.ID_RE = re.compile(r"^.+$")
+        if _PH.valid_id("PM-2604-219"):
+            caught += 1
+    finally:
+        _PH.ID_RE = keep_re
+    assert caught == 1, (
+        "[483] 계기가 옛 동작을 못 잡는다 — 아무것도 안 재는 검사다([272])")
+
+    print(chr(9989) + " [483] 예정은 숨긴다(안 지운다) — 갈래 · 사유 필수 · 낙관잠금 ·"
+          " 거르는 자리 셋 · 못 읽으면 안 거름 · 되살리기 · 계기 자기시험")
+
+
+def t484_handoff_says_the_pc_rebooted():
+    """[484] 인계도 **'죽었다'와 'PC 가 꺼졌다'를 가른다**(2026-08-28 실사고).
+
+    `[479]` 는 **회차 자국**(`daily_run`)에 그 사실을 붙였다. 그런데 사람이 실제로
+    읽는 곳은 **인계 문서**이고, 거기는 여전히 *"★회차 프로세스가 죽었다"* 라고만
+    말했다 — 그러면 사람이 **멀쩡한 워치독 코드를 뒤진다**([172]). 한 곳에서 배운
+    것이 다른 곳에 안 와 있던 자리다([300]).
+
+    얼리는 것은 되돌아가면 안 되는 계약이다([39]):
+      ① **`살아있음 is False` 갈래에만** 붙는다 — 도는 회차·완주한 회차는 재부팅과
+         상관이 없다. **좁히는 것도 고장이므로** 그 둘은 한 글자도 안 바뀐다([172])
+      ② **재는 자리는 `system_audit._boot_time` 한 곳이다**([162]) — 여기서 다시
+         물으면 같은 물음에 두 답이 생긴다(2026-08-28 에 두 창이 실제로 그랬다)
+      ③ **갈래는 안 바꾼다**([385]·[468]) — 죽은 것은 여전히 사실이고 다시 돌려야
+         한다. 덧붙이는 것은 **사실 하나**까지다
+      ④ **여유 60초가 산다** — 자국은 초 단위로 잘려 적히고 부팅 시각도 흔들린다.
+         아슬아슬한 자리에서 '재부팅했다'를 **지어내지 않는 쪽**으로 기운다([169])
+      ⑤ **못 재면 아무 말도 안 한다**([169])
+      ⑥ 계기 자신도 시험한다([272])
+
+    ★ **글자로는 못 잰다**([295]) — `_reboot_note` 와 `_step_hint` 를 **불러서** 잰다.
+    ⚠ 부팅 시각은 목으로 갈아 끼운다 — 진짜 PowerShell 을 부르면 이 검사가
+      **실데이터에 매인다**([211]). 모듈 표는 프로세스 전체의 것이라 `finally` 로
+      되돌린다([371]).
+    ⚠ `datetime` 은 이 파일 모듈 수준에 **없다**([324]·[406]) — 함수 안에서.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    sys.path.insert(0, ROOT)
+    import session_handoff as _SH
+    import system_audit as _SA
+
+    src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    code = _t370_code_only(src)     # ⚠ 규칙을 세기 전에 설명을 걷는다([301]-9)
+
+    # ② 재는 자리는 한 곳이다([162]) — 인계가 제 손으로 안 묻는다
+    for word in ("LastBootUpTime", "Win32_OperatingSystem"):
+        assert word not in code, (
+            "[484] session_handoff 가 부팅 시각을 제 손으로 묻는다(%s) — 같은 물음에"
+            " 두 답이 생긴다([162]). `system_audit._boot_time` 을 빌린다." % word)
+
+    # ① 배선 — 함수만 있고 안 부르면 **없는 것과 같다**([328])
+    hint = _t303_enclosing_func(src, "def _step_hint(")
+    assert hint and "_reboot_note(" in hint, (
+        "[484] `_step_hint` 가 재부팅을 안 묻는다 — 인계는 여전히 '죽었다'만 말한다([328])")
+
+    def _with_boot(boot, fn):
+        keep = _SA._boot_time
+        try:
+            _SA._boot_time = lambda: (boot, "" if boot else "못 읽었다")
+            return fn()
+        finally:
+            _SA._boot_time = keep
+
+    STAY = 100.0                       # 자국이 100분 전
+    now = _dt.now()
+    LAST = now - _td(minutes=STAY)
+
+    # ③ 자국보다 **나중**에 부팅했으면 그것이 답이다
+    txt = _with_boot(LAST + _td(minutes=10), lambda: _SH._reboot_note(STAY))
+    assert "재부팅" in txt, "[484] 자국 뒤 부팅인데 아무 말도 안 한다: %r" % txt
+    assert "코드가 깨진 것이 아니다" in txt, (
+        "[484] 코드 탓이 아니라는 말이 없다 — 사람이 멀쩡한 코드를 뒤진다([172]): %r" % txt)
+
+    # ③ 자국보다 **앞선** 부팅은 이 죽음과 무관하다
+    assert _with_boot(LAST - _td(minutes=10), lambda: _SH._reboot_note(STAY)) == "", (
+        "[484] 앞선 부팅을 원인이라 했다")
+
+    # ④ 여유 60초가 산다 — 아슬아슬하면 지어내지 않는 쪽으로 기운다([169])
+    assert _with_boot(LAST + _td(seconds=30), lambda: _SH._reboot_note(STAY)) == "", (
+        "[484] 30초 차이를 재부팅이라 확언했다 — 자국도 부팅 시각도 초 단위로 흔들린다")
+
+    # ⑤ 못 재면 아무 말도 안 한다([169])
+    assert _with_boot(None, lambda: _SH._reboot_note(STAY)) == "", (
+        "[484] 못 쟀는데 재부팅이라 했다")
+    assert _with_boot(LAST + _td(minutes=10), lambda: _SH._reboot_note(None)) == "", (
+        "[484] 자국 시각을 모르는데 재부팅이라 했다")
+
+    # ① 갈래 셋 — **죽은 회차에만** 붙는다. 도는 회차·완주는 한 글자도 안 바뀐다([172])
+    BOOT = LAST + _td(minutes=10)
+    keep_now = _SH.daily_step_now
+    try:
+        for state, want in ((False, True), (True, False), (None, False)):
+            _SH.daily_step_now = (lambda st=state: {
+                "단계": "ERP PDF 사본 만들기", "상태": "시작", "머문분": STAY,
+                "살아있음": st, "끝낸수": 60, "경과분": 140.5, "예산분": 150})
+            got = _with_boot(BOOT, _SH._step_hint)
+            assert ("재부팅" in got) is want, (
+                "[484] `살아있음=%r` 갈래에서 재부팅 말이 %s: %r"
+                % (state, "빠졌다" if want else "붙었다", got))
+            if not want:
+                assert "단계" in got or "자국" in got, (
+                    "[484] 다른 갈래의 문구가 사라졌다(좁히는 것도 고장이다 · [172]): %r" % got)
+        # ③ 갈래는 안 바꾼다 — 죽었다는 말이 그대로 남는다([385]·[468])
+        _SH.daily_step_now = lambda: {
+            "단계": "ERP PDF 사본 만들기", "상태": "시작", "머문분": STAY,
+            "살아있음": False, "끝낸수": 60}
+        got = _with_boot(BOOT, _SH._step_hint)
+        assert "죽었다" in got, (
+            "[484] 재부팅을 알았다고 '죽었다'를 지웠다 — 그것은 여전히 사실이고"
+            " 다시 돌려야 한다([385]): %r" % got)
+
+        # ⑥ 계기 자기시험([272]) — 붙이는 자리를 없애면 잡히나
+        caught = 0
+        keep_note = _SH._reboot_note
+        try:
+            _SH._reboot_note = lambda *_a, **_k: ""
+            if "재부팅" not in _with_boot(BOOT, _SH._step_hint):
+                caught += 1
+        finally:
+            _SH._reboot_note = keep_note
+        assert caught == 1, (
+            "[484] 계기가 옛 동작을 못 잡는다 — 아무것도 안 재는 검사다([272])")
+    finally:
+        _SH.daily_step_now = keep_now
+
+    print(chr(9989) + " [484] 인계가 재부팅을 짚는다 — 죽은 갈래에만 · 재는 자리 한 곳 ·"
+          " 여유 60초 · 못 재면 조용 · 계기 자기시험")
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -44815,6 +45525,11 @@ if __name__ == "__main__":
     t477_watchdog_locks_the_archive_net()
     t478_hand_edit_alarm_reads_what_the_writer_split()
     t479_daily_run_names_the_reboot()
+    t480_work_flow_adds_a_stage_without_touching_excel()
+    t481_every_modal_can_be_closed_three_ways()
+    t482_error_popup_keeps_the_server_reason()
+    t483_schedule_plan_is_hidden_not_deleted()
+    t484_handoff_says_the_pc_rebooted()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

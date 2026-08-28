@@ -17040,7 +17040,10 @@ function renderCalSheet(){
   }).join('')
   + `<div class="calendar-detail">${calDetailHTML(rows[CAL_SHEET_SEL])}</div>`;
 }
-document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && calSheetOpen()) calCloseSheet(); });
+/* ESC 는 `_escCloser` 한 곳이 정한다([162]) — 여기 제 핸들러를 두면
+   확인창이 열린 채 ESC 를 눌렀을 때 **확인창과 이 창이 같이 닫힌다**
+   (`dlgCancel` 의 stopPropagation 은 같은 document 의 다른 리스너를
+   못 막는다). 조합 중·입력칸 보호도 그 한 곳이 이미 한다([275]). */
 /* 아래로 쓸어내려 닫기 — 폰에서 닫기 버튼까지 엄지를 올리지 않아도 되게. */
 (function(){
   let y0=null;
@@ -17179,7 +17182,7 @@ function pjRender(d, camp, pj){
     + (d.더있음 ? `<div class="pj-empty">오래된 ${d.더있음}건은 접었습니다.</div>` : '')
     + `<div class="pj-empty">원천 · ${esc2(d.원천||'')}</div>`;
 }
-document.addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && pjSheetOpen()) pjCloseSheet(); });
+/* ESC 는 `_escCloser` 한 곳이 정한다([162]) — 위 캘린더와 같은 이유다. */
 (function(){                       // 아래로 쓸어내려 닫기 — 날짜 창과 같은 손짓
   let y0=null;
   document.addEventListener('touchstart', (ev)=>{
