@@ -31594,6 +31594,120 @@ def t485_stale_dirty_report_does_not_resurrect_ghosts():
     print("  [485] 낡은 오염 리포트가 유령을 되살리지 않는다(기록 없는 번호는 그대로) "
           + chr(9989))
 
+def t489_collector_records_why_each_post_failed():
+    """[489] **수집기가 실패 이유를 번호마다 남긴다** (2026-08-28).
+
+    90610953 이 31회차 2,515건을 물어 **19건**만 받았다(0.8%).  같은 크롬 같은
+    시간에 84789192 는 178/278(64%)이다.  그런데 **왜** 실패했는지 물을 데가
+    없었다 — 수집기가 fail 을 내는 자리는 넷인데 `S.notime` 은 뒤 둘만 담았다:
+
+      | 자리 | 갈래 | 예전 |
+      |---|---|---|
+      | `!d` | `no-doc`(문서가 아예 안 옴) | **아무 데도 안 남음** |
+      | redirect | `redirect` | `S.notime` |
+      | 시각 없음 | `no-time` | `S.notime` |
+      | 예외 | `error` | **아무 데도 안 남음** |
+
+    그래서 `[425]` 의 헛수확 로그에 안 쌓이고 `wasted_nos` 가 영영 안 뺀다.
+
+    ★★ **`S.blank` 셈은 한 글자도 안 건드린다** — `!r.reason` 이 sandbox
+      되돌림(`BLANK_GIVEUP`)의 방아쇠다.  199·336 행에 `reason` 을 채워 넣었으면
+      **그 문이 죽는다**(`[172]`).  그래서 이유는 **판정 자리에서만** 짓는다.
+    ★ 옛 `S.failed` 배열 모양은 안 바꾼다(`[441]`·`[165]` — 되보고·감시자가 읽는다).
+    ★ 이 값으로 **헛돎을 판정하지 않는다**(`[440]` — 가르는 것은 시간이다).
+    ★ **글자로는 못 잰다**(`[295]`) — 소스에서 그 줄을 떠 와 node 로 **돌린다**.
+    """
+    import io as _io
+    import tempfile as _tf
+    import shutil as _sh
+    from proc_guard import run_tree as _rt   # 창 없는 깃발([270]·[272])
+
+    G = os.path.join(ROOT, "band", "grab_posts.js")
+    U = os.path.join(ROOT, "band", "band_auto_collect.user.js")
+    gs = _io.open(G, encoding="utf-8").read()
+    us = _io.open(U, encoding="utf-8").read()
+
+    # (1) 낱말이 짝지나 — 어긋나면 한 건도 안 걸리면서 오류도 안 난다(`[229]`·`[441]`).
+    i = gs.index("window.__grabStatus = () => ({")
+    status_src = gs[i:gs.index("});", i) + 3]
+    assert "failedWhy:" in status_src, (
+        "[489] `__grabStatus` 가 `failedWhy` 를 안 내놓는다 — 되보고가 볼 창구가 없다")
+    assert "st.failedWhy" in us, (
+        "[489] 되보고가 `st.failedWhy` 를 안 읽는다 — 낱말이 갈리면 그 칸은 늘 null 이다(`[441]`)")
+
+    # (2) 옛 칸은 **한 글자도 안 바뀌었나**(`[441]`) — 되보고·감시자가 읽는다.
+    for old in ("ok: S.done.length", "failed: S.failed.length", "tried:"):
+        assert old in status_src, "[489] `__grabStatus` 의 옛 칸이 바뀌었다: %s" % old
+    assert "st.failed != null ? st.failed" in us, (
+        "[489] 되보고의 옛 `실패` 갈래가 사라졌다(`[441]`)")
+
+    # (3) ★★ **`S.blank` 셈을 안 건드렸나** — sandbox 되돌림의 방아쇠다.
+    assert "if (!r.reason) S.blank = (S.blank || 0) + 1; else S.blank = 0;" in gs, (
+        "[489] `S.blank` 셈이 바뀌었다 — 199·336 행에 reason 을 채우면 "
+        "sandbox 되돌림(BLANK_GIVEUP)이 죽는다(`[172]`)")
+    for line, tag in ((199, "if (!d) return { status: 'fail' };"),
+                      (336, "return { status: 'fail', error: String(e) };")):
+        assert tag in gs, (
+            "[489] 이유 없는 fail 자리가 바뀌었다(%s) — 그것이 blank 를 올린다" % tag)
+
+    # (4) 네 갈래가 각각 제 이름으로 적히나 — **소스에서 떠 와 돌린다**(`[309]`·`[295]`).
+    if not shutil_which_node():
+        print("  [489] node 가 없어 실행 검사를 건너뛴다 — 통과라는 뜻이 아니다(`[169]`) "
+              + chr(9989))
+        return
+    tmp = _tf.mkdtemp(prefix="t489_")
+    try:
+        js = os.path.join(tmp, "chk.js")
+        with _io.open(js, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(
+                "const fs=require('fs');\n"
+                "const src=fs.readFileSync(process.argv[2],'utf8');\n"
+                "const why=src.match(/S\\.failedWhy\\[no\\] = .*/)[0];\n"
+                "const blank=src.match(/if \\(!r\\.reason\\) S\\.blank = .*/)[0];\n"
+                "const S={failedWhy:{},blank:0};let blanks=0;\n"
+                "const cases=[['no-doc',{status:'fail'}],"
+                "['redirect',{status:'fail',reason:'redirect',sig:'x'}],"
+                "['no-time',{status:'fail',reason:'no-time',sig:'y'}],"
+                "['error',{status:'fail',error:'boom'}]];\n"
+                "for(const [want,r] of cases){const no=want;eval(why);eval(blank);"
+                "if(!r.reason)blanks++;"
+                "if(S.failedWhy[no]!==want)throw new Error('이유가 틀렸다:'+no+'->'+S.failedWhy[no]);}\n"
+                "if(blanks!==2)throw new Error('blank 를 올려야 할 갈래 수가 틀렸다:'+blanks);\n"
+                "if(S.blank!==1)throw new Error('마지막 error 뒤 blank 가 1 이 아니다:'+S.blank);\n"
+                # status 는 **셈**만 내놓는다 — 목록이면 폴링이 무거워진다
+                "const i=src.indexOf('window.__grabStatus = () => ({');\n"
+                "const frag=src.slice(i,src.indexOf('});',i)+2).replace('window.__grabStatus =','');\n"
+                "const T={running:false,paused:false,total:0,done:[],missing:[],failed:[1,2],"
+                "posts:{},startedAt:null,saves:0,sandbox:true,"
+                "failedWhy:{'1':'no-doc','2':'no-doc','3':'error'}};\n"
+                # ⚠ `(0,eval)` 은 **전역에서 돈다** — 감싼 함수의 지역 `S` 를
+                #   못 본다.  그래서 전역에 얹는다(직접 eval 과 간접 eval 은 다르다).
+                "globalThis.S=T;\n"
+                "const st=(0,eval)('('+frag+')')();\n"
+                "if(JSON.stringify(st.failedWhy)!=='{\"no-doc\":2,\"error\":1}')"
+                "throw new Error('status 가 셈이 아니다:'+JSON.stringify(st.failedWhy));\n"
+                "if(st.failed!==2)throw new Error('옛 failed 칸이 바뀌었다');\n"
+                "console.log('OK');\n")
+        r = _rt(["node", js, G], timeout=60, drain_timeout=10)
+        assert r.returncode == 0 and "OK" in (r.stdout or ""), (
+            "[489] 실행 검사가 실패했다: %s" % ((r.stderr or r.stdout or "")[-300:]))
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # (5) 다시 걸 때 옛 이유를 버리나 — 안 버리면 성공해도 남는다.
+    assert "delete S.failedWhy[no];" in gs, (
+        "[489] 다시 걸 때 옛 이유를 안 버린다 — 성공한 번호에 실패 이유가 남는다")
+
+    # (6) 덤프에도 실리나 — 흡수기는 그 칸을 안 읽으므로 해가 없다(실측).
+    assert "failedWhy: S.failedWhy || {}," in gs, "[489] 덤프에 이유 목록이 안 실린다"
+
+    # (7) ★ 계기 자기시험(`[272]`) — 옛 동작(이유를 안 적음)이면 (4)가 잡히는가
+    bad = gs.replace("S.failedWhy[no] = r.reason || (r.error ? 'error' : 'no-doc');", "")
+    assert bad != gs, "[489] 옛 동작을 주입할 자리를 못 찾았다 — 이 시험은 아무것도 안 잰다"
+    assert "S.failedWhy[no] =" not in bad, "[489] 주입이 반쪽이다"
+
+    print("  [489] 실패 이유를 번호마다 남긴다(blank 셈·옛 칸은 그대로) " + chr(9989))
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -45959,6 +46073,7 @@ if __name__ == "__main__":
     t486_demo_reject_trace_stays_out_of_evidence()
     t487_upload_reject_book()
     t488_erp_bulk_close_is_reversible()
+    t489_collector_records_why_each_post_failed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
