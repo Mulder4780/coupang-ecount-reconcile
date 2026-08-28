@@ -648,6 +648,46 @@ def clean_reports(dry):
     return f"오래된 리포트 {len(targets)}개 정리{'(dry)' if dry else ''}"
 
 
+def lock_ledger_archive(dry):
+    """관리대장 보관본이 안 잠겨 있으면 잠근다 — **엑셀은 저장용이다**(2026-08-28 지시).
+
+    ★ 왜 그물이 필요한가 — `[474]` 의 배선은 **반쪽이었다.**
+      vN+1 을 만드는 도구가 다섯인데(`ledger_writer`·`expand_rows`·`fix_ids`·
+      `dedupe_rows`·`findings_sheet`) 잠금을 건 것은 `ledger_writer` 하나뿐이다.
+      그런데 **2026-08-27 v621 을 만든 것은 `expand_rows`** 였다 — 곧 카톡 보류로
+      행을 늘릴 때마다 새 최신본이 열린 채로 남는다.
+      다섯 곳에 각각 붙이면 사본이 다섯이 된다([162]) — 그래서 **여기 한 곳**이
+      30분마다 "안 잠겼으면 잠근다". 어느 도구가 만들었든 걸린다.
+
+    ★ **사람이 쓰는 중이면 안 잠근다**(`check_in_use=True`) — `~$` 잠금파일이나
+      최근 저장이 보이면 물러난다. 쓰는 중인 파일을 잠그면 그 사람의 입력이
+      날아간다([104] 류지영 우선). 다음 회차가 다시 본다.
+    ★ **읽기는 한 톨도 안 좁아진다** — 읽기 전용은 여는 것을 막지 않는다.
+    ★ 못 잠가도 **회차를 안 죽인다** — 그러나 이미 잠겨 있으면 **아무 말도 안 한다**([170])."""
+    try:
+        import archive_lock
+        import workbook_patch
+    except Exception as exc:
+        return "보관본 잠금: 못 불렀다(%s)" % exc
+    if not archive_lock.enabled():
+        return ""                      # 사람이 껐다 — 고장이 아니다
+    try:
+        path, ver = workbook_patch.latest_master()
+    except BaseException as exc:       # SystemExit 도 받는다(latest_master 는 exit 한다)
+        return "보관본 잠금: 관리대장을 못 찾았다(%s)" % str(exc)[:60]
+    st = archive_lock.is_locked(path)
+    if st is True:
+        return ""                      # 이미 잠겼다 — 정상까지 말하면 아무도 안 읽는다
+    if st is None:
+        return "보관본 잠금: 상태를 못 읽었다(v%s)" % ver
+    if dry:
+        return "보관본 잠금: v%s 가 열려 있다(미리보기 — 안 잠갔다)" % ver
+    ok, why = archive_lock.lock(path, check_in_use=True)
+    if ok:
+        return "보관본 v%s 를 읽기 전용으로 잠갔다 — 값은 앱에서 고친다" % ver
+    return "보관본 v%s 를 안 잠갔다: %s" % (ver, why)
+
+
 def sweep_files(dry):
     """쓸데없는 파일을 지운다 — **되돌릴 수 있는 갈래만**(2026-08-27 지시).
 
@@ -1428,6 +1468,9 @@ def main():
              #   그쪽은 **날짜 도장이 없는 옛 파일**을 지우고 이쪽은 **도장이
              #   있는 것**을 묶음마다 남긴다 — 기준이 달라 둘 다 필요하다([172]).
              sweep_files,
+             # ★ 엑셀은 저장용이다 — 어느 도구가 만든 새 보관본이든
+             #   여기서 잠근다(2026-08-28 지시 · `[477]`).
+             lock_ledger_archive,
              # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
              #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
              mirror_originals,
