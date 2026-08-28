@@ -192,6 +192,22 @@ def _dirty_nos(band, posts=None):
                 nos.add(int(k))
             except (TypeError, ValueError):
                 pass
+    # ★ 리포트에서 온 번호는 **캐시가 지금 아는 글이면 물리친다**
+    #   (2026-08-28 실사고).  위 주석이 리포트를 남긴 근거를 스스로 적어 둔다 —
+    #   *"캐시에 **기록 자체가 없는** 번호는 리포트만 안다"*.  그런데 그 조건을
+    #   안 걸고 **합집합**으로 썼다.  리포트는 한 번 만들어지고 안 갱신되므로,
+    #   되살아난 번호가 **영원히 다시 리포트에서 돌아온다**.
+    #   실측 2026-08-28 16:1x — 84789192 대기열 **59건이 전부** 8/20 자
+    #   리포트에서 왔고, 그 59건은 캐시에서 **표시없음 · 그날 15:56 수확**
+    #   이었다(수확 59 · 실패 0 · 868초).  그런데 16:12 대기열이 **같은 59건을**
+    #   또 실었고 16:14 에 또 돌았다 — 회차마다 **14.5분을 헛돈다**.
+    #   그날 캐시가 진짜로 오염이라 한 것은 **4건**이고, 리포트에서 온
+    #   유령은 두 밴드 합추어 **74건**이었다(그중 캐시에 기록조차 없는 것 **0건**).
+    # ★ 넓히는 것이 아니라 **주석이 이미 정해 둔 조건대로 좁히는 것**이다.
+    #   캐시가 지금 `contaminated` 라 하는 것은 위 갈래가 그대로 담는다([172]).
+    # ★ `posts` 를 못 읽었으면 **예전처럼 리포트를 그대로 쓴다**([169]) —
+    #   모름을 '깨끗함'으로 치면 진짜 오염이 조용히 빠진다.
+    아는글 = set(posts or {})
     for p in glob.glob(os.path.join(ROOT, "reports", "밴드_UI오염글_*.json")):
         try:
             d = json.load(io.open(p, encoding="utf-8"))
@@ -201,9 +217,12 @@ def _dirty_nos(band, posts=None):
         if isinstance(b, dict):
             for g in (b.get("글") or []):
                 try:
-                    nos.add(int(g.get("번호")))
+                    n = int(g.get("번호"))
                 except (TypeError, ValueError):
-                    pass
+                    continue
+                if 아는글 and str(n) in 아는글:
+                    continue   # 되살아났다 — 캐시 표시가 정본이다
+                nos.add(n)
     return sorted(nos)
 
 
