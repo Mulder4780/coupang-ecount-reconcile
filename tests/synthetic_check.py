@@ -38008,6 +38008,94 @@ def t484_handoff_says_the_pc_rebooted():
     print(chr(9989) + " [484] 인계가 재부팅을 짚는다 — 죽은 갈래에만 · 재는 자리 한 곳 ·"
           " 여유 60초 · 못 재면 조용 · 계기 자기시험")
 
+def t486_demo_reject_trace_stays_out_of_evidence():
+    """[486] 데모가 낸 업로드 거절이 **실측 증거에 안 섞인다**([247]).
+
+    2026-08-28 실측: `reports/업로드_거절.json` **54줄 전부**
+    `User-Agent: Python-urllib/3.12` — **사람이 낸 것 0건**이었다. 이 관문의
+    `t3` 이 데모 서버에 빈 본문 POST 로 400 계약을 재는데(그 검사는 옳다)
+    그 자국이 **진짜 리포트**에 쌓였다.
+
+    잘못은 받는 쪽이다 — `note_upload_reject` 가 경로를 못 박아 `DEMO` 를
+    안 봤다. 같은 파일 `_save_source_submission` 은 `if DEMO:` 로 폴더를
+    tmp 로 돌린다 — **선례가 바로 옆인데 이 함수만 안 따라왔다**([300]).
+
+    ★ 그림이 나쁜 자리: `rows[-60:]` 로 자르므로 **여섯 건만 더 나면 진짜
+      거절이 밀려 나간다**([170]). 2026-08-19 조율표 사고와 같은 모양이다.
+    ★ 함수를 **끄지 않는다** — 자리만 옮긴다([169]). 끄면 데모에서 그 갈래를
+      재는 길이 없어진다.
+
+    ⚠ 진짜 리포트에는 **한 글자도 안 쓴다**([247]) — 임시 ROOT 로만 재고,
+      무거운 `app_server` 를 안 띄우고 **그 함수 조각만** 떼어 돌린다([211]).
+    """
+    import io as _io, json as _json, re as _re, time as _time
+    import shutil as _shutil, tempfile as _tempfile
+
+    def _fn_src(name):
+        # ⚠ `inspect.getsource` 를 안 쓴다 — 그것은 **줄 번호에 매여** 파일
+        #   앞쪽이 바뀌면 엉뚱한 조각을 잘라 온다(2026-08-27 실사고).
+        s = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                     encoding="utf-8", newline="").read()
+        m = _re.search(r"^def %s\(.*?(?=^\S)" % _re.escape(name), s, _re.S | _re.M)
+        assert m, "[486] 함수 %s 를 못 찾았다" % name
+        return m.group(0)
+
+    def _run(body, demo, root, why):
+        ns = {"os": os, "json": _json, "time": _time, "ROOT": root, "DEMO": demo}
+        exec(compile(body, "<note_upload_reject>", "exec"), ns)
+        ns["note_upload_reject"]("입금내역", {"Content-Length": "0"}, why)
+
+    def _rows(p):
+        return _json.load(_io.open(p, encoding="utf-8")) if os.path.exists(p) else None
+
+    body = _fn_src("note_upload_reject")
+    tmp = _tempfile.mkdtemp(prefix="t486_")
+    try:
+        os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+        real = os.path.join(tmp, "reports", "업로드_거절.json")
+        demo_p = os.path.join(tmp, "tmp", "demo-reports", "업로드_거절.json")
+
+        # 사람이 낸 진짜 자국 한 줄 — 검증이 이것을 밀어내면 안 된다.
+        _io.open(real, "w", encoding="utf-8").write(_json.dumps(
+            [{"때": "2026-01-01T00:00:00", "갈래": "입금내역", "왜": "사람이 낸 것",
+              "User-Agent": "Mozilla/5.0"}], ensure_ascii=False))
+        before = _io.open(real, "rb").read()
+
+        # (1) 데모면 실측 증거가 **한 글자도 안 바뀐다**([247])
+        _run(body, True, tmp, "본문 없음")
+        assert _io.open(real, "rb").read() == before, (
+            "[486] 데모 거절이 실측 증거에 섞인다 — 2026-08-28 실측 54줄이"
+            " 전부 검증 것이었다(사람 0건 · [247])")
+
+        # (2) 그렇다고 **끄지 않는다** — 자리만 옮긴다([169])
+        d = _rows(demo_p)
+        assert d and len(d) == 1 and d[0]["왜"] == "본문 없음", (
+            "[486] 데모에서 자국이 아예 안 남는다 — 끄는 것이 아니라 옮기는"
+            " 것이다([169]): %r" % (d,))
+
+        # (3) 운영은 예전 자리 그대로다 — **좁히는 것도 고장이다**([172])
+        _run(body, False, tmp, "한도 초과")
+        r = _rows(real)
+        assert r and len(r) == 2 and r[-1]["왜"] == "한도 초과", (
+            "[486] 운영에서 자국이 안 남는다 — 왜 본문이 안 왔는지 못 묻게"
+            " 된다([228]): %r" % (r,))
+        assert r[0]["왜"] == "사람이 낸 것", "[486] 사람이 낸 줄을 밀어냈다"
+
+        # (4) 계기 자기시험([272]) — 옛 동작(DEMO 를 안 봄)이면 (1)이 잡히나
+        broken = _re.sub(r"_base = .*?\n",
+                         '_base = os.path.join(ROOT, "reports")\n', body, count=1)
+        assert broken != body, (
+            "[486] 자기시험 재료를 못 만들었다 — 이 검사가 아무것도 안 잰다([272])")
+        b2 = _io.open(real, "rb").read()
+        _run(broken, True, tmp, "옛 동작")
+        assert _io.open(real, "rb").read() != b2, (
+            "[486] 옛 동작을 넣었는데도 (1)이 통과한다 — 이 검사가 아무것도 안 잰다")
+    finally:
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+    print(chr(9989) + " [486] 데모 거절 자국이 실측 증거를 안 건드린다 · 끄지 않고 옮긴다 · 계기 자기시험")
+
+
 def check_numbers_unique():
     """`[N]` 표시가 **두 검증에서** 같이 쓰이면 실패시킨다.
 
@@ -45566,6 +45654,7 @@ if __name__ == "__main__":
     t482_error_popup_keeps_the_server_reason()
     t483_schedule_plan_is_hidden_not_deleted()
     t484_handoff_says_the_pc_rebooted()
+    t486_demo_reject_trace_stays_out_of_evidence()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

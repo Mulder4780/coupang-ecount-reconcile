@@ -1186,7 +1186,17 @@ def note_upload_reject(kind, headers, why):
     ★ 자국을 못 남겨도 접수를 막지 않는다.
     """
     try:
-        path = os.path.join(ROOT, "reports", "업로드_거절.json")
+        # ★ 데모(합성) 서버가 낸 거절을 **실측 증거에 섞지 않는다**([247]).
+        #   2026-08-28 실측: 이 파일 54줄이 **전부 검증 것**이었다(사람 0건) —
+        #   `tests/synthetic_check.py` 가 빈 본문 POST 로 400 계약을 재는데
+        #   그 자국이 여기 쌓였다. `rows[-60:]` 로 자르므로 **여섯 건만 더 나면
+        #   진짜 거절이 밀려 나간다**([170]). 2026-08-19 조율표 사고와 같은 모양이다.
+        #   ★ 함수를 끄지 않는다 — **자리만 옮긴다**([169]). 끄면 데모에서 그
+        #     갈래를 재는 길이 없어진다. 선례는 같은 파일 `_save_source_submission`.
+        _base = os.path.join(ROOT, "tmp", "demo-reports") if DEMO else os.path.join(ROOT, "reports")
+        if DEMO:
+            os.makedirs(_base, exist_ok=True)
+        path = os.path.join(_base, "업로드_거절.json")
         rows = []
         if os.path.exists(path):
             with open(path, encoding="utf-8") as fh:
