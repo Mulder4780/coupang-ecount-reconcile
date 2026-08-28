@@ -26332,7 +26332,22 @@ def t420_delete_says_why_and_hides_dead_buttons():
         so, se = proc.communicate(timeout=60)
     assert proc.returncode == 0, se.decode("utf-8", "replace")[:400]
     got = json.loads(so.decode("utf-8", "replace").strip().splitlines()[-1])
-    assert not got["noRow_del"] and not got["noRow_ex"], (
+    # ★ 2026-08-28 `[483]`: `SCH-` 예정도 **이제 지워진다**(숨긴다) — 서버가
+    #   `_plan_hide_target` 으로 갈래를 가른다. 계약(*"눌러도 안 되는 단추는 안
+    #   그린다"*)은 한 톨도 안 바뀌었고 **그 단추가 되는 것으로 사실이 바뀌었다**
+    #   ([39]·[219] — 얼릴 것은 계약이지 그때의 사실이 아니다).
+    #   ⚠ **청구 제외는 여전히 안 된다** — 앱 DB 행이 있어야 한다. 그래서 그것은
+    #     예전 그대로 막는다(넓히면 그것이 고장이다 · [172]).
+    _srv420 = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    if "_plan_hide_target(record_key)" in _srv420:
+        assert got["noRow_del"], (
+            "[420] 예정에서 [삭제] 가 사라졌다 — 서버는 숨김 길을 갖고 있는데"
+            " 화면에 손잡이가 없다(류지영 매니저 2026-08-28 요청 · [483])")
+    else:
+        assert not got["noRow_del"], (
+            "[420] 서버에 숨김 갈래가 없는데 [삭제] 를 그린다 — 눌러도 안 되는"
+            " 단추는 고장으로 읽힌다([172])")
+    assert not got["noRow_ex"], (
         "앱 DB 에 행이 없는 건에 아직 단추가 그려진다 — 눌러도 안 되는 단추는 "
         "고장으로 읽힌다([172])", got)
     assert got["noRow_why"], (
