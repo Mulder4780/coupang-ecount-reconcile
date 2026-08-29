@@ -28,7 +28,10 @@ REPORT_DIR = os.path.join(ROOT, "reports")
 #   (2026-08-24 실사고). **이 표시가 빠지면 회차의 관문이 스스로 물러나
 #   매일 아침 대조가 안 돈다** — 고치려던 것보다 나쁘다.
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8",
-       "COUPANG_GATE_OWNER": "daily_run"}
+       "COUPANG_GATE_OWNER": "daily_run",
+       # zscan 단계 제한 30분보다 5분 먼저 체크포인트·75로 자진복귀한다.
+       # 완주 전에는 기존 리포트를 건드리지 않으므로 반쪽 숫자가 나오지 않는다([284]).
+       "ZSCAN_BUDGET_SEC": os.environ.get("ZSCAN_BUDGET_SEC") or "1500"}
 RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 # 조율 표에서 이 회차를 부르는 이름. **양보한 쪽과 완주한 쪽이 같은 이름을 써야**
 # `coordinate.audit()` 이 "양보했는데 주인이 끝냈나"를 이을 수 있다(둘이 갈리면

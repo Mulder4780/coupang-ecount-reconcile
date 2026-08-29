@@ -49,27 +49,37 @@ INCREMENTAL_RETURN_CODE = 75
 CHILD_BUDGET_ENV = {
     "archive_posts.py": "ARCHIVE_POSTS_BUDGET_SEC",
     "stmt_archive.py": "STMT_ARCHIVE_BUDGET_SEC",
+    "zscan.py": "ZSCAN_BUDGET_SEC",
     # ⚠ 여기 이름을 더하려면 **그 스크립트가 그 열쇠를 실제로 읽어야** 한다.
     #    안 읽는 자식에게 넣어 봐야 아무 일도 안 일어난다([169] 없는 손잡이).
-    # ⚠ 실측 2026-08-25 로 **일부러 안 넣은 것 둘** — 재 보고 안 맞아서다([172]):
+    # ⚠ 실측 2026-08-25 로 **일부러 안 넣은 것** — 재 보고 안 맞아서다([172]):
     #    · `tax_archive.py` — `collect()` 가 PDF 한 장 만들기 **전에 193.7초**를 쓴다
     #      (Z: 재귀 glob + xlsx 80개를 `read_only=False` 로 연다). 예산이 60초면
     #      루프에 닿기도 전에 다 되어 **0건 만들고 75 로 돌아오는 것을 영원히**
     #      되풀이한다([199] 무한루프와 같은 모양). 그 194초를 먼저 줄여야 한다.
-    #    · `zscan.py` — **스캔**이라 중간에 끊으면 리포트가 반쪽인데 겉모습은 완전하다
-    #      ("서류 PDF N개" 의 N 만 줄어든다). 여기 예산을 주면 **조용히 틀린 리포트**를
-    #      매 회차 만든다([169]) — 예산이 아니라 다른 고침이 필요하다.
+    # ★ `zscan.py --docs` 는 이제 디렉터리 체크포인트를 로컬에 누적하고, 완주 전에는
+    #   기존 리포트를 건드리지 않은 채 75로 돌아온다. 그래서 예산을 줘도 반쪽 숫자를
+    #   완전한 리포트처럼 내지 않는다([169]·분담판 [284]).
 }
 CHILD_BUDGET_MARGIN_S = 300      # 보고서를 쓰고 돌아올 여유
 
 
+def _child_budget_key(args):
+    """실제로 증분 예산을 읽는 명령에만 환경변수 이름을 돌려준다."""
+    arg_text = [str(a) for a in args]
+    for a in arg_text:
+        name = os.path.basename(a)
+        if name == "zscan.py" and "--docs" not in arg_text:
+            continue
+        key = CHILD_BUDGET_ENV.get(name)
+        if key:
+            return key
+    return None
+
+
 def _child_env(args, timeout):
     """표에 있는 자식에게만 예산을 얹은 env 를 준다 — 아니면 `None`(그대로 물려줌)."""
-    key = None
-    for a in args:
-        key = CHILD_BUDGET_ENV.get(os.path.basename(str(a)))
-        if key:
-            break
+    key = _child_budget_key(args)
     if not key:
         return None
     env = dict(os.environ)
@@ -287,9 +297,8 @@ def _over_budget(args: list[str], item: dict[str, Any], budget_seconds: int) -> 
         return ""                                   # 모르면 안 막는다([169])
     if need <= have:
         return ""
-    for a in args:
-        if os.path.basename(str(a)) in CHILD_BUDGET_ENV:
-            return ""                               # 스스로 멈추고 진도를 남긴다([427])
+    if _child_budget_key(args):
+        return ""                                   # 스스로 멈추고 진도를 남긴다([427])
     return ("이 회차 예산 %d초로는 못 끝낸다(이 일감은 %d초를 선언했다) — 다시 불러도 "
             "매번 같은 자리에서 끊겨 진도가 0이다. 예약 회차가 하거나 사람이 제한 없이 "
             "돌린다: python autopilot.py --heal --limit 1 --budget %d" % (have, need, need))

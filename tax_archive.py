@@ -26,6 +26,8 @@ import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
+import child_budget
+
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
@@ -33,6 +35,7 @@ except Exception:
 
 UJ = re.compile(r"UJ\d{7}")
 OUT_JSON = os.path.join(ROOT, "reports", "세금계산서_상세.json")
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
 
 
 def out_root():
@@ -43,6 +46,30 @@ def out_root():
 def safe(s, n=24):
     s = re.sub(r"[\\/:*?\"<>|\r\n\t]", " ", str(s or "")).strip()
     return re.sub(r"\s+", " ", s)[:n]
+
+
+def path_key(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def existing_pdf_paths(root):
+    """기존 PDF를 디렉터리 열람 한 번으로 읽는다.
+
+    Z:의 `os.path.exists(dst)`를 계산서마다 부르면 완료 회차도 원본 수만큼 SMB 왕복을
+    한다. 스캔 오류는 누락으로 오인해 다시 렌더하지 않도록 실패로 올린다.
+    """
+    if not os.path.isdir(root):
+        return set()
+
+    def raise_walk_error(exc):
+        raise exc
+
+    found = set()
+    for base, _dirs, files in os.walk(root, onerror=raise_walk_error):
+        for name in files:
+            if name.lower().endswith(".pdf"):
+                found.add(path_key(os.path.join(base, name)))
+    return found
 
 
 def norm_slip(raw):
@@ -170,9 +197,15 @@ def main():
     json.dump({"count": len(rows), "src": src, "rows": rows},
               open(OUT_JSON, "w", encoding="utf-8"), ensure_ascii=False)
     root, made, skip, fail, attempted = out_root(), 0, 0, 0, 0
+    existing = set() if a.force else existing_pdf_paths(root)
+    cut, seen = False, 0
     for row in rows:
         if attempted >= a.limit:
+            # 상한 뒤의 계산서를 아직 보지 않았다. 0으로 닫으면 잔량이 있어도 자율복구
+            # 큐가 완료 처리하므로 다음 회차가 확인하도록 75를 돌린다.
+            cut = True
             break
+        seen += 1
         y, m = row["slip"][:4], row["slip"][5:7]
         uj = (UJ.search(row.get("project") or "") or [None])
         uj = uj.group(0) if hasattr(uj, "group") else ""
@@ -181,17 +214,26 @@ def main():
         name = (f"[{row['slip']}]_{safe(row.get('cust'), 18)}"
                 f"{'_' + uj if uj else ''}_{row.get('supply', 0):,}원_{state}.pdf")
         dst = os.path.join(root, y, m, name)
-        if not a.force and os.path.exists(dst):
+        if not a.force and path_key(dst) in existing:
             skip += 1
             continue
         attempted += 1
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if render_atomic(row, dst):
             made += 1
+            existing.add(path_key(dst))
         else:
             fail += 1
     print(f"세금계산서 건별 PDF: 새로 {made}건 · 건너뜀 {skip} · 실패 {fail} "
           f"(원본 {len(rows)}건) → {root}")
+    if fail:
+        print(f"  ★ PDF {fail}건을 만들지 못했다 — 완료로 닫지 않고 실패로 남긴다.")
+        return 1
+    if cut:
+        print(f"  ★ 건수 상한({a.limit:,}건)에 닿아 여기까지 하고 돌아온다 — "
+              f"원본 {len(rows):,}건 중 앞에서부터 {seen:,}건까지 봤다. "
+              "잔량 확인은 다음 회차가 이어서 한다(PDF 는 한 건씩 저장돼 있다).")
+        return INCREMENTAL_RETURN_CODE
     return 0
 
 

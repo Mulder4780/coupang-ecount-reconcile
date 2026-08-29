@@ -56,6 +56,32 @@ def safe(s, n=28):
     return re.sub(r"\s+", " ", s)[:n]
 
 
+def path_key(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def existing_pdf_paths(root):
+    """기존 PDF를 디렉터리 열람 한 번으로 읽는다.
+
+    `os.path.exists(dst)`를 문서마다 부르면 Z: 왕복이 원본 수만큼 생긴다. 보관이 거의
+    끝난 뒤에는 새로 만들 것은 0건인데도 812개를 하나씩 stat 하느라 300초 바깥 제한에
+    죽었다. 스캔 오류는 무시하지 않는다 — 일부만 읽고 없는 것으로 오인해 덮어쓰는 것보다
+    실패로 남기는 편이 안전하다.
+    """
+    if not os.path.isdir(root):
+        return set()
+
+    def raise_walk_error(exc):
+        raise exc
+
+    found = set()
+    for base, _dirs, files in os.walk(root, onerror=raise_walk_error):
+        for name in files:
+            if name.lower().endswith(".pdf"):
+                found.add(path_key(os.path.join(base, name)))
+    return found
+
+
 def render(doc, uj, state, path):
     from archive_render import html_to_pdf, esc
     rows = "".join(
@@ -116,9 +142,15 @@ def main():
             link[x["slip"]] = x
     budget = child_budget.start(BUDGET_ENV)
     root, made, skip, fail, attempted = out_root(), 0, 0, 0, 0
-    cut, seen = 0, 0
+    existing = set() if a.force else existing_pdf_paths(root)
+    cut_reason, seen = "", 0
     for d in docs:
         if attempted >= a.limit:
+            # ★ `--limit`도 **잔량 이월**이다. 예전에는 여기서 조용히 빠진 뒤 0을
+            #   돌려, 상한 뒤에 아직 문서가 있어도 자율복구가 큐를 `done`으로 닫았다.
+            #   다음 항목이 실제로 새 작업인지까지 훑지 않았으므로 한 번 더 확인하는
+            #   것이 안전하다. 다음 회차가 전부 exists면 그때 0으로 끝난다.
+            cut_reason = "limit"
             break
         seen += 1
         slip = d["slip"]                       # 2026/07/14-3
@@ -128,25 +160,36 @@ def main():
         name = (f"[{slip.replace('/', '-')}]_{safe(d.get('cust'), 20)}"
                 f"{'_' + uj if uj else ''}_{d.get('amount', 0):,}원.pdf")
         dst = os.path.join(root, ym[0], ym[1], name)
-        if not a.force and os.path.exists(dst):
+        if not a.force and path_key(dst) in existing:
             skip += 1
             continue
         if child_budget.over():   # ★ 예산이 다 되면 **새로 안 만든다**
-            cut = 1
+            cut_reason = "budget"
             break
         attempted += 1
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if render_atomic(d, uj, info.get("state"), dst):
             made += 1
+            existing.add(path_key(dst))
         else:
             fail += 1
     print(f"거래명세서 건별 PDF: 새로 {made}건 · 건너뜀 {skip} · 실패 {fail} → {root}")
-    if cut:
+    if fail:
+        # 렌더가 False를 돌린 문서는 정식 PDF가 생기지 않았다. 실패가 있는데 0으로
+        # 닫으면 다음 회차가 영영 오지 않을 수 있으므로 코드 실패로 분명히 남긴다.
+        print(f"  ★ PDF {fail}건을 만들지 못했다 — 완료로 닫지 않고 실패로 남긴다.")
+        return 1
+    if cut_reason == "budget":
         # ★ **멈춘 사실과 숫자를 말한다.** 조용히 돌아가면 부르는 쪽은 실패인지
         #   완료인지 구별할 수 없다([169]). 건너뜀 숫자는 여기까지 본 것뿐이다.
         print(f"  ★ 시간 예산({budget}초)이 다 되어 여기까지 하고 돌아온다 — "
               f"원본 {len(docs):,}건 중 앞에서부터 {seen:,}건까지 봤다. "
               "남은 것은 다음 회차가 이어서 한다(PDF 는 한 건씩 저장돼 있다).")
+        return INCREMENTAL_RETURN_CODE
+    if cut_reason == "limit":
+        print(f"  ★ 건수 상한({a.limit:,}건)에 닿아 여기까지 하고 돌아온다 — "
+              f"원본 {len(docs):,}건 중 앞에서부터 {seen:,}건까지 봤다. "
+              "잔량 확인은 다음 회차가 이어서 한다(PDF 는 한 건씩 저장돼 있다).")
         return INCREMENTAL_RETURN_CODE
     return 0
 

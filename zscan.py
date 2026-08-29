@@ -27,9 +27,11 @@
   python zscan.py --folder "♣ 10. 세금계산서 발행"
 """
 import argparse
+import json
 import os
 import re
 import sys
+import time
 from collections import Counter, defaultdict
 
 
@@ -45,8 +47,14 @@ configure_stdout(sys.stdout)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(BASE_DIR, "reports")
 sys.path.insert(0, BASE_DIR)
+import child_budget
 
 ROOT = r"Z:\2. Cost\★★★쿠팡 업무 폴더★★★"
+BUDGET_ENV = "ZSCAN_BUDGET_SEC"
+INCREMENTAL_RETURN_CODE = child_budget.INCREMENTAL_RETURN_CODE
+DOC_PROGRESS_SCHEMA = 1
+DOC_PROGRESS_NAME = ".zscan_docs_progress.json"
+DOC_CHECKPOINT_DIRS = 250
 
 RE_UJ = re.compile(r"UJ\s?(\d{7})", re.I)
 RE_PO = re.compile(r"PO\s?(\d{6})", re.I)
@@ -144,6 +152,31 @@ def camp_key(s):
     return re.sub(r"[^0-9A-Za-z가-힣]", "", s).lower()
 
 
+def _doc_record(root, folder, name):
+    """PDF 파일명 하나를 서류 대조 레코드로 바꾼다. 대상이 아니면 ``None``."""
+    if not name.lower().endswith(".pdf"):
+        return None
+    kind = next((v for k, v in DOC_KINDS if k in name), None)
+    if not kind:
+        return None
+    m = RE_DOC_DATE.search(name)
+    if not m:
+        return None
+    y, mo, d = (int(x) for x in m.groups())
+    if not (1 <= mo <= 12 and 1 <= d <= 31):
+        return None
+    camp = name[m.end():]
+    camp = re.sub(r"\.(pdf|PDF)$", "", camp)
+    for k, _v in DOC_KINDS:
+        camp = camp.replace(k, "")
+    camp = camp.replace("(수정)", "").strip(" _-")
+    if not camp:
+        return None
+    return {"일자": "%04d-%02d-%02d" % (y, mo, d), "캠프키": camp_key(camp),
+            "캠프원문": camp, "종류": kind, "파일": name,
+            "폴더": os.path.relpath(folder, root)}
+
+
 def doc_catalog(root=ROOT):
     """거래명세서·세금계산서 PDF → [{일자, 캠프키, 캠프원문, 종류, 파일}]
 
@@ -153,29 +186,159 @@ def doc_catalog(root=ROOT):
     out = []
     for dp, _dn, fn in os.walk(root):
         for f in fn:
-            if not f.lower().endswith(".pdf"):
-                continue
-            kind = next((v for k, v in DOC_KINDS if k in f), None)
-            if not kind:
-                continue
-            m = RE_DOC_DATE.search(f)
-            if not m:
-                continue
-            y, mo, d = (int(x) for x in m.groups())
-            if not (1 <= mo <= 12 and 1 <= d <= 31):
-                continue
-            # 날짜와 서류종류를 뺀 나머지가 캠프명이다
-            camp = f[m.end():]
-            camp = re.sub(r"\.(pdf|PDF)$", "", camp)
-            for k, _v in DOC_KINDS:
-                camp = camp.replace(k, "")
-            camp = camp.replace("(수정)", "").strip(" _-")
-            if not camp:
-                continue
-            out.append({"일자": "%04d-%02d-%02d" % (y, mo, d), "캠프키": camp_key(camp),
-                        "캠프원문": camp, "종류": kind, "파일": f,
-                        "폴더": os.path.relpath(dp, root)})
+            rec = _doc_record(root, dp, f)
+            if rec:
+                out.append(rec)
     return out
+
+
+def _atomic_json(path, value):
+    """체크포인트를 같은 폴더 임시파일 뒤 원자 교체한다."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        with open(temp, "w", encoding="utf-8", newline="") as f:
+            json.dump(value, f, ensure_ascii=False, separators=(",", ":"))
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def _doc_progress_path(path=None):
+    return path or os.path.join(REPORT_DIR, DOC_PROGRESS_NAME)
+
+
+def _new_doc_progress(root):
+    return {"schema": DOC_PROGRESS_SCHEMA,
+            "root": os.path.normcase(os.path.abspath(root)),
+            "pending_dirs": [""], "docs": [],
+            "scanned_dirs": 0, "scanned_files": 0,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+
+
+def _load_doc_progress(root, path=None):
+    """같은 루트의 완전한 체크포인트만 이어받는다.
+
+    깨진 JSON을 빈 진행으로 삼키면 이미 센 디렉터리를 처음부터 다시 훑고도 이유를
+    숨긴다. 따라서 깨진 파일은 실패로 올려 사람이 원인을 볼 수 있게 한다.
+    """
+    path = _doc_progress_path(path)
+    if not os.path.exists(path):
+        return _new_doc_progress(root)
+    with open(path, encoding="utf-8") as f:
+        value = json.load(f)
+    expected = os.path.normcase(os.path.abspath(root))
+    if value.get("schema") != DOC_PROGRESS_SCHEMA or value.get("root") != expected:
+        return _new_doc_progress(root)
+    if not isinstance(value.get("pending_dirs"), list) or not isinstance(value.get("docs"), list):
+        raise ValueError("Z폴더 서류대조 진도 파일 형식이 올바르지 않습니다: %s" % path)
+    return value
+
+
+def _save_doc_progress(value, path=None):
+    _atomic_json(_doc_progress_path(path), value)
+
+
+def _clear_doc_progress(path=None):
+    try:
+        os.unlink(_doc_progress_path(path))
+    except FileNotFoundError:
+        pass
+
+
+def doc_catalog_incremental(root=ROOT, state_path=None, stop=None):
+    """서류 목록을 디렉터리 단위로 이어서 센다.
+
+    반환은 ``(docs, complete, progress)``. ``complete``가 거짓이면 호출자는 기존
+    리포트를 절대 덮지 않고 75로 돌아가야 한다. 체크포인트에는 아직 볼 디렉터리와
+    지금까지 확인한 **완전한 디렉터리**의 결과만 들어가므로 재개해도 중복되지 않는다.
+    """
+    if not os.path.isdir(root):
+        raise FileNotFoundError("폴더에 닿지 못했습니다(네트워크 드라이브 확인): %s" % root)
+    stop = stop or child_budget.over
+    value = _load_doc_progress(root, state_path)
+    pending = value["pending_dirs"]
+    since_checkpoint = 0
+
+    while pending:
+        if stop():
+            _save_doc_progress(value, state_path)
+            return value["docs"], False, value
+
+        rel = pending.pop()
+        folder = root if not rel else os.path.join(root, rel)
+        try:
+            with os.scandir(folder) as it:
+                entries = list(it)
+            child_dirs, found = [], []
+            file_count = 0
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    child_dirs.append(os.path.relpath(entry.path, root))
+                    continue
+                file_count += 1
+                rec = _doc_record(root, folder, entry.name)
+                if rec:
+                    found.append(rec)
+        except OSError:
+            # 이 디렉터리는 **완주하지 않았다**. 다시 넣고 자국을 남긴 뒤 실패로 올린다.
+            pending.append(rel)
+            _save_doc_progress(value, state_path)
+            raise
+
+        # 디렉터리 하나를 끝까지 읽은 뒤에만 결과와 자식 목록을 확정한다.
+        value["docs"].extend(found)
+        value["scanned_files"] = int(value.get("scanned_files") or 0) + file_count
+        value["scanned_dirs"] = int(value.get("scanned_dirs") or 0) + 1
+        child_dirs.sort(reverse=True)
+        pending.extend(child_dirs)
+        since_checkpoint += 1
+        if since_checkpoint >= DOC_CHECKPOINT_DIRS:
+            _save_doc_progress(value, state_path)
+            since_checkpoint = 0
+
+    # 리포트 원자 교체가 실패해도 이 완주 체크포인트로 다시 쓸 수 있게 먼저 저장한다.
+    _save_doc_progress(value, state_path)
+    return value["docs"], True, value
+
+
+def _write_docs_report(path, docs, ver, paired, orphan, ambiguous):
+    """완주 결과만 임시파일에 다 쓴 뒤 기존 리포트를 원자 교체한다."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        with open(temp, "w", encoding="utf-8", newline="") as f:
+            f.write("# 거래명세서·세금계산서 ↔ 관리대장 대조 (파일명 근거)\n\n")
+            f.write("- 서류 PDF %d개 · 관리대장 v%d\n" % (len(docs), ver))
+            f.write("- 1:1 확정 **%d** · 후보 여럿 %d · 원장에 짝 없음 %d\n" %
+                    (len(paired), len(ambiguous), len(orphan)))
+            f.write("- 판정 기준: 캠프명이 같고 날짜가 ±7일. 둘 다 맞을 때만 인정한다.\n")
+            f.write("- ★ 읽기 전용 — 원장에 쓰지 않는다.\n\n")
+            f.write("## 1:1 확정 (서류 확보 완료)\n\n| 시트 | ID | 프로젝트NO | 캠프 | 원장일자 | 서류 | 파일 |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
+            for d, r in paired[:600]:
+                f.write("| %s | %s | %s | %s | %s | %s | %s |\n" %
+                        (r["시트"][:2], r["ID"], r["프로젝트NO"], r["캠프명"][:16],
+                         r["일자"], d["종류"], d["파일"][:52]))
+            if len(paired) > 600:
+                f.write("\n(상위 600건만 표기 — 전체 %d건)\n" % len(paired))
+            f.write("\n## 원장에 짝이 없는 서류 (%d개) — 원장에 그 작업이 없다는 뜻\n\n" % len(orphan))
+            f.write("| 일자 | 캠프 | 종류 | 폴더 |\n|---|---|---|---|\n")
+            for d in orphan[:300]:
+                f.write("| %s | %s | %s | %s |\n" %
+                        (d["일자"], d["캠프원문"][:22], d["종류"], d["폴더"][:34]))
+            if len(orphan) > 300:
+                f.write("\n(상위 300건만 표기 — 전체 %d건)\n" % len(orphan))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
 
 
 def ledger_rows_for_docs():
@@ -290,7 +453,17 @@ def main():
         return 0
 
     if args.docs:
-        docs = doc_catalog(args.root)
+        budget = child_budget.start(BUDGET_ENV)  # 안 주면 0 = 직접 실행은 종전처럼 무제한
+        docs, complete, progress = doc_catalog_incremental(args.root)
+        if not complete:
+            print("Z폴더 서류 확인 진행: 디렉터리 %d개 · 파일 %d개 · 서류 %d개 · 남은 디렉터리 %d개"
+                  % (progress["scanned_dirs"], progress["scanned_files"], len(docs),
+                     len(progress["pending_dirs"])), flush=True)
+            print("★ 시간 예산(%d초)이 다 되어 기존 완전한 리포트는 고치지 않고 다음 회차로 넘깁니다."
+                  % budget, flush=True)
+            print("증분 수집 계속 필요 — 실패가 아니며 저장된 디렉터리부터 이어서 확인합니다.",
+                  flush=True)
+            return INCREMENTAL_RETURN_CODE
         rows, ver = ledger_rows_for_docs()
         paired, orphan, ambiguous = match_docs(docs, rows)
         kinds = Counter(d["종류"] for d in docs)
@@ -302,27 +475,8 @@ def main():
         print("  서류가 확인된 원장 행 %d개" % len(have))
         os.makedirs(REPORT_DIR, exist_ok=True)
         out = os.path.join(REPORT_DIR, "Z폴더_서류대조.md")
-        with open(out, "w", encoding="utf-8") as f:
-            f.write("# 거래명세서·세금계산서 ↔ 관리대장 대조 (파일명 근거)\n\n")
-            f.write("- 서류 PDF %d개 · 관리대장 v%d\n" % (len(docs), ver))
-            f.write("- 1:1 확정 **%d** · 후보 여럿 %d · 원장에 짝 없음 %d\n" %
-                    (len(paired), len(ambiguous), len(orphan)))
-            f.write("- 판정 기준: 캠프명이 같고 날짜가 ±7일. 둘 다 맞을 때만 인정한다.\n")
-            f.write("- ★ 읽기 전용 — 원장에 쓰지 않는다.\n\n")
-            f.write("## 1:1 확정 (서류 확보 완료)\n\n| 시트 | ID | 프로젝트NO | 캠프 | 원장일자 | 서류 | 파일 |\n")
-            f.write("|---|---|---|---|---|---|---|\n")
-            for d, r in paired[:600]:
-                f.write("| %s | %s | %s | %s | %s | %s | %s |\n" %
-                        (r["시트"][:2], r["ID"], r["프로젝트NO"], r["캠프명"][:16],
-                         r["일자"], d["종류"], d["파일"][:52]))
-            if len(paired) > 600:
-                f.write("\n(상위 600건만 표기 — 전체 %d건)\n" % len(paired))
-            f.write("\n## 원장에 짝이 없는 서류 (%d개) — 원장에 그 작업이 없다는 뜻\n\n" % len(orphan))
-            f.write("| 일자 | 캠프 | 종류 | 폴더 |\n|---|---|---|---|\n")
-            for d in orphan[:300]:
-                f.write("| %s | %s | %s | %s |\n" % (d["일자"], d["캠프원문"][:22], d["종류"], d["폴더"][:34]))
-            if len(orphan) > 300:
-                f.write("\n(상위 300건만 표기 — 전체 %d건)\n" % len(orphan))
+        _write_docs_report(out, docs, ver, paired, orphan, ambiguous)
+        _clear_doc_progress()
         print("리포트:", out)
         return 0
 

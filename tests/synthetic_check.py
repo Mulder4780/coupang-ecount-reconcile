@@ -27129,7 +27129,7 @@ def t427_archive_posts_stops_itself_before_the_kill():
     #   진짜 Z: 는 한 글자도 안 건드린다([247]) — DETAIL·out_root·render_atomic 목.
     import stmt_archive as SA
     keepS = (SA.DETAIL, SA.LINK, SA.out_root, SA.render_atomic,
-             os.environ.get(SA.BUDGET_ENV))
+             os.environ.get(SA.BUDGET_ENV), list(sys.argv), SA.os.path.exists)
     tmpS = tempfile.mkdtemp(prefix="t427s_")
     try:
         outS = os.path.join(tmpS, "out")
@@ -27155,7 +27155,7 @@ def t427_archive_posts_stops_itself_before_the_kill():
         def 명세서만든것():
             return [n for _r, _d, fs in os.walk(outS) for n in fs if n.endswith(".pdf")]
 
-        def 명세서돌린다(budget):
+        def 명세서돌린다(budget, limit=POSTS):
             for _r, _d, fs in os.walk(outS):
                 for n in fs:
                     os.remove(os.path.join(_r, n))
@@ -27163,7 +27163,7 @@ def t427_archive_posts_stops_itself_before_the_kill():
                 os.environ[SA.BUDGET_ENV] = str(budget)
             else:
                 os.environ.pop(SA.BUDGET_ENV, None)
-            sys.argv = ["stmt_archive.py", "--limit", str(POSTS)]
+            sys.argv = ["stmt_archive.py", "--limit", str(limit)]
             buf2 = _io.StringIO()
             with contextlib.redirect_stdout(buf2):
                 rc = SA.main()
@@ -27180,16 +27180,135 @@ def t427_archive_posts_stops_itself_before_the_kill():
         assert rcS2 == 0 and "시간 예산" not in outS2 and len(명세서만든것()) == POSTS, (
             "[427] 명세서 PDF 가 예산 없이도 안 끝까지 간다(rc=%r · %d개) — "
             "좁히는 것도 고장이다([172])" % (rcS2, len(명세서만든것())))
+
+        # 보관이 끝난 뒤에는 기존 PDF를 문서마다 Z: stat 하지 않는다. 실측 큐의
+        # `--limit 40 · timeout 300`은 새로 만들 것이 없어도 이 왕복에 막혀 -9였다.
+        real_exists = SA.os.path.exists
+        rendered_again = []
+
+        def no_per_pdf_exists(path):
+            if path == SA.LINK:
+                return False
+            if str(path).lower().endswith(".pdf"):
+                raise AssertionError("기존 PDF를 건마다 exists로 다시 물었다: %s" % path)
+            return real_exists(path)
+
+        SA.os.path.exists = no_per_pdf_exists
+        SA.render_atomic = lambda *_a, **_k: rendered_again.append(1)
+        sys.argv = ["stmt_archive.py", "--limit", str(POSTS)]
+        rc_cached = SA.main()
+        assert rc_cached == 0 and not rendered_again, (
+            "[427] 기존 PDF 일괄 색인을 쓰지 않아 완료 회차도 다시 렌더한다: "
+            "rc=%r · 렌더=%d" % (rc_cached, len(rendered_again)))
+        SA.os.path.exists = real_exists
+        SA.render_atomic = _slow
+
+        # `--limit`에 닿은 것도 잔량 확인 전에는 완료가 아니다. 예전에는 150건을
+        # 만들고도 0을 돌려 큐가 닫힐 수 있었다 — 다음 회차가 전부 exists를 확인한
+        # 뒤에만 0으로 끝나야 한다([217]의 성공 확인 전 완료 금지 계약).
+        rcS3, outS3 = 명세서돌린다(0, POSTS - 1)
+        assert (rcS3 == SA.INCREMENTAL_RETURN_CODE and
+                len(명세서만든것()) == POSTS - 1 and "건수 상한" in outS3), (
+            "[427] 명세서 PDF 가 건수 상한 뒤에도 완료로 닫힌다(rc=%r · %d개): %r"
+            % (rcS3, len(명세서만든것()), outS3[-200:]))
+
+        # 렌더가 False면 정식 PDF가 생기지 않았다. 실패 숫자를 찍고 0을 돌리면
+        # 자율복구가 누락을 완료로 굳히므로 코드 실패로 남겨야 한다.
+        SA.render_atomic = lambda *_a, **_k: None
+        rcS4, outS4 = 명세서돌린다(0)
+        assert rcS4 == 1 and len(명세서만든것()) == 0 and "완료로 닫지 않고" in outS4, (
+            "[427] 명세서 PDF 렌더 실패를 성공으로 닫는다(rc=%r · %d개): %r"
+            % (rcS4, len(명세서만든것()), outS4[-200:]))
     finally:
-        (SA.DETAIL, SA.LINK, SA.out_root, SA.render_atomic, _eS) = keepS
+        (SA.DETAIL, SA.LINK, SA.out_root, SA.render_atomic,
+         _eS, sys.argv, SA.os.path.exists) = keepS
         if _eS is None:
             os.environ.pop(SA.BUDGET_ENV, None)
         else:
             os.environ[SA.BUDGET_ENV] = _eS
         shutil.rmtree(tmpS, ignore_errors=True)
 
-    print("  [427] 밴드 게시글·명세서 PDF 보관이 바깥에서 죽기 전에 스스로 멈추고 "
-          "보고서를 쓴다 — 예산 자식 표·증분 반환·예산 없으면 예전 그대로 ✅")
+    # ── ⑥ 세금계산서도 `--limit`·기존 PDF·렌더 실패 계약이 같다 ──────────────
+    #   실측 큐는 300초에 6회 끊겼는데, 후속 실행의 0은 상한 뒤 잔량을 보지 않은
+    #   옛 계약이라 완료 증거가 아니었다. 진짜 Z: 대신 임시 폴더와 합성 행만 쓴다.
+    import tax_archive as TA
+    keepT = (TA.OUT_JSON, TA.out_root, TA.collect, TA.render_atomic,
+             list(sys.argv), TA.os.path.exists)
+    tmpT = tempfile.mkdtemp(prefix="t427t_")
+    try:
+        outT = os.path.join(tmpT, "out")
+        os.makedirs(outT)
+        rowsT = [{"slip": "2026-08-%02d-1" % (n + 1), "project": "UJ2600%03d" % n,
+                  "cust": "시험%d" % n, "issued": "2026-08-%02d" % (n + 1),
+                  "supply": 1000 * n, "vat": str(100 * n), "total": str(1100 * n),
+                  "type": "전자", "state": "발행완료", "approve": "", "memo": ""}
+                 for n in range(POSTS)]
+
+        def _tax_render(row, path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh5:
+                fh5.write(b"%PDF t427 tax")
+            return path
+
+        TA.OUT_JSON = os.path.join(tmpT, "tax.json")
+        TA.out_root = lambda: outT
+        TA.collect = lambda: (rowsT, ["synthetic.xlsx"])
+        TA.render_atomic = _tax_render
+
+        def 세금계산서만든것():
+            return [n for _r, _d, fs in os.walk(outT) for n in fs if n.endswith(".pdf")]
+
+        def 세금계산서돌린다(limit=POSTS):
+            for _r, _d, fs in os.walk(outT):
+                for n in fs:
+                    os.remove(os.path.join(_r, n))
+            sys.argv = ["tax_archive.py", "--limit", str(limit)]
+            buf3 = _io.StringIO()
+            with contextlib.redirect_stdout(buf3):
+                rc = TA.main()
+            return rc, buf3.getvalue()
+
+        rcT, _outT1 = 세금계산서돌린다()
+        assert rcT == 0 and len(세금계산서만든것()) == POSTS, (
+            "[427] 세금계산서 PDF 합성 완주가 실패했다(rc=%r · %d개)"
+            % (rcT, len(세금계산서만든것())))
+
+        real_existsT = TA.os.path.exists
+        rendered_tax_again = []
+
+        def no_tax_pdf_exists(path):
+            if str(path).lower().endswith(".pdf"):
+                raise AssertionError("세금계산서 기존 PDF를 건마다 exists로 다시 물었다: %s" % path)
+            return real_existsT(path)
+
+        TA.os.path.exists = no_tax_pdf_exists
+        TA.render_atomic = lambda *_a, **_k: rendered_tax_again.append(1)
+        sys.argv = ["tax_archive.py", "--limit", str(POSTS)]
+        rcT2 = TA.main()
+        assert rcT2 == 0 and not rendered_tax_again, (
+            "[427] 세금계산서 기존 PDF 일괄 색인을 쓰지 않는다: rc=%r · 렌더=%d"
+            % (rcT2, len(rendered_tax_again)))
+        TA.os.path.exists = real_existsT
+        TA.render_atomic = _tax_render
+
+        rcT3, outT3 = 세금계산서돌린다(POSTS - 1)
+        assert (rcT3 == TA.INCREMENTAL_RETURN_CODE and
+                len(세금계산서만든것()) == POSTS - 1 and "건수 상한" in outT3), (
+            "[427] 세금계산서 PDF가 건수 상한 뒤에도 완료로 닫힌다(rc=%r · %d개): %r"
+            % (rcT3, len(세금계산서만든것()), outT3[-200:]))
+
+        TA.render_atomic = lambda *_a, **_k: None
+        rcT4, outT4 = 세금계산서돌린다()
+        assert rcT4 == 1 and len(세금계산서만든것()) == 0 and "완료로 닫지 않고" in outT4, (
+            "[427] 세금계산서 PDF 렌더 실패를 성공으로 닫는다(rc=%r · %d개): %r"
+            % (rcT4, len(세금계산서만든것()), outT4[-200:]))
+    finally:
+        (TA.OUT_JSON, TA.out_root, TA.collect, TA.render_atomic,
+         sys.argv, TA.os.path.exists) = keepT
+        shutil.rmtree(tmpT, ignore_errors=True)
+
+    print("  [427] 밴드 게시글·명세서·세금계산서 PDF 보관이 바깥에서 죽기 전에 스스로 멈추고 "
+          "보고서를 쓴다 — 기존 PDF 일괄색인·예산/건수 상한 증분·실제 완주만 0 ✅")
 
 def t426_camp_code_reaches_the_screen():
     """[235] ERP 거래처코드가 **캠프 화면까지** 이어지고, 추정이 확정으로 안 굳는다.
