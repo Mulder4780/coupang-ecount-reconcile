@@ -596,6 +596,7 @@ def load_records():
 
 KAKAO_ROOM_MARKERS = ("쿠팡돌발점검", "쿠팡정기점검")
 KAKAO_SPAN_TRUNCATED = False
+KAKAO_SELECTION_STATUS = {}
 
 def _span_cache_path():
     """카톡 원본 구간 캐시의 자리. **`REPORT_DIR` 에서 온다.**
@@ -622,6 +623,62 @@ def _span_cache_path():
 def _selection_cache_path():
     """카톡 원본 선택 캐시의 자리. 근거는 `_span_cache_path` 와 같다([227])."""
     return os.path.join(REPORT_DIR, ".카톡_원본선택.json")
+
+
+def _selection_status_path():
+    """자국 파일을 실제로 찾았는지 남기는 자리 — 캐시와 같은 REPORT_DIR 을 쓴다."""
+    return os.path.join(REPORT_DIR, "카톡_원본선택_상태.json")
+
+
+def _kakao_selection_complete(recent_names, named_hits):
+    """흡수 자국이 말한 파일을 모두 찾았을 때만 그 선택을 캐시해도 된다."""
+    expected = {os.path.basename(str(name)) for name in (recent_names or []) if str(name)}
+    found = {os.path.basename(str(name)) for name in (named_hits or []) if str(name)}
+    return not expected or expected <= found
+
+
+def _write_kakao_selection_status(trigger, recent_names, named_hits, cache_saved):
+    """못 읽은 답이 그럴듯한 빈 목록으로 보이지 않게 원인을 원자 저장한다([169])."""
+    expected = {os.path.basename(str(name)) for name in (recent_names or []) if str(name)}
+    found = {os.path.basename(str(name)) for name in (named_hits or []) if str(name)}
+    missing = sorted(expected - found)
+    row = {
+        "시각": datetime.now().isoformat(timespec="seconds"),
+        "trigger": trigger,
+        "정상": not missing,
+        "자국파일수": len(expected),
+        "찾은파일수": len(expected & found),
+        "못찾은파일": missing,
+        "캐시저장": bool(cache_saved),
+        "왜": ("" if not missing else
+               "카톡 흡수 자국이 말한 파일 %d개를 원본 선택기가 못 찾았습니다 — "
+               "최신일은 사람 미보고가 아니라 원본 폴더를 다 못 읽은 값일 수 있습니다"
+               % len(missing)),
+    }
+    global KAKAO_SELECTION_STATUS
+    KAKAO_SELECTION_STATUS = row
+    try:
+        os.makedirs(os.path.dirname(_selection_status_path()), exist_ok=True)
+        tmp = _selection_status_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(row, fh, ensure_ascii=False)
+        os.replace(tmp, _selection_status_path())
+    except OSError:
+        pass
+    return row
+
+
+def kakao_selection_status():
+    """현재 선택 규칙·흡수 자국에 맞는 상태만 돌려준다(옛 경보 재사용 금지)."""
+    trigger = _kakao_selection_trigger()
+    if KAKAO_SELECTION_STATUS.get("trigger") == trigger:
+        return dict(KAKAO_SELECTION_STATUS)
+    try:
+        with open(_selection_status_path(), encoding="utf-8") as fh:
+            row = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return {}
+    return dict(row) if isinstance(row, dict) and row.get("trigger") == trigger else {}
 
 
 def _kakao_selection_trigger():
@@ -1034,6 +1091,8 @@ def kakao_source_paths(dedupe_content=True):
                     candidates.append((os.path.getmtime(path), path))
                 except OSError:
                     continue
+                if os.path.basename(path) in recent_names:
+                    named_hits.add(os.path.basename(path))
         paths = choose(candidates)
 
     paths = _extend_early(paths, folders)
@@ -1051,8 +1110,17 @@ def kakao_source_paths(dedupe_content=True):
             paths.append(path)
             known.add(key)
 
+    # ★ 복구 탐색까지 했는데 흡수 자국의 파일이 하나라도 없으면 **그 답은 캐시하지
+    #   않는다**([277]). Z: 가 잠깐 끊긴 2026-08-27 회차는 옛 로컬 18개로 두 방이
+    #   그럴듯하게 채워졌고, 그 반쪽 답이 같은 trigger 에 박혀 다음 흡수 전까지
+    #   `카톡 최신 2026-07-31` 로 남았다. 목록은 종전처럼 돌려주되 매 호출에서 다시
+    #   확인하게 하고, 대표보고가 사람 탓을 하지 않도록 원인을 별도 자국으로 남긴다.
+    cache_allowed = _kakao_selection_complete(recent_names, named_hits)
     if not dedupe_content:
-        _save_kakao_selection(selection_trigger, False, paths)
+        if cache_allowed:
+            _save_kakao_selection(selection_trigger, False, paths)
+        _write_kakao_selection_status(selection_trigger, recent_names, named_hits,
+                                      cache_allowed)
         return paths
     import hashlib
     out, seen_hash = [], set()
@@ -1065,7 +1133,10 @@ def kakao_source_paths(dedupe_content=True):
         if digest not in seen_hash:
             seen_hash.add(digest)
             out.append(path)
-    _save_kakao_selection(selection_trigger, True, out)
+    if cache_allowed:
+        _save_kakao_selection(selection_trigger, True, out)
+    _write_kakao_selection_status(selection_trigger, recent_names, named_hits,
+                                  cache_allowed)
     return out
 
 

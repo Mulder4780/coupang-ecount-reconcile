@@ -7595,8 +7595,25 @@ def band_collect_cutoff():
     today = _today_str()
     per = dict(idx.get("밴드수집") or {})
     # ★ 원천마다 밀림이 다르다 — 합쳐 말하면 어느 쪽을 채워야 하는지 못 말한다([289]).
-    return {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
-            "밴드별": per, "밀림": bool(last and last < today)}
+    out = {"읽음": bool(idx.get("읽음")), "최신": last, "오늘": today,
+           "밴드별": per, "밀림": bool(last and last < today)}
+    # ★ 카톡 원본을 **못 읽은 날**을 기사·담당자 미보고로 부르지 않는다([169]·[277]).
+    # 밴드 자체의 `읽음` 판정은 건드리지 않는다 — 카톡 한 갈래 때문에 쿠팡AS 밴드의
+    # 확인된 완료 경보까지 모두 끄면 반대 방향의 누락이 된다([172]).
+    try:
+        import band_extract as _bx_cut
+        kakao_status = _bx_cut.kakao_selection_status()
+    except Exception:
+        kakao_status = {}
+    if kakao_status and not kakao_status.get("정상", True):
+        out["카톡원본"] = {
+            "읽음": False,
+            "자국파일수": int(kakao_status.get("자국파일수") or 0),
+            "못찾은파일수": len(kakao_status.get("못찾은파일") or ()),
+        }
+        out["왜"] = str(kakao_status.get("왜") or "카톡 원본 선택을 끝내지 못했습니다")[:180]
+        out["밀림"] = True
+    return out
 
 
 def _collect_behind(row=None, idx=None):

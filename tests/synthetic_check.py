@@ -45610,6 +45610,119 @@ def _gate_lock_or_yield():
         pass                            # 잠금 하나로 관문을 죽이지 않는다
 
 
+def t490_kakao_recorded_files_are_never_cached_missing():
+    """[490] 카톡 흡수 자국 파일을 못 찾은 반쪽 선택은 캐시하지 않는다([277]).
+
+    2026-08-27 실측은 새 파일 둘을 못 찾았는데도 옛 로컬 파일이 두 업무방을 채워
+    18개짜리 목록이 정상처럼 캐시된 사고였다. 합성 폴더에서 같은 모양을 실행하고,
+    자국 파일이 생긴 정상 회차는 캐시되는 반대쪽도 함께 잰다([172]·[295]).
+    """
+    import io as _io
+    import shutil as _sh
+    import tempfile as _tf
+    import band_extract as B
+    import kakao_apply as KA
+    import source_dirs as SD
+    from webapp import app_server as A
+
+    tmp = _tf.mkdtemp(prefix="t490_kakao_cache_")
+    reports = os.path.join(tmp, "reports")
+    canon = os.path.join(tmp, "canon", "2026")
+    local = os.path.join(tmp, "local")
+    os.makedirs(reports, exist_ok=True)
+    os.makedirs(canon, exist_ok=True)
+    os.makedirs(local, exist_ok=True)
+    room_a, room_b = B.KAKAO_ROOM_MARKERS
+    new_a, new_b = "새_돌발.txt", "새_정기.txt"
+
+    def _talk(room, project, day):
+        return ("★UNI★ %s 님과 카카오톡 대화\n" % room
+                + "저장한 날짜 : %s 09:00:00\n\n" % day
+                + "--------------- %s년 %s월 %s일 금요일 ---------------\n"
+                % tuple(day.split("-"))
+                + "[기사] [오전 9:00] ♣ ［ 완료 ]\n"
+                + "● 프로젝트NO : %s\n● 캠프이름 : 합성캠프\n" % project)
+
+    for name, room, project in (("옛_돌발.txt", room_a, "UJ2699101"),
+                                ("옛_정기.txt", room_b, "UJ2699102")):
+        with _io.open(os.path.join(local, name), "w", encoding="utf-8") as fh:
+            fh.write(_talk(room, project, "2026-07-31"))
+    with _io.open(os.path.join(reports, "카톡_반영회차.json"), "w", encoding="utf-8") as fh:
+        json.dump([{"시각": "2026-08-27T10:43:59", "받은파일": [new_a, new_b]}],
+                  fh, ensure_ascii=False)
+
+    old_report, old_inbox = B.REPORT_DIR, B.KAKAO_INBOX
+    old_dirs, old_canon = SD.kakao_dirs, KA.canon_dir
+    old_extend = B._extend_early
+    old_complete = B._kakao_selection_complete
+    old_status = dict(B.KAKAO_SELECTION_STATUS)
+    old_index, old_today = A._band_completion_index, A._today_str
+    try:
+        B.REPORT_DIR = reports
+        B.KAKAO_INBOX = local
+        B.KAKAO_SELECTION_STATUS = {}
+        SD.kakao_dirs = lambda: [canon, local]
+        KA.canon_dir = lambda create=True: canon
+        B._extend_early = lambda paths, folders: list(paths)
+
+        # ① 새 파일은 없지만 옛 두 방이 있어 **그럴듯한 결과**는 나온다. 그래도 캐시는 없다.
+        partial = B.kakao_source_paths(dedupe_content=False)
+        cache_path = B._selection_cache_path()
+        assert len(partial) >= 2, "[490] 옛 두 방 대조군이 없어 사고 모양을 못 만들었다"
+        assert not os.path.exists(cache_path), (
+            "[490] 자국 파일을 못 찾은 반쪽 선택을 캐시했다 — 다음 흡수 전까지 최신일이 멈춘다")
+        status = B.kakao_selection_status()
+        assert (status.get("정상") is False
+                and set(status.get("못찾은파일") or ()) == {new_a, new_b}
+                and status.get("캐시저장") is False), (
+            "[490] 무엇을 못 찾았는지 자국이 남지 않았다: %r" % status)
+
+        # ② 대표보고는 그 날짜를 사람 미보고로 단정하지 않고 원본 선택 실패를 함께 말한다.
+        A._band_completion_index = lambda: {
+            "읽음": True, "수집최신": "2026-07-31", "최신": "2026-07-31",
+            "밴드수집": {"카톡": "2026-07-31"},
+        }
+        A._today_str = lambda: "2026-08-29"
+        cutoff = A.band_collect_cutoff()
+        assert (cutoff.get("읽음") is True and cutoff.get("밀림") is True
+                and (cutoff.get("카톡원본") or {}).get("읽음") is False
+                and "사람 미보고" in str(cutoff.get("왜") or "")), (
+            "[490] 대표보고가 카톡 원본 누락 이유를 함께 말하지 않는다: %r" % cutoff)
+
+        # ③ ★ 계기 자신도 시험한다([272]) — 안전문을 강제로 참으로 만들면 캐시가 생겨야
+        #    위 ①이 바로 잡는다. 문법·경로만 우연히 실패해 초록인 검사가 아니다.
+        B._kakao_selection_complete = lambda recent, found: True
+        B.kakao_source_paths(dedupe_content=False)
+        assert os.path.exists(cache_path), (
+            "[490] 안전문을 꺼도 캐시가 안 생긴다 — 이 검사는 회귀를 실제로 못 잡는다")
+        os.remove(cache_path)
+        B._kakao_selection_complete = old_complete
+
+        # ④ 자국 파일이 실제 정본 자리에 모두 있으면 정상 회차는 종전처럼 캐시한다.
+        for name, room, project in ((new_a, room_a, "UJ2699201"),
+                                    (new_b, room_b, "UJ2699202")):
+            with _io.open(os.path.join(canon, name), "w", encoding="utf-8") as fh:
+                fh.write(_talk(room, project, "2026-08-27"))
+        complete = B.kakao_source_paths(dedupe_content=False)
+        healthy = B.kakao_selection_status()
+        assert (os.path.exists(cache_path) and len(complete) >= 2
+                and healthy.get("정상") is True and healthy.get("캐시저장") is True), (
+            "[490] 정상 선택까지 캐시하지 않는다 — Z: 재귀 탐색이 매번 되살아난다: %r"
+            % healthy)
+    finally:
+        A._band_completion_index, A._today_str = old_index, old_today
+        B._kakao_selection_complete = old_complete
+        B._extend_early = old_extend
+        KA.canon_dir = old_canon
+        SD.kakao_dirs = old_dirs
+        B.REPORT_DIR, B.KAKAO_INBOX = old_report, old_inbox
+        B.KAKAO_SELECTION_STATUS = old_status
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print("  [490] 카톡 자국 파일 누락 선택 캐시 금지 · 정상 캐시 · 대표보고 원인 · 계기 자기시험 "
+          + chr(9989))
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
     _gate_lock_or_yield()
@@ -46204,6 +46317,7 @@ if __name__ == "__main__":
     t487_upload_reject_book()
     t488_erp_bulk_close_is_reversible()
     t489_collector_records_why_each_post_failed()
+    t490_kakao_recorded_files_are_never_cached_missing()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
