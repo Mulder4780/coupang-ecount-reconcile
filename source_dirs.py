@@ -208,6 +208,52 @@ def probe_share():
     return round(time.time() - t, 1), ok
 
 
+def unreachable_note(path):
+    """폴더에 못 닿으면 **왜인지** 한 줄로 — 닿으면 `None`.
+
+    ★ 왜 필요한가 (2026-08-31 실측).  `쿠팡업무_원본자료자동정리` 가 **매일
+      P0** 로 인계 맨 위에 남아 있었다.  자국은 갈래를 `resource` 라 정확히
+      적었고 그 폴더는 **지금 살아 있는데**(1.3초), `autopilot.resource_back`
+      이 `None`(모름)을 줘서 [491] 의 완화가 이 회차에만 안 걸렸다.
+      재 보니 막는 문이 **둘**이었다(분담판 [291] 은 하나만 적어 뒀다):
+        · `_ERR_MARK` 에 걸린 줄 **0** — 문장에 오류 표시가 하나도 없으면
+          `resource_back` 은 그 문장을 **아예 안 본다**
+        · 경로 후보 **0** — `_RES_PATH_RE` 는 따옴표 안이거나 확장자로
+          끝나는 것만 뽑는데, 이 경로는 **폴더**라 둘 다 아니다
+
+    ★ **읽는 쪽 정규식을 넓히지 않는다**([443]·[172]).  폴더 경로까지 받게
+      넓히면 문장 끝까지 삼켜 **엉뚱한 경로로 잘못 완화한다** — 진짜 자원
+      사고를 조용히 덮는 쪽이라 못 잡는 것보다 나쁘다.  그래서 **쓰는 쪽**이
+      그 정규식이 이미 아는 모양으로 적는다.
+
+    ★ 경로는 **작은따옴표로 한 번만** 감싼다.  `str(예외)` 를 그대로 실으면
+      그 안에 파이썬 repr 경로가 **또** 들어 있어 후보가 둘이 되고,
+      `resource_back` 은 '여럿이면 모름' 이라 아무 말도 안 한다.  그래서
+      이유는 `winerror`·`strerror` 로만 뽑는다.
+
+    ★ 낱말에 `Error` 가 있어야 `_ERR_MARK` 에 걸린다.  `[WinError 53]` 은
+      **OS 가 준 글자 그대로**다 — 지어내지 않는다([169]).
+
+    ★ **왕복이 늘지 않는다.**  부르는 쪽이 `os.path.isdir` 대신 이것을 쓴다 —
+      죽은 공유폴더는 한 번이 40~156초라([443]) 두 번 물으면 그만큼 는다.
+
+    ⚠ 이 문구를 고치면 `autopilot._ERR_MARK`·`_RES_PATH_RE` 와 **다시 대 본다.**
+      어긋나면 한 건도 안 걸리면서 오류도 안 난다([165]).  검증 [492] 가 잰다.
+    """
+    import stat as _stat
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        code = getattr(e, "winerror", None) or getattr(e, "errno", None) or "?"
+        why = getattr(e, "strerror", None) or "이유 없음"
+        return "'%s' — [WinError %s] %s" % (path, code, why)
+    except Exception as e:                      # 모르면 지어내지 않는다([169])
+        return "'%s' — %s: 이유를 못 읽었다" % (path, type(e).__name__)
+    if not _stat.S_ISDIR(st.st_mode):
+        return "'%s' — OSError 없음: 폴더가 아니다" % path
+    return None
+
+
 if __name__ == "__main__":
     import sys, glob
     try:

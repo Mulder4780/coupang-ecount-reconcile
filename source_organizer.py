@@ -40,6 +40,7 @@ from source_dirs import (
     PO_DIR,
     RECEIPT_DIR,
     UPLOAD_DIR,
+    unreachable_note,
     WORK_LOG_DIR,
     LEGACY_WORK_LOG_DIR,
 )
@@ -567,8 +568,9 @@ def main():
     ap.add_argument("--budget-min", type=int, default=BUDGET_SEC // 60,
                     help="이 시간을 넘기면 반쪽으로 두지 않고 중단한다(기본 120분)")
     args = ap.parse_args()
-    if not os.path.isdir(ORIGIN_ROOT):
-        print("원본 자료 폴더에 접근할 수 없습니다:", ORIGIN_ROOT)
+    _why = unreachable_note(ORIGIN_ROOT)      # 왕복 한 번([443])
+    if _why:
+        print("원본 자료 폴더에 접근할 수 없습니다:", _why)
         return 2
     start_clock(max(1, args.budget_min) * 60)
     locked = False

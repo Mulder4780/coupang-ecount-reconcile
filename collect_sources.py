@@ -52,7 +52,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 from source_dirs import (  # noqa: E402
     ORIGIN_ROOT, ERP_DIR, COUPANG_DIR, KAKAO_DIR, BAND_DIR, MISC_DIR,
-    PO_DIR, PO_DIRS, RECEIPT_DIR, RECEIPT_DIRS,
+    PO_DIR, PO_DIRS, RECEIPT_DIR, RECEIPT_DIRS, unreachable_note,
 )
 from source_organizer import dated_dir, po_dir_for  # noqa: E402
 
@@ -535,8 +535,9 @@ def _guide_skip_dirs(folder):
 
 def main():
     apply = "--apply" in sys.argv
-    if not os.path.isdir(ORIGIN_ROOT):
-        print(f"원본 폴더에 접근할 수 없습니다(네트워크 드라이브 확인): {ORIGIN_ROOT}")
+    _why = unreachable_note(ORIGIN_ROOT)      # 왕복 한 번([443])
+    if _why:
+        print(f"원본 폴더에 접근할 수 없습니다(네트워크 드라이브 확인): {_why}")
         return 2
 
     # * 구간 자국 - **어디가 오래 걸리나**를 회차가 스스로 대게 한다([324] 의 순서:
