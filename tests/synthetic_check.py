@@ -31944,7 +31944,7 @@ def t493_resource_note_is_readable_by_resource_back():
     import autopilot as A, source_dirs as S
 
     # (1) 닿으면 아무 말도 안 한다 — 정상 회차가 한 톨도 안 느려진다([172])
-    tmp = _tf.mkdtemp(prefix="t492_")
+    tmp = _tf.mkdtemp(prefix="t493_")
     try:
         assert S.unreachable_note(tmp) is None, "닿는 폴더인데 말을 한다"
 
