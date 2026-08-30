@@ -45723,6 +45723,133 @@ def t490_kakao_recorded_files_are_never_cached_missing():
           + chr(9989))
 
 
+def t491_resource_failures_are_not_called_code_bugs():
+    """[491] 그때 자원을 못 잡은 것을 "코드 고장"이라 부르지 않는다 — 중단 갈래·회차 감시.
+
+    ★ 2026-08-30 실사고. `쿠팡업무_일일자동대조` 가 exit 1 로 죽어 **P0 둘**이 인계
+      맨 위에 섰다 — *"오늘 일일 대조가 중단됨 · 실패 원인: 합성검증 실패"* +
+      조치 *"실패한 합성검증을 고친 뒤"* 와 *"자동 회차 실패 경보가 남아 있음"*.
+      그런데 같은 순간 `reports/일일대조_오류.json` 은 **갈래 `resource`** 와
+      *"Z:(SMB)·관리대장을 그 순간 못 읽었다 — **고칠 코드가 없을 수 있다**"* 를
+      정확히 적어 두고 있었고, 같은 관문을 다시 돌리니 **ALL GREEN**(체크마크 359 ·
+      12.0분 · 여유 52%)이었다. 곧 **코드가 깨진 것이 아니라 그때 공유폴더를 못 잡은
+      것**이다. 봉투에 답이 들어 있는데 판정이 버리던 자리이고(`[365]`·`[445]`),
+      그대로 두면 사람이 **멀쩡한 검증을 고치러 가고**(`[172]`) 그 P0 가 매일 인계
+      맨 위를 차지해 **진짜 경보를 덮는다**(`[170]`).
+      `[424]`(자율복구)·`[461]`(단계 실패)이 배운 그 자리인데 **'중단' 갈래와 회차
+      감시에는 안 와 있었다**(`[300]`).
+
+    ★ 재는 것: ① 갈래는 **자국이 적은 것**을 쓰고 다시 판정하지 않는다(`[162]`)
+      ② 살아 있나는 `autopilot.resource_back` 을 빌린다 ③ **`resource` 가 아니면
+      아무것도 안 한다**(`[172]` — 진짜 코드 고장을 덮으면 못 잡는 것보다 나쁘다)
+      ④ **앞선 자국은 다른 실패다**(`[449]`) ⑤ 조용히 빼지 않는다(`[169]`).
+    ★ 실측 증거 파일에는 **한 글자도 안 쓴다**(`[247]`) — 임시 폴더로만.
+    """
+    import json as _json, os as _os, shutil as _sh, tempfile as _tf
+    import system_audit as SA, schedule_watch as SW
+
+    tmp = _tf.mkdtemp(prefix="t491_res_")
+    gone = _os.path.join(tmp, "없는폴더")          # 만들지 않는다 — 죽은 자원
+    try:
+        def crash(kind="resource", at="2026-08-30T11:27:37", folder=tmp):
+            path = (folder + "/x_v20.xlsx").replace(chr(92), "/")
+            return {"시각": at, "갈래": kind, "명령": "daily_run.py (0단계 합성검증)",
+                    "작업": "쿠팡업무_일일자동대조",
+                    "무엇": ("합성검증이 막았다 · t30 · FileNotFoundError: "
+                           "관리대장을 찾을 수 없음: %s (v*.xlsx 를 못 찾았다 — 그 "
+                           "폴더에 못 닿았거나 폴더에 그 파일이 없다. 네트워크 "
+                           "드라이브 연결부터 확인한다)" % path),
+                    "조치": "Z:(SMB)·관리대장을 그 순간 못 읽었다 — 연결을 확인한다."}
+
+        # ---- (A) system_audit '중단' 갈래 ---------------------------------
+        g = SA._gate_crash_recovered
+        assert g(crash(), "2026-08-30T11:27:37") is True, "(1) 자원이 살아 있는데 못 본다"
+        assert g(crash(folder=gone), "2026-08-30T11:27:37") is False, "(2) 죽은 자원을 살았다 한다"
+        # ★ 갈래가 아니면 **아무것도 안 한다** — 코드 고장을 P2 로 내리면 못 잡는 것보다 나쁘다
+        assert g(crash(kind="code"), "2026-08-30T11:27:37") is None, "(3) 코드 고장을 자원으로 덮는다"
+        # ★ 앞선 자국은 그 실패의 것이 아니다([449])
+        assert g(crash(at="2026-08-30T09:00:00"), "2026-08-30T11:27:37") is None, "(4) 낡은 자국을 잇는다"
+        assert g({}, "") is None and g(None, "") is None, "(5) 빈 자국에 답을 지어낸다"
+
+        # ★ 자국 이름이 쓰는 쪽과 같아야 한다 — 갈리면 한 건도 안 걸리면서 오류도 안 난다([165])
+        import daily_run as DR
+        assert SA.GATE_CRASH_NAME == _os.path.basename(DR.GATE_CRASH), (
+            "(6) 자국 이름이 daily_run.GATE_CRASH 와 갈렸다: %s" % SA.GATE_CRASH_NAME)
+        # ★ 조치가 고정 문자열로 되돌아가지 않는다([289] — 조치는 갈래마다 다르다)
+        _sa = open(_os.path.join(SA.ROOT, "system_audit.py"), encoding="utf-8").read()
+        i = _sa.index('title = "오늘 일일 대조가 중단됨"')
+        blk = _sa[i - 900:i + 900]
+        assert "_gate_crash_recovered(" in blk, "(7) 중단 갈래가 자국을 안 읽는다"
+        assert 'crash.get("조치")' in blk, "(8) 조치를 자국에서 안 가져온다"
+        assert "중단은 그때 공유폴더를" in _sa, "(9) 조사가 어긋난 제목이 돌아왔다"
+
+        # ---- (B) schedule_watch 회차 감시 ---------------------------------
+        # ★ DEAD 에 넣으면 P0 로 되살아난다 — 그러면 이 고침이 아무 뜻도 없다
+        assert SW.RESBACK not in SW.DEAD, "(10) 자원회복이 DEAD 에 들어갔다"
+        assert SW.RESBACK not in (SW.FIXWAIT, SW.RANLATER)
+
+        rep = _os.path.join(tmp, "reports")
+        _os.makedirs(rep, exist_ok=True)
+        old_root = SW.ROOT
+        try:
+            SW.ROOT = tmp
+            task = {"next": "2026-08-31T09:50:00", "act": []}
+            last = SW._dt("2026-08-30T10:07:14")
+
+            def put(d):
+                with open(_os.path.join(rep, "일일대조_오류.json"), "w",
+                          encoding="utf-8") as fh:
+                    _json.dump(d, fh, ensure_ascii=False)
+
+            put(crash())
+            back, note = SW._resource_recovered(task, "쿠팡업무_일일자동대조", last)
+            assert back is True and note, "(11) 자국을 못 잇는다"
+            assert "지금 살아 있다" in note and "다음 예정" in note, "(12) 무엇을 알렸는지 안 말한다"
+            # ★ 남의 작업 자국으로 완화하지 않는다([172])
+            back2, _ = SW._resource_recovered(task, "쿠팡업무_원본자료자동정리", last)
+            assert back2 is None, "(13) 남의 자국으로 완화한다"
+            # ★ 그 실행보다 앞선 자국은 다른 실패다([449])
+            put(crash(at="2026-08-30T09:00:00"))
+            assert SW._resource_recovered(task, "쿠팡업무_일일자동대조", last)[0] is None, "(14) 낡은 자국을 잇는다"
+            # ★ 갈래가 아니면 그대로 실패다
+            put(crash(kind="code"))
+            assert SW._resource_recovered(task, "쿠팡업무_일일자동대조", last)[0] is None, "(15) 코드 고장을 덮는다"
+            # ★ 죽은 자원은 완화하지 않는다
+            put(crash(folder=gone))
+            assert SW._resource_recovered(task, "쿠팡업무_일일자동대조", last)[0] is False, "(16) 죽은 자원을 살았다 한다"
+        finally:
+            SW.ROOT = old_root
+
+        # ★ 조용히 빼지 않는다([169]) — 알림으로 남는다
+        rows = [{"갈래": SW.RESBACK, "작업": "쿠팡업무_일일자동대조", "말": "x",
+                 "연속": 1, "마지막실행": ""}]
+        assert any(n["갈래"] == SW.RESBACK for n in SW.notices(rows)), "(17) 자원회복이 조용히 사라진다"
+        assert not SW.alarms(rows, {}), "(18) 자원회복이 아직 경보로 올라간다"
+
+        # ★ 순서 — `뒤에됨`(그 일이 실제로 됐다)이 이긴다. 자원 회복은 그 다음이다
+        _sw = open(_os.path.join(old_root, "schedule_watch.py"), encoding="utf-8").read()
+        i_ran, i_res, i_fix = (_sw.index("kind = RANLATER"), _sw.index("kind = RESBACK"),
+                               _sw.index("kind = FIXWAIT"))
+        assert i_ran < i_res < i_fix, "(19) 자원회복이 뒤에됨보다 앞서거나 고침대기보다 뒤다"
+        assert "not 돈때" in _sw[i_res - 600:i_res], "(20) 뒤에됨을 덮어쓴다"
+
+        # ---- 계기 자기시험([272]) — 이 검사가 정말 무언가를 재나 ------------
+        # ★ 재료가 실제 모양이 아니면 통과하면서 아무것도 안 잰다([272]).
+        #   그러니 **먼저 재료를 확인**한다 — 이 문구는 문이 없으면 True 가 된다.
+        from autopilot import resource_back as _rb
+        assert _rb(crash()["무엇"]) is True, (
+            "재료가 틀렸다 — 이 문구로는 갈래 문이 있든 없든 결과가 같아 아무것도 안 잰다")
+        # ★ 그런데 자국이 `code` 라 적었으면 **완화하지 않는다** — 곧 갈래 문이 산다.
+        assert SA._gate_crash_recovered(crash(kind="code"), "") is None, (
+            "갈래 문이 아무것도 안 막는다 — 코드 고장이 자원 회복으로 덮인다")
+        assert SW._resource_recovered.__doc__ and "다시 판정하지 않는다" in SW._resource_recovered.__doc__
+
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+    print("  [491] 그때 자원을 못 잡은 것을 코드 고장이라 안 부른다 — 중단 갈래·회차 감시 "
+          + chr(9989))
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
     _gate_lock_or_yield()
@@ -46318,6 +46445,7 @@ if __name__ == "__main__":
     t488_erp_bulk_close_is_reversible()
     t489_collector_records_why_each_post_failed()
     t490_kakao_recorded_files_are_never_cached_missing()
+    t491_resource_failures_are_not_called_code_bugs()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

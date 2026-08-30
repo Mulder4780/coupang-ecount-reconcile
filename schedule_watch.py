@@ -82,6 +82,11 @@ DEAD = ("강제종료", "비정상종료", "중단됨", "실패", "확인못함"
 FIXWAIT = "고침대기"
 #: 실패했는데 **그 일이 그 뒤에 실제로 끝났다** — 추측이 아니라 회차가 남긴 자국이다.
 RANLATER = "뒤에됨"
+
+#: 실패했는데 그 원인이 **그때 자원을 못 잡은 것**이고 그 자원이 지금 살아 있다.
+#:   `[424]`(자율복구)·`[461]`(단계 실패)이 배운 것을 회차 감시로 옮긴 것.
+#:   DEAD 에 절대 넣지 말 것(넣으면 P0 로 되살아난다).
+RESBACK = "자원회복"
 #: 반복될 때만 경보. 한 번의 밀림은 정상 운영이다.
 REPEAT_ONLY = ("밀림",)
 #: 연속 몇 번부터 밀림을 경보로 올리나 — 5분 회차가 세 번 연속 거부면 앞이 안 끝난 것이다.
@@ -596,6 +601,17 @@ def judge(task, now, before=None):
                % (say, 돈때.strftime("%m-%d %H:%M"), 단계수))
         kind = RANLATER
 
+    # ★ **지나간 자원 실패를 "코드 고장"이라 부르지 않는다**([424]·[461]).
+    #   자국이 갈래를 적어 두는데 이 감시자는 그것을 안 봤다([300]).
+    #   ★ 순서: `뒤에됨`(그 일이 실제로 됐다) 다음, `고침대기` **앞**이다 —
+    #     자원 회복은 **자국이 적은 사실**이고 고침대기는 **추측**이라
+    #     근거가 더 세다([203] 좁은 규칙이 먼저).
+    if kind in DEAD and late is None and not 돈때:
+        되살아남, 자원말 = _resource_recovered(task, name, last)
+        if 되살아남 is True:
+            say += 자원말
+            kind = RESBACK
+    
     바뀐것, 바뀐때 = (None, None)
     if kind in DEAD and late is None:
         바뀐것, 바뀐때 = code_changed_after(task, last)
@@ -629,6 +645,90 @@ def judge(task, now, before=None):
         "실행기": [{"exe": str(a.get("exe") or ""), "args": str(a.get("args") or "")[:200]}
                  for a in (task.get("act") or []) if isinstance(a, dict)],
     }
+
+
+
+def _crash_trace(task, name, last):
+    """그 작업이 **그 실행 뒤** 남긴 자국 — 자르지 않은 원문. 못 이으면 None.
+
+    ★ `traces()` 를 못 쓰는 이유: 그것은 화면용이라 `무엇` 을 120자에서 자른다.
+      실측 2026-08-31 — 같은 자국을 두고 **원문은 `resource_back=True`** 인데
+      **120자컷은 `None`** 이다(경로가 뒤에 있어 잘린다).
+    ★ **잇는 근거는 둘뿐이다**: 자국이 적어 둔 `작업` 칸([402]), 또는 `명령` 의
+      스크립트가 `task_scripts(task)` 에 있는 것. 이름을 손으로 안 적는다([162]).
+      **못 이으면 None**([169]) — 남의 자국으로 완화하면 진짜 실패를 덮는다([172]).
+    ★ **그 실행보다 앞선 자국은 다른 실패다**([449]) — 낡은 진단을 지금 사실처럼
+      쓰면 이미 풀린 것을 고치러 간다.
+    """
+    import glob as _glob
+    want = {os.path.basename(p).lower() for p in (task_scripts(task) or [])}
+    floor = last.strftime("%Y-%m-%dT%H:%M:%S") if last else ""
+    best = None
+    for path in _glob.glob(os.path.join(ROOT, "reports", "*_오류.json")):
+        try:
+            d = json.load(open(path, encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        owner = str(d.get("작업") or "")
+        if owner:
+            if owner != name:
+                continue
+        else:
+            cmd = str(d.get("명령") or "").strip().split()
+            head = cmd[0].lower() if cmd else ""
+            if not head or head not in want:
+                continue
+        at = str(d.get("시각") or "")
+        if floor and at and at[:19] < floor[:19]:
+            continue                       # 그 실행보다 앞선 자국이다([449])
+        if best is None or at > str(best.get("시각") or ""):
+            best = d
+    return best
+
+
+def _resource_recovered(task, name, last):
+    """자국이 "그때 자원을 못 잡았다"고 말했고 그 자원이 **지금 살아 있나**.
+
+    ★ 왜 필요한가 (2026-08-31 실측). `쿠팡업무_일일자동대조` 가 exit 1 로 죽어
+      **P0** 로 올라왔는데, 그 자국은 `갈래 resource` 이고 사유가
+      *"관리대장을 찾을 수 없음: Z:/…"* 였다 — 곧 **코드가 깨진 것이 아니라 그때
+      공유폴더를 못 잡은 것**이고, 같은 관문을 지금 돌리면 **ALL GREEN** 이다
+      (체크마크 359 · 12.0분). 그런데 이 감시자는 그것을 묻지 않아 매일 아침
+      **인계 맨 위**를 차지했다 — 조치는 사람을 멀쩡한 코드로 보내고([172])
+      진짜 경보를 덮는다([170]).
+
+    ★ **갈래는 자국이 적어 둔 것을 쓴다 — 여기서 다시 판정하지 않는다**([162]).
+      실측이 그 증거다: `원본정리_오류.json` 은 자국에 `resource` 라 적혀 있는데
+      그 `무엇`(요약)으로 `classify_failure` 를 다시 부르면 **`code`** 가 나온다.
+    ★ **살아 있나는 `autopilot.resource_back` 을 빌린다**([162]) — 문구에서 경로를
+      못 뽑으면 `None`(모름)이고 **그것이 옳다**([169]). 실측으로 원본정리 쪽은
+      문구 모양이 달라 `None` 이라 **완화가 안 된다 — 그것을 그대로 적는다**.
+    ★ **`resource` 가 아니면 아무것도 안 한다**([172]) — 진짜 코드 고장을 내리면
+      못 잡는 것보다 나쁘다.
+
+    돌려주는 값: (True/False/None, 덧붙일 말)
+    """
+    tr = _crash_trace(task, name, last)
+    if not tr:
+        return None, ""
+    if str(tr.get("갈래") or "") != "resource":
+        return None, ""
+    text = " ".join(str(tr.get(k) or "") for k in ("무엇", "자취"))
+    if not text.strip():
+        return None, ""
+    try:
+        from autopilot import resource_back
+        back = resource_back(text)
+    except Exception:
+        return None, ""
+    if back is not True:
+        return back, ""
+    return True, (" — 그런데 회차가 남긴 자국은 **그때 자원(Z: 등)을 못 잡은 것**이라"
+                  " 말하고 **그 자원은 지금 살아 있다**. 코드를 뒤지지 않는다"
+                  " · 다음 예정 %s 가 답한다"
+                  % ((task.get("next") or "?")[:16].replace("T", " ")))
 
 
 def alarms(rows, missing):
@@ -686,7 +786,7 @@ def notices(rows, now=None):
     now = now or datetime.now()
     out = []
     for r in rows:
-        if r["갈래"] not in (FIXWAIT, RANLATER):
+        if r["갈래"] not in (FIXWAIT, RANLATER, RESBACK):
             continue
         out.append({"갈래": r["갈래"], "작업": r["작업"], "무엇": "**%s** — %s"
                     % (r["작업"], r["말"]),

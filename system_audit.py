@@ -26,6 +26,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 REPORTS = ROOT / "reports"
+
+#: 0단계 관문이 막았을 때 daily_run 이 남기는 자국([304]).
+#: ⚠ 이름은 `daily_run.GATE_CRASH` 와 같아야 한다 — 갈리면 이 완화가
+#:   한 건도 안 걸리면서 오류도 안 난다([165]). 검증 [482] 가 대 본다.
+GATE_CRASH_NAME = "일일대조_오류.json"
 OUT_JSON = REPORTS / "시스템_업무진단.json"
 OUT_MD = REPORTS / "시스템_업무진단.md"
 VERSION = 1
@@ -310,6 +315,50 @@ def _steps_resource_recovered(reasons, names):
         if back is True:
             alive = True
     return True if alive else None
+
+
+def _gate_crash_recovered(crash, daily_at=""):
+    """0단계 관문이 남긴 자국이 "그때 자원을 못 잡았다"이고 그 자원이 지금 살아 있나.
+
+    ★ 왜 필요한가 (2026-08-30 실사고). 화면은 *"오늘 일일 대조가 중단됨 · 실패 원인:
+      합성검증 실패 — 전체 중단"* 에 조치 *"실패한 합성검증을 고친 뒤"* 였는데,
+      같은 순간 `reports/일일대조_오류.json` 은 **갈래 `resource`** 와
+      *"Z:(SMB)·관리대장을 그 순간 못 읽었다 — **고칠 코드가 없을 수 있다**"* 를
+      정확히 적어 두고 있었다. 봉투에 답이 들어 있는데 판정이 버리던 자리다
+      ([365]·[445]) — 그대로 두면 사람이 **멀쩡한 검증을 고치러 간다**([172]) 그리고
+      그 P0 가 매일 인계 맨 위를 차지해 **진짜 경보를 덮는다**([170]).
+      `[424]`(자율복구)·`[461]`(단계 실패)이 배운 그 자리인데 **'중단' 갈래에는
+      안 와 있었다**([300]).
+
+    ★ **갈래는 자국이 적어 둔 것을 쓴다 — 여기서 다시 판정하지 않는다**([162]).
+      실측 2026-08-31 이 그 증거다: `원본정리_오류.json` 은 자국에 `resource` 라
+      적혀 있는데 그 `무엇`(요약)으로 `classify_failure` 를 다시 부르면 **`code`** 가
+      나온다. 재판정하면 같은 자국을 두고 두 답이 생긴다.
+    ★ **살아 있나는 `autopilot.resource_back` 을 빌린다**([162]) — 경로를 못 뽑으면
+      `None`(모름)이고 그것이 옳다([169]).
+    ★ **자국이 그 실패의 것이어야 한다**([449]) — 진행 자국보다 앞선 자국은 다른
+      실패다. 낡은 진단을 지금 사실처럼 쓰면 이미 풀린 것을 고치러 간다.
+    ★ **갈래가 `resource` 가 아니면 모름**이다([172]) — 진짜 코드 고장을 P2 로
+      내리면 못 잡는 것보다 나쁘다.
+
+    돌려주는 값: True 회복 · False 아직 죽어 있음 · None 못 갈랐다.
+    """
+    if not isinstance(crash, dict) or not crash:
+        return None
+    at = str(crash.get("시각") or "")
+    if daily_at and at and at[:19] < str(daily_at)[:19]:
+        return None                     # 앞선 자국은 다른 실패다([449])
+    if str(crash.get("갈래") or "") != "resource":
+        return None                     # 갈래가 아니면 모름([172])
+    text = " ".join(str(crash.get(k) or "") for k in ("무엇", "자취"))
+    if not text.strip():
+        return None
+    try:
+        from autopilot import resource_back
+        return resource_back(text)
+    except Exception:
+        return None
+
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -647,12 +696,24 @@ def build() -> dict[str, Any]:
                           "   # 사유 전문은 reports/종합리포트_*.md 의 그 단계 블록에 있다")
                 source = "reports/.daily_run.progress.json"
             else:
-                recovered = None
+                # ★ **봉투에 답이 들어 있는데 판정이 버리던 자리**([365]·[445]).
+                #   관문(0단계)이 막으면 `daily_run` 이 갈래·조치를 자국에 정확히
+                #   적어 두는데([304]) 여기서는 `recovered=None` 에 조치가 고정
+                #   문자열이라, 그때 Z: 를 못 잡은 것도 *"실패한 합성검증을 고쳐라"*
+                #   로 나갔다 — 사람을 **멀쩡한 검증으로 보낸다**([172]).
+                crash = _read_json(REPORTS / GATE_CRASH_NAME) or {}
+                recovered = _gate_crash_recovered(crash, daily.get("시각") or "")
                 title = "오늘 일일 대조가 중단됨"
                 why = "%s · 실패 원인: %s" % (
                     daily.get("시각") or "시각 없음",
-                    daily.get("오류") or daily.get("오류유형") or "원인 없음")
-                action = "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다."
+                    (crash.get("무엇") or daily.get("오류")
+                     or daily.get("오류유형") or "원인 없음"))
+                # ★ 자국이 적어 둔 조치가 있으면 그것이 낫다 — 그 회차가 무엇에
+                #   막혔는지는 자국만 안다([289] 조치는 갈래마다 다르다).
+                #   ⚠ 두 낱말을 다 받는다([212]) — 쓰는 쪽이 `조치`·`어떻게` 로 갈려
+                #     있어 하나만 물으면 그 회차의 조치는 한 번도 안 실린다([165]).
+                action = (str(crash.get("조치") or crash.get("어떻게") or "").strip()
+                          or "실패한 합성검증을 고친 뒤 일일 대조를 다시 실행합니다.")
                 source = "reports/.daily_run.progress.json"
             verdict = _schedule_verdict("쿠팡업무_일일자동대조") or {}
             kind = str(verdict.get("갈래") or "")
@@ -671,8 +732,13 @@ def build() -> dict[str, Any]:
                 #   무게만 내린다. **"고쳐졌다"고 말하지 않는다**(`[322]`) —
                 #   말할 수 있는 것은 "그 자원이 지금은 살아 있다" 까지다.
                 add("daily-run-resource-back", "P2",
-                    "일일 대조 단계 실패는 그때 공유폴더를 못 잡은 것이다",
-                    "%s · 실패한 단계가 **모두 자원 탓**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 회차가 답한다." % why,
+                    # ⚠ 조사를 붙이지 말고 갈래마다 통째로 쓴다 — "중단는" 이 된다.
+                    ("일일 대조 단계 실패는 그때 공유폴더를 못 잡은 것이다"
+                     if ran_through else
+                     "일일 대조 중단은 그때 공유폴더를 못 잡은 것이다"),
+                    ("%s · 실패한 단계가 **모두 자원 탓**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 회차가 답한다." % why)
+                    if ran_through else
+                    ("%s · 그때 **자원을 못 잡은 것**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 예정 회차가 답한다." % why),
                     action, source)
             else:
                 # ★ 무게는 **안 내린다**(`[172]`) — 단계 13개가 안 돈 것은
