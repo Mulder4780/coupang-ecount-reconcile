@@ -31827,6 +31827,180 @@ def t489_collector_records_why_each_post_failed():
 
     print("  [489] 실패 이유를 번호마다 남긴다(blank 셈·옛 칸은 그대로) " + chr(9989))
 
+
+def t492_index_silence_is_told_apart_from_a_real_backlog():
+    """색인의 침묵과 **진짜 밀림**을 가른다 — `.get()` 이 둘을 뭉치고 있었다.
+
+    2026-08-31 실사고: 카톡이 3일 밀렸고 원본 색인은 **4시간 전**에 돌았는데,
+    화면은 *"원본 색인 나이를 **못 읽어** 색인 탓인지 못 갈랐다"* 고 말했다.
+    담는 쪽이 '읽었지만 색인 탓이 아님' 갈래에 칸을 **아예 안 넣었고**, 읽는 쪽
+    `f.get("색인탓") is None` 이 **칸 없음도 None 으로 받았기** 때문이다([247] —
+    키가 아예 없는 것과 값이 None 인 것은 다른 말이다).
+
+    그러면 조치가 갈린다([289]) — 사람은 *"색인 탓인가"* 하고 **색인을 돌리러**
+    가는데, 실제로 필요한 것은 **카톡 내보내기**다. 틀린 지목은 못 잡는 것보다
+    나쁘다([172]).
+
+    ⚠ 담는 쪽(`data_freshness`)은 밴드 캐시·색인 같은 **실데이터**를 읽어서
+      실행으로 재면 그날 기계 상태에 따라 초록·빨강을 오간다([211]). 그래서
+      담는 쪽은 **되돌아가면 안 되는 것만 글자로 얼리고**([39]) 읽는 쪽 갈래는
+      **실행으로** 잰다([295]).
+    """
+    import io as _io
+    import session_handoff as SH
+
+    # (1) 담는 쪽 — '읽었지만 색인 탓 아님' 갈래가 칸을 명시로 담는가 (글자로 얼린다)
+    code = _t370_code_only(_io.open(
+        os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read())
+    i = code.find('row["색인나이"] = age')
+    assert i > 0, "[492] 색인나이를 담는 자리를 못 찾았다"
+    seg = code[i:i + 700]
+    assert 'row["색인탓"] = None' in seg, "[492] 못 읽음 갈래가 사라졌다"
+    assert 'row["색인탓"] = True' in seg, "[492] 색인 탓 갈래가 사라졌다"
+    assert 'row["색인탓"] = False' in seg, (
+        "[492] '읽었지만 색인 탓 아님' 갈래가 칸을 안 담는다 — "
+        "읽는 쪽 .get() 이 '못 읽음'과 구별을 못 한다([247])")
+
+    # (2)~(5) 읽는 쪽 — 실행으로 잰다
+    # ⚠ `blockers()` 는 스냅샷 칸을 **대괄호로** 읽어 합성 dict 로는 못 부른다
+    #   ([320]). 실측 스냅샷을 **읽기만** 하고 그 칸 하나만 갈아 끼운다([247] —
+    #   실측 증거에는 한 글자도 안 쓴다).
+    snap_p = os.path.join(ROOT, "reports", "세션인계.json")
+    try:
+        base_st = json.load(_io.open(snap_p, encoding="utf-8"))
+    except Exception as _e:
+        # ★ 못 읽은 것을 통과라 하지 않는다([169]) — 무엇을 못 쟀는지 말한다.
+        print(chr(9989) + " [492] 담는 쪽만 쟀다 — 실측 스냅샷을 못 읽어 "
+              "읽는 쪽 갈래는 못 쟀다(%s)" % type(_e).__name__)
+        return
+
+    def say(row):
+        st = dict(base_st)
+        st["수집신선도"] = [row]
+        for line, _fix in SH.blockers(st):
+            if "수집이 밀렸다" in line:
+                return line
+        return ""
+
+    base = {"이름": "카카오톡", "최신": "2026-08-28", "밀린일": 3, "한도": 2,
+            "되살리는법": "카톡방 내보내기", "밀림": True}
+
+    # (2) 색인은 최신이다 → '색인 탓이 아니다' 라고 말한다
+    a = say(dict(base, 색인나이=0.17, 색인탓=False))
+    assert "색인 탓이 아니" in a, "[492] 색인이 최신인데 그 사실을 안 말한다: %r" % a
+    assert "못 읽어" not in a, (
+        "[492] 읽었는데 '못 읽어' 라고 말한다 — 2026-08-31 그 사고다: %r" % a)
+    assert "0.2" in a, "[492] 색인이 며칠 전 것인지 숫자로 안 말한다: %r" % a
+
+    # (3) 못 읽었다 → 예전 그대로 '못 읽어' ([169])
+    b = say(dict(base, 색인나이=None, 색인탓=None))
+    assert "못 읽어" in b, "[492] 못 읽은 것을 못 읽었다고 안 한다: %r" % b
+
+    # (4) 옛 스냅샷(칸 없음) → 아무 말도 안 한다 ([212] — 쓰는 쪽만 고치면 옛 기록이
+    #     여전히 읽는 쪽을 속인다)
+    c = say(dict(base, 색인나이=0.17))
+    assert "못 읽어" not in c and "색인 탓이" not in c, (
+        "[492] 옛 스냅샷에 없는 사실을 지어낸다: %r" % c)
+
+    # (5) 색인 탓일 수 있다 → 조치가 색인 돌리기로 갈린다
+    st5 = dict(base_st)
+    st5["수집신선도"] = [dict(base, 밀린일=3, 색인나이=5.0, 색인탓=True)]
+    got = [(l, f) for l, f in SH.blockers(st5) if "색인이" in l]
+    assert got, "[492] 색인 탓 갈래가 사라졌다"
+    assert "source_index" in got[0][1], (
+        "[492] 색인 탓인데 조치가 색인 돌리기가 아니다: %r" % (got[0][1],))
+
+    # (6) 밴드는 이 칸을 안 단다 — 좁히는 것도 고장이다 ([172])
+    d = say({"이름": "밴드: 시험", "최신": "2026-08-27", "밀린일": 4, "한도": 1,
+             "되살리는법": "-", "밀림": True})
+    assert "색인" not in d, "[492] 밴드 줄에 없는 색인 이야기가 붙는다: %r" % d
+
+    # (7) 계기 자기시험 — 옛 동작(.get 으로 뭉치기)이면 (2)가 잡히나 ([272])
+    def old_tail(f):
+        return (" (원본 색인 나이를 못 읽어 색인 탓인지 못 갈랐다)"
+                if (f.get("색인탓") is None and "색인나이" in f) else "")
+    assert old_tail(dict(base, 색인나이=0.17, 색인탓=False)) == "", \
+        "[492] 재료가 사고를 재현 못 한다 — 그러면 이 검사는 아무것도 안 잰다"
+    assert old_tail(dict(base, 색인나이=0.17)) != "", (
+        "[492] 계기 자기시험 실패 — 옛 동작이 '칸 없음'을 '못 읽음'으로 "
+        "뭉치는 것을 재현해야 한다")
+
+    print(chr(9989) + " [492] 색인 침묵 vs 진짜 밀림 — 갈래 6 · 계기 자기시험 통과")
+
+def t493_resource_note_is_readable_by_resource_back():
+    """자원 실패 문구를 `resource_back` 이 **읽을 수 있는 모양**으로 적는가.
+
+    2026-08-31 실측: `원본자료자동정리` 자국은 갈래를 `resource` 라 정확히
+    적었고 그 폴더는 지금 살아 있는데, `resource_back` 이 `None`(모름)이라
+    [491] 의 완화가 이 회차에만 안 걸려 **매일 P0** 로 남았다.  막는 문이
+    둘이었다 — `_ERR_MARK` 걸린 줄 0 · 경로 후보 0.
+
+    ★ 읽는 쪽 정규식은 한 글자도 안 넓혔다([443]·[172]) — 폴더 경로까지
+      받게 넓히면 문장 끝까지 삼켜 진짜 자원 사고를 조용히 덮는다.
+    ★ 글자로는 못 잰다([295]) — **불러서** 잰다.
+    ★ 진짜 Z: 는 한 글자도 안 건드린다([247]) — 임시 폴더와 없는 드라이브로만.
+    """
+    import io as _io, os as _os, re as _re, tempfile as _tf, shutil as _sh
+    import autopilot as A, source_dirs as S
+
+    # (1) 닿으면 아무 말도 안 한다 — 정상 회차가 한 톨도 안 느려진다([172])
+    tmp = _tf.mkdtemp(prefix="t492_")
+    try:
+        assert S.unreachable_note(tmp) is None, "닿는 폴더인데 말을 한다"
+
+        # (2) 폴더가 아니면 그렇게 말한다
+        f = _os.path.join(tmp, "x.txt")
+        _io.open(f, "w", encoding="utf-8").write("x")
+        n = S.unreachable_note(f)
+        assert n and "폴더가 아니다" in n, "파일인데 안 가른다: %r" % n
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # (3) 못 닿으면 OS 가 준 이유를 그대로 — 지어내지 않는다([169])
+    dead = r"Q:\없는폴더\0. 원본 자료"
+    note = S.unreachable_note(dead)
+    assert note, "못 닿는데 아무 말도 안 한다"
+    msg = "원본 자료 폴더에 접근할 수 없습니다: " + note
+
+    # (4) 문 둘을 실제로 통과하나 — 이것이 이 검사의 본체다
+    errs = [l for l in msg.splitlines() if A._ERR_MARK.search(l)]
+    assert len(errs) == 1, "_ERR_MARK 에 안 걸린다(%d줄) — resource_back 이 문장을 아예 안 본다" % len(errs)
+    cands = []
+    for rx in A._RES_PATH_RE:
+        for m in rx.finditer(msg):
+            if m.group(1) not in cands:
+                cands.append(m.group(1))
+    assert cands == [dead], "경로 후보가 하나가 아니다: %r" % (cands,)
+
+    # (5) 아직 죽어 있으면 완화하지 않는다 — 좁히는 것도 고장이다([172])
+    assert A.resource_back(msg) is False, "죽은 경로인데 살아났다고 한다"
+
+    # (6) 되살아나면 완화가 걸린다 — 이것이 매일 P0 를 내리는 자리다
+    live = _os.path.dirname(_os.path.abspath(__file__))
+    msg2 = ("원본 자료 폴더에 접근할 수 없습니다: '%s' "
+            "\u2014 [WinError 53] 네트워크 경로를 찾지 못했습니다" % live)
+    assert A.resource_back(msg2) is True, "살아 있는 경로인데 완화가 안 걸린다"
+
+    # (7) 쓰는 쪽이 **실제로 부르는가** — 함수만 있고 안 부르면 없는 것과 같다([328])
+    for name in ("source_organizer.py", "collect_sources.py"):
+        src = _io.open(_os.path.join(ROOT, name), encoding="utf-8").read()
+        assert "unreachable_note(ORIGIN_ROOT)" in src, "%s 가 안 부른다" % name
+        assert not _re.search(r"if not os\.path\.isdir\(ORIGIN_ROOT\)", src), (
+            "%s 가 옛 판정으로 돌아갔다" % name)
+
+    # (8) 계기 자신을 시험한다([272]) — 따옴표를 빼면 (4)가 잡아야 한다
+    bad = msg.replace("'", "")
+    bc = []
+    for rx in A._RES_PATH_RE:
+        for m in rx.finditer(bad):
+            if m.group(1) not in bc:
+                bc.append(m.group(1))
+    assert bc != [dead], "따옴표를 빼도 통과한다 — 이 검사는 아무것도 안 재고 있다"
+
+    print("\u2705 [493] 자원 실패 문구가 resource_back 에 읽힌다"
+          " (문 둘 통과 \u00b7 되살아나면 완화 \u00b7 옛 판정 회귀 막음)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -46446,6 +46620,8 @@ if __name__ == "__main__":
     t489_collector_records_why_each_post_failed()
     t490_kakao_recorded_files_are_never_cached_missing()
     t491_resource_failures_are_not_called_code_bugs()
+    t493_resource_note_is_readable_by_resource_back()
+    t492_index_silence_is_told_apart_from_a_real_backlog()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
