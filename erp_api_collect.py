@@ -106,11 +106,43 @@ def _read(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _fresh(hours: float = 6) -> bool:
+#: 받아 둔 것을 다시 안 받는 창.  **한 곳에서 정한다**([162]) — 전체 캐시와
+#: 갈래별 캐시가 서로 다른 값을 쓰면 같은 자료를 놓고 두 답이 나온다.
+FRESH_HOURS = 6
+
+
+def _fresh(hours: float = FRESH_HOURS) -> bool:
     try:
         return (datetime.now().timestamp() - STATUS.stat().st_mtime) < hours * 3600 and bool(_read(STATUS).get("ok"))
     except OSError:
         return False
+
+
+def _fresh_source(endpoint: str, hours: float = FRESH_HOURS) -> dict[str, Any] | None:
+    """그 갈래가 **최근에 성공했으면** 그때 결과를 돌려준다 — 아니면 ``None``.
+
+    ★ **왜 갈래마다 보나** (2026-08-31 실사고).  `_fresh()` 는 `ok` 하나만 보는데
+    한 갈래라도 실패하면 `ok=False` 다.  그래서 발주서가 못 풀리는 동안
+    **멀쩡히 성공한 품목 7,346건을 18일간 57번 다시 받았다**(inbox/api 916.1MB).
+    실패한 갈래는 사람이 `config/ecount_config.json` 을 고쳐야 풀리는데(요청 칸
+    이름) 그때까지 **같은 요청이 이카운트로 계속 나간다** — 절대규칙이 막는
+    '무차별 탐침'에 닿는 자리다(트래픽 제한이 ERP 전체 차단으로 번진다).
+
+    ★ **실패한 갈래는 여기서 안 걸린다** — `count is None` 이라 매번 다시 시도한다.
+      곧 이 문은 **성공을 아끼는 것**이지 실패를 덮는 것이 아니다([172]).
+    ★ **못 읽으면 ``None``**([169]) — 모름을 '받아 뒀다'로 치면 새 자료가
+      영영 안 들어오면서 화면은 멀쩡해 보인다.
+    """
+    try:
+        age = datetime.now().timestamp() - STATUS.stat().st_mtime
+    except OSError:
+        return None
+    if age >= hours * 3600:
+        return None
+    got = (_read(STATUS).get("sources") or {}).get(endpoint)
+    if isinstance(got, dict) and got.get("count") is not None:
+        return dict(got)
+    return None
 
 
 def _first(row: dict[str, Any], names: tuple[str, ...], default: Any = "") -> Any:
@@ -220,6 +252,16 @@ def collect(endpoints: list[str], days: int = 120, force: bool = False) -> dict[
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     broken: dict[str, str] = {}
     for endpoint in endpoints:
+        # ★ **이미 받아 둔 갈래는 다시 안 받는다**(위 `_fresh_source` 설명).
+        #   `--force` 면 예전 그대로 전부 받는다 — 좁히는 것도 고장이다([172]).
+        if not force:
+            keep = _fresh_source(endpoint)
+            if keep is not None:
+                # 조용히 넘기지 않는다([169]) — 이 회차에 새로 받은 것이
+                # 아니라는 사실을 화면·리포트가 그대로 말한다.
+                keep["cached"] = True
+                result["sources"][endpoint] = keep
+                continue
         body = {} if endpoint == "items" else {
             "BASE_DATE_FROM": start.strftime("%Y%m%d"),
             "BASE_DATE_TO": today.strftime("%Y%m%d"),
@@ -289,7 +331,8 @@ def main(argv: list[str] | None = None) -> int:
         print("ERP API 수집 실패:", failed["error"])
         return 1
     detail = " · ".join(
-        f"{v['label']} {v['count']:,}건" if v.get("count") is not None
+        f"{v['label']} {v['count']:,}건"
+        + (" (이미 받음)" if v.get("cached") else "") if v.get("count") is not None
         else f"{v['label']} 실패({v.get('갈래', '모름')})"
         for v in result.get("sources", {}).values())
     print(("ERP API 캐시 재사용" if result.get("cached") else

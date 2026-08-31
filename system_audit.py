@@ -31,6 +31,11 @@ REPORTS = ROOT / "reports"
 #: ⚠ 이름은 `daily_run.GATE_CRASH` 와 같아야 한다 — 갈리면 이 완화가
 #:   한 건도 안 걸리면서 오류도 안 난다([165]). 검증 [482] 가 대 본다.
 GATE_CRASH_NAME = "일일대조_오류.json"
+#: 관문(합성검증)이 스스로 남기는 시간 자국 — `[400]`·`[496]`.
+#: ⚠ 이름이 어긋나면 **한 건도 안 걸리면서 오류도 안 난다**(`[165]`).
+#:   쓰는 쪽은 `tests/synthetic_check.py`, 읽는 쪽은 여기와
+#:   `session_handoff.gate_budget()` 이다 — 검증이 셋을 대 본다.
+GATE_TRACE_NAME = "합성검증_시간.json"
 OUT_JSON = REPORTS / "시스템_업무진단.json"
 OUT_MD = REPORTS / "시스템_업무진단.md"
 VERSION = 1
@@ -360,6 +365,56 @@ def _gate_crash_recovered(crash, daily_at=""):
         return None
 
 
+def _gate_timeout_cleared(crash, daily_at=""):
+    """0단계 관문이 **시간을 넘겨** 죽었는데, 그 뒤 같은 관문이 완주했나.
+
+    ★ 왜 필요한가 (2026-09-01 실사고). 화면이 매일 아침
+      *"[P0] 오늘 일일 대조가 중단됨 · 실패 원인: 합성검증이 막았다 ·
+      시간초과(1500s)"* 에 조치 *"다시 돌려 본다"* 를 줬다. 그런데 같은 순간
+      `reports/합성검증_시간.json` 은 **그 뒤에 같은 관문이 582.2초 / 한도
+      1500초(여유 61%)로 완주했다**(`끝: True`)고 적어 두고 있었다.
+      곧 **이미 돌아서 초록인데 사람에게 25분짜리를 다시 돌리라고 한다**
+      (`[172]` 틀린 지목) 그리고 그 P0 가 인계 맨 위를 차지해
+      **진짜 경보를 덮는다**(`[170]`).
+      `[424]`(자율복구)·`[461]`(단계 실패)·`[491]`(자원)이 배운 그 자리인데
+      **`timeout` 갈래에는 안 와 있었다**(`[300]`).
+
+    ★ **'그 일이 됐나'를 묻는다 — '주인이 했나'가 아니다**(`[304]` 의 `뒤에됨`).
+      회차가 돌렸든 사람이 돌렸든 **관문이 통과했다는 사실**이 근거다.
+    ★ **그 실패보다 뒤여야 한다**(`[449]`) — 앞선 관문은 그 실패와 상관이 없다.
+    ★ **갈래가 `timeout` 이 아니면 모름**이다(`[172]`) — 진짜 코드 고장이나
+      자원 실패를 여기서 내리면 못 잡는 것보다 나쁘다(자원은 `[491]` 몫이다).
+    ★ **못 읽으면 지어내지 않는다**(`[169]`) — 도는 중(`끝: False`)이거나
+      자국이 없거나 한도를 못 읽으면 예전 그대로 P0 다.
+    ⚠ **관문이 초록이라고 그날 회차가 돈 것은 아니다.** 그 회차는 죽었고 그날
+      대조는 안 돌았다 — 그것은 여전히 참이라 문구가 그대로 싣는다(`[169]`).
+
+    돌려주는 값: 통과한 관문 자국(dict) · None 못 갈랐다.
+    """
+    if not isinstance(crash, dict) or not crash:
+        return None
+    at = str(crash.get("시각") or "")
+    if not at:
+        return None
+    if daily_at and at[:19] < str(daily_at)[:19]:
+        return None                     # 앞선 자국은 다른 실패다([449])
+    if str(crash.get("갈래") or "") != "timeout":
+        return None                     # 갈래가 아니면 모름([172])
+    g = _read_json(REPORTS / GATE_TRACE_NAME) or {}
+    when = str(g.get("잰때") or "")
+    if g.get("끝") is not True or not when:
+        return None                     # 도는 중이거나 못 읽었다([169])
+    if when[:19] <= at[:19]:
+        return None                     # 그 실패보다 앞선 관문은 근거가 아니다([449])
+    try:
+        tot, lim = float(g.get("총초")), float(g.get("한도초"))
+    except (TypeError, ValueError):
+        return None                     # 한도를 모르면 확언하지 않는다([169])
+    if not lim or tot >= lim:
+        return None                     # 완주했어도 한도를 넘겼으면 안 풀렸다
+    return {"잰때": when, "총초": tot, "한도초": lim}
+
+
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
@@ -668,6 +723,7 @@ def build() -> dict[str, Any]:
                 #   *"한 가지 원인이 열세 단계를 죽였다"* 는 **더 참된 사실**을 말한다.
                 # ★ **조용히 자르지 않는다**(`[273]`) — 못 실은 묶음은 숫자로 적는다.
                 reasons = _daily_step_reasons(steps_failed)
+                gate_ok = None          # 완주한 회차는 관문을 이미 지났다
                 # ★ **지나간 자원 실패를 '굳었다'고 부르지 않는다**(`[424]`).
                 #   갈래가 전부 `resource` 이고 그 자원이 지금 살아 있으면
                 #   사람이 지금 할 일이 없다 — **다음 회차가 답한다**.
@@ -703,6 +759,10 @@ def build() -> dict[str, Any]:
                 #   로 나갔다 — 사람을 **멀쩡한 검증으로 보낸다**([172]).
                 crash = _read_json(REPORTS / GATE_CRASH_NAME) or {}
                 recovered = _gate_crash_recovered(crash, daily.get("시각") or "")
+                # ★ 관문이 **시간을 넘겨** 죽었어도 그 뒤 통과했으면 지금 할 일이
+                #   없다([496] 자국이 그것을 적어 둔다). 자원 갈래와 겹치지
+                #   않는다 — 하나는 `resource`, 하나는 `timeout` 이다.
+                gate_ok = _gate_timeout_cleared(crash, daily.get("시각") or "")
                 title = "오늘 일일 대조가 중단됨"
                 why = "%s · 실패 원인: %s" % (
                     daily.get("시각") or "시각 없음",
@@ -740,6 +800,24 @@ def build() -> dict[str, Any]:
                     if ran_through else
                     ("%s · 그때 **자원을 못 잡은 것**이고 그 자원은 **지금 살아 있다** — 코드가 깨진 것이 아니다. 다음 예정 회차가 답한다." % why),
                     action, source)
+            elif gate_ok:
+                # ★ **관문이 그때 시간을 넘긴 것이고 그 뒤 통과했다**([496]).
+                #   조용히 빼지 않는다(`[169]`) — 그날 회차가 안 돈 것은 여전히
+                #   참이라 그대로 싣고 **무게만** 내린다. 그리고
+                #   **"고쳐졌다"고 말하지 않는다**(`[322]`) — 말할 수 있는 것은
+                #   "관문은 지금 초록이다" 까지다. 다음 예정 회차가 답한다.
+                # ⚠ 자국의 조치("다시 돌려 본다")를 쓰지 않는다 — **이미 돌아서
+                #   초록**이라 그것은 틀린 조치다(`[172]`). 읽기 전용을 준다.
+                add("daily-run-gate-timeout-cleared", "P2",
+                    "일일 대조 중단은 관문이 그때 시간을 넘긴 것이다",
+                    ("%s · 그 뒤 같은 관문이 **%.0f초 / 한도 %.0f초**(여유 %.0f%%)로 "
+                     "**완주했다**(%s) — 지금 다시 돌릴 필요가 없다. "
+                     "다만 **그날 회차는 안 돌았다** — 다음 예정 회차가 답한다."
+                     % (why, gate_ok["총초"], gate_ok["한도초"],
+                        100.0 * (1.0 - gate_ok["총초"] / gate_ok["한도초"]),
+                        gate_ok["잰때"])),
+                    "python schedule_watch.py --print   # 다음 예정 회차가 답한다",
+                    "reports/" + GATE_TRACE_NAME)
             else:
                 # ★ 무게는 **안 내린다**(`[172]`) — 단계 13개가 안 돈 것은
                 #   그 자체로 P0 다. 고친 것은 **무엇이·왜·어디를 보라**뿐이다.
