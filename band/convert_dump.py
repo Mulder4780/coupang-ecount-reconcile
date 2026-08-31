@@ -730,6 +730,29 @@ def _redirect_hits(notime, ok_count):
             if str(no).isdigit() and sig in feed}
 
 
+def _real_top(merged):
+    """캐시에서 **본문·시각을 실제로 받아 둔** 가장 큰 글 번호 (없으면 0).
+
+    묘비를 세워도 되는 경계다 — 이 **아래**는 '있었는데 지워진' 것이고
+    이 **위**는 '아직 없는' 것이다.  둘은 다른 사실이고 조치도 다르다.
+
+    ★ 묘비(`deleted`)와 시각 없는 껍데기는 안 센다.  세면 가짜 묘비가 스스로
+      경계를 밀어 올려 **다음 가짜 묘비를 정당화한다**(2026-08-12 유령 밴드가
+      스스로를 되살린 것과 같은 모양).
+    """
+    top = 0
+    for k, v in merged.items():
+        if not isinstance(v, dict) or not str(k).isdigit():
+            continue
+        if v.get("deleted"):
+            continue
+        if v.get("created_at") or v.get("content"):
+            n = int(k)
+            if n > top:
+                top = n
+    return top
+
+
 def _mark_redirect_deleted(band, merged, rounds):
     """여러 회차가 같은 번호를 리다이렉트로 확인했으면 **묘비를 세운다** → 세운 수.
 
@@ -1032,8 +1055,24 @@ def _convert_files(files=None, checkpoint=None, apply_redirect=True):
         #   그래서 수집기가 본문을 못 찾고, recheck_plan 은 캐시의 옛 기록만 보고
         #   "아직 재수집 안 됐다"며 **영원히 같은 번호를 다시 뽑았다**(실제로 4건이
         #   모든 회차에서 반복 실패했다). 없는 글은 없다고 적어야 목록이 줄어든다.
-        for no in (d.get("missing") or []):
+        # ★★ 그러나 **수집 최대 번호 위**에는 절대 안 세운다 (2026-08-31 실사고).
+        #   앞찌르기(PROBE_AHEAD 5개 · [217])가 **아직 없는** 번호를 찔러 받은
+        #   'missing' 은 "아직 글이 없다"는 뜻이지 "지워졌다"는 뜻이 아니다.
+        #   그 자리에 나중에 진짜 글이 올라오면 묘비 때문에 recheck_plan 도
+        #   recollect 도 영영 안 뽑아 **되돌릴 수 없이 사라진다**([111]).
+        #   실측: 90610953 의 5506 은 2026-08-31 13:16 에 올라온 진짜 글인데
+        #   5502~5506 에 묘비가 서 있었다(84789192 도 3550~3553).  형님 크롬에서
+        #   직접 열어 본문 982자·작성시각·글쓴이를 눈으로 확인했다.
+        #   위쪽 '없음' 근거는 **이미 제 그릇이 있다** — `_record_probe` 가 쓰는
+        #   `reports/밴드_확인시각.json`([131]).  거기서는 근거가 낡으면 다시
+        #   물어보므로 **되돌릴 수 있다**.  묘비는 되돌릴 수 없다.
+        #   ⚠ 최대 번호 **아래**는 한 글자도 안 바뀐다 — 그것이 이 묘비의 원래 목적이다.
+        _miss = d.get("missing") or []
+        _top = _real_top(merged) if _miss else 0
+        for no in _miss:
             no = str(no)
+            if _top and no.isdigit() and int(no) > _top:
+                continue                      # 앞찌르기 — 없다는 증거는 밴드_확인시각.json 이 맡는다
             rec = merged.get(no) or {}
             rec["deleted"] = True
             rec["deleted_at"] = cap_ms
