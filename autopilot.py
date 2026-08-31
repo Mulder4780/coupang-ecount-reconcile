@@ -111,6 +111,17 @@ RESOURCE_MARKERS = (
 #: 수집 문(collect_gate.guard)이 거절한 표식. 이것은 고장이 아니라 **남의 차선 일**이다.
 #: 낱말이 바뀌면 여기서 조용히 0건이 되므로 안내문과 같은 글자를 쓴다([165]).
 LANE_MARKERS = ("수집 문이 막았습니다",)
+#: **사람이 설정을 고쳐야** 풀리는 실패.  코드에는 고칠 것이 없다.
+#: 2026-08-31 실측: ERP 공식 API 가 **55회**를 `code` 갈래로 재시도했는데 진짜
+#: 원인은 `config/ecount_config.json` 의 요청 칸 이름이었다.  그 조치는 사람을
+#: **멀쩡한 코드로 보내고**([172]·[289]) 매일 P0 로 인계 맨 위를 차지해
+#: **진짜 경보를 덮는다**([170]).
+#: ★ **넓히지 않는다**([172]) — 넓히면 진짜 코드 고장까지 '설정 탓'이 되어
+#:   아무도 안 고친다.  낱말은 만드는 쪽(`erp_api_collect` 의 진단 표)과 **같은
+#:   글자**여야 한다 — 어긋나면 한 건도 안 걸리면서 오류도 안 난다([165]).
+#: ★ **재시도는 한 글자도 안 멈춘다** — 형님이 설정을 고치시면 다음 회차가
+#:   저절로 성공해야 한다.  여기서 하는 것은 **이름을 바로 붙이는 것**까지다.
+CONFIG_MARKERS = ("요청 본문 형식",)
 AUTH_MARKERS = (
     "로그인이 필요", "인증 없음", "not authenticated", "login required",
     "밴드 미인증", "ecount 로그인",
@@ -168,6 +179,9 @@ def classify_failure(output: str) -> str:
     #   등급(opus/high)을 매겨 **이미 아는 원인**에 비싼 모델을 부른다(실측).
     if any(x.lower() in text for x in LANE_MARKERS):
         return "lane"
+    # ★ **좁은 규칙이 먼저다**([292]) — 이 낱말은 아주 좁아 옆 갈래를 안 삼킨다.
+    if any(x.lower() in text for x in CONFIG_MARKERS):
+        return "config"
     if any(x.lower() in text for x in AUTH_MARKERS):
         return "auth"
     if any(x.lower() in text for x in RESOURCE_MARKERS):
@@ -235,7 +249,9 @@ def _due(item: dict[str, Any], now: datetime) -> bool:
 
 def _escalate(item: dict[str, Any]) -> str:
     """같은 안전 작업이 세 번 실패한 경우에만 AI 한 장을 만든다(중복 금지)."""
-    if (item.get("ai_ticket") or item.get("kind") in ("resource", "auth", "lane") or
+    # `config` 도 코드로 못 푼다 — 사람이 설정을 고쳐야 한다([172]).
+    if (item.get("ai_ticket") or
+            item.get("kind") in ("resource", "auth", "lane", "config") or
             int(item.get("attempts") or 0) < MAX_ATTEMPTS_BEFORE_AI):
         return ""
     # ★ 크레딧 5시간 창이 막혔으면 **표를 만들지 않는다**(2026-08-22 형님 지시).
@@ -548,9 +564,9 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         doc = doc or _load_queue()
         items = list(doc.get("items") or [])
     except Exception as exc:                      # 못 읽었다 ≠ 걸린 것 없다([169])
-        return {"굳음": [], "자원회복": [], "예산밖": [],
+        return {"굳음": [], "자원회복": [], "예산밖": [], "설정대기": [],
                 "못읽음": "%s: %s" % (type(exc).__name__, exc)}
-    out, back, over = [], [], []
+    out, back, over, cfg = [], [], [], []
     for x in items:
         if x.get("status") not in ("retry", "blocked", "manual"):
             continue
@@ -564,6 +580,14 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         #   `HTTP 404` 가 안 실렸다 — 겉은 경보인데 왜인지는 못 읽는 자리다([169]).
         raw = str(x.get("last_error") or "")
         갈래 = str(x.get("kind") or "")
+        # ★ `code` 는 **아직 이름을 못 붙인 것**이라는 기본값이다.  갈래 규칙이
+        #   늘어나면 옛 티켓은 저장된  를 그대로 들고 있어, 새 이름이
+        #   **다음 재시도(최대 8시간) 전까지 안 붙는다** — 그동안 조치가 사람을
+        #   멀쩡한 코드로 보낸다([172]).  그래서 `code` 일 때만 다시 재 본다.
+        # ★ **다른 갈래는 안 건드린다**([172]) — 이미 이름이 붙은 것을 다시 재면
+        #   `자원회복`·`예산밖` 판정까지 흔들린다.  좁히는 것도 고장이다.
+        if 갈래 == "code" and raw:
+            갈래 = classify_failure(raw)
         rec = {"이름": str(x.get("name") or ""), "시도": tries,
                "갈래": 갈래, "왜": _why_line(raw)}
         # ★ **여기 예산 밖**인 일은 굳은 것이 아니다([289]) — 그 시도 횟수는 '실패'가
@@ -575,6 +599,15 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
             rec["예산밖"] = str(x.get("예산밖"))
             rec["선언"] = int(x.get("timeout") or 600)
             over.append(rec)
+            continue
+        # ★ **설정 대기는 굳은 것이 아니다**([289]) — 조치가 다르다.  그 시도
+        #   횟수는 '코드가 안 고쳐졌다' 가 아니라 **설정이 아직 안 바뀌었다**는
+        #   뜻이다.  한 통에 담으면 사람이 멀쩡한 코드를 고치러 간다([172]).
+        # ★ **시도 한도와 무관하게 싣는다** — 한도로 거르면 조용해진다([169]).
+        # ★ `예산밖` 뒤·`자원회복` 앞이다 — 갈래가 서로 안 겹친다([325]).
+        if 갈래 == "config":
+            rec["다음시도"] = str(x.get("next_attempt") or "")
+            cfg.append(rec)
             continue
         if tries < STUCK_TRIES:
             continue
@@ -589,7 +622,8 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
     out.sort(key=lambda r: -r["시도"])
     back.sort(key=lambda r: -r["시도"])
     over.sort(key=lambda r: -r["시도"])
-    return {"굳음": out, "자원회복": back, "예산밖": over, "못읽음": ""}
+    return {"굳음": out, "자원회복": back, "예산밖": over,
+            "설정대기": cfg, "못읽음": ""}
 
 
 def status() -> dict[str, Any]:
