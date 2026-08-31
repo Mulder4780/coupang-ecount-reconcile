@@ -245,12 +245,29 @@ def sync_records(
 ) -> Dict[str, Any]:
     store = (store or default_store()).initialize()
     prepared = _prepare(records)
-    existing = store.list_work(limit=10_000)
+    # ★ **사람이 지운 건까지 한 번에 받는다** (2026-08-31 실사고).  옛 코드는
+    #   살아 있는 것만 받아서, 사람이 앱에서 지운 건이 `matches` 에 안 잡히고
+    #   **매 회차 새로 만들려 했다.**  그러면 DB 가 유니크 제약으로 거부하고
+    #   (`duplicate public_id or kind/business_key`) 그 실패가 `errors` 로 가서
+    #   `ok=False` 가 되고, 그러면 파이프라인이 **지문을 안 적어** 같은 자료를
+    #   처음부터 다시 처리한다([365]).  실측: 정기점검 6건이 8/28 에 지워진 뒤
+    #   **3일 · 56회** 그 고리를 돌았고, 6시간 창에서 회차가 기계를 **70%**
+    #   물고 있었다(30회 262분).  앱이 느려지고 아침 관문이 25분에 걸려
+    #   **그날 대조가 통째로 안 돌았다.**
+    # ⚠ `by_project` 에는 **살아 있는 것만** 담는다 — 지워진 행이 거기 들어가면
+    #   `update_work` 가 **지워진 기록을 되살린다**(되돌릴 수 없는 쪽 · [172]).
+    existing = store.list_work(limit=10_000, include_deleted=True)
     by_project: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    deleted_keys: set = set()
     for work in existing:
         project = _text(work.get("project_no") or (work.get("fields") or {}).get("프로젝트NO"))
-        if project:
-            by_project.setdefault((_text(work.get("kind")), project), []).append(work)
+        if not project:
+            continue
+        key = (_text(work.get("kind")), project)
+        if work.get("deleted_at"):
+            deleted_keys.add(key)
+            continue
+        by_project.setdefault(key, []).append(work)
 
     result: Dict[str, Any] = {
         "ok": True,
@@ -269,6 +286,10 @@ def sync_records(
         #   ⚠ 그렇다고 **조용히 넘기지도 않는다**([169]) — 아래
         #   `AMBIGUOUS_TRACE` 에 자국을 남기고, 없어지면 지운다([228]).
         "모호": [],
+        # ★ **사람이 지운 건은 실패가 아니다**([170]) — 지운 것은 사람의 결정이고
+        #   회차가 되살리면 그것이 사고다.  조용히 넘기지도 않는다([169]).
+        "지운건": 0,
+        "지운건목록": [],
         # ERP 가 가려 준 것 — 왜 그렇게 골랐는지 근거를 같이 남긴다
         "erp선택": 0,
         "erp근거": [],
@@ -282,6 +303,14 @@ def sync_records(
             result["unsupported"] += 1
             continue
         matches = by_project.get((kind, project), [])
+        if not matches and (kind, project) in deleted_keys:
+            # 사람이 앱에서 지운 건이다.  다시 만들지 않는다 — 되살리려면
+            # 앱에서 사람이 되살린다(`app_store.undelete_work`).
+            result["지운건"] += 1
+            result["지운건목록"].append(
+                "%s/%s: 사람이 앱에서 지운 건 — 다시 만들지 않는다"
+                % (kind, project))
+            continue
         if len(matches) > 1:
             # ★ **ERP 가 가른다**(2026-08-25 형님 지시 "erp 기준으로 판단해").
             #   원본이 직접 말한 것이라 근거가 세다 — 짐작으로 고르지 않는다.
