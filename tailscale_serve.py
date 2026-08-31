@@ -181,7 +181,7 @@ def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
     # A stale relay can still be reported as "Funnel on".  Re-registering the
     # existing mapping refreshes its public TLS route without changing the URL.
     #
-    # ★ 2026-08-31. 여기 있던 `run("funnel", "reset")` 을 뺐다.
+    # ★ 2026-08-31. 여기 있던 Funnel 전체 초기화 호출을 뺐다.
     #   `funnel reset` 은 **이 노드의 Funnel 설정을 통째로 지운다** — 이 앱 것만이
     #   아니다. 같은 노드(mulder)를 자금흐름 앱이 :10000·:8443 으로 나눠 쓰는데,
     #   이 함수가 60초마다 도는 server_guard 에서 불리므로 그 두 문이 곁불로
@@ -193,8 +193,11 @@ def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
     #     즉 재등록만으로 충분하다는 것이 이미 확인돼 있다.
     #   ★ tailscale 에는 **포트 하나만 끄는 명령이 없다**(serve·funnel 둘 다
     #     reset 뿐이다). 그래서 '자기 것만 끄기' 가 아니라 '지우지 않기' 로 했다.
-    #   되돌리려면: 이 줄 자리에 run("funnel", "reset", timeout=20) 을 되살린다.
-    #   (고치기 전 파일: 같은 폴더의 tailscale_serve.py.bak_20260831)
+    #   되돌리려면: 같은 폴더의 tailscale_serve.py.bak_20260831 로 바꾸면 된다
+    #   (그 안에 옛 reset 호출이 그대로 있다). 여기에 그 명령을 글자로 적어 두지
+    #   않는 까닭은, 이 앱 게이트가 그 글자가 **있는지**로 자동복구를 확인하기
+    #   때문이다 — 주석에 남기면 검사가 우연히 통과하고, 그러면 그 검사는
+    #   있으나 마나가 된다.
     code, _out, _err = run("funnel", "--bg", str(PORT), timeout=30)
     if code:
         return False, False
