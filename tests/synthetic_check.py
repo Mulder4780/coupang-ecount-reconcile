@@ -32247,6 +32247,119 @@ def t495_deleted_work_is_never_recreated():
     print("[495] 사람이 지운 건은 다시 안 만든다 · 그것은 실패가 아니다 OK")
 
 
+
+def t497_gate_timeout_cleared_is_not_p0():
+    """관문이 **시간을 넘겨** 죽었어도 그 뒤 통과했으면 P0 가 아니다([496]).
+
+    ★ 왜 (2026-09-01 실사고): 화면이 매일 아침 *"[P0] 오늘 일일 대조가 중단됨 ·
+      시간초과(1500s)"* 에 조치 *"다시 돌려 본다"* 를 줬는데, 같은 순간
+      `합성검증_시간.json` 은 **그 뒤 582.2초 / 한도 1500초로 완주**(`끝: True`)를
+      적어 두고 있었다. **이미 돌아서 초록인데 25분짜리를 다시 돌리라고 한다**
+      ([172]) 그리고 그 P0 가 인계 맨 위를 차지해 진짜 경보를 덮는다([170]).
+    ⚠ 실측 자국(`reports/`)에는 **한 글자도 안 쓴다**([247]) — 임시 폴더로만.
+      모듈 속성은 프로세스 전체의 것이라 `finally` 로 되돌린다([371]).
+    """
+    import io as _io, json as _json, shutil as _sh, tempfile as _tf
+    from pathlib import Path as _P
+    import system_audit as SA
+
+    CRASH_AT = "2026-08-31T10:15:05"
+    def _crash(kind="timeout"):
+        return {"시각": CRASH_AT, "갈래": kind, "명령": "daily_run.py (0단계 합성검증)",
+                "무엇": "합성검증이 막았다 · 시간초과(1500s)",
+                "조치": "시간을 넘겼다 — 다시 돌려 본다."}
+
+    tmp = _tf.mkdtemp(prefix="t497_")
+    real = SA.REPORTS
+    try:
+        rep = _P(tmp) / "reports"
+        rep.mkdir(parents=True, exist_ok=True)
+        SA.REPORTS = rep
+        gp = rep / SA.GATE_TRACE_NAME
+
+        def _trace(**kw):
+            d = {"잰때": "2026-09-01T00:16:41", "총초": 582.2,
+                 "한도초": 1500.0, "끝": True}
+            d.update(kw)
+            with _io.open(gp, "w", encoding="utf-8") as fh:
+                _json.dump(d, fh, ensure_ascii=False)
+
+        # ① 그 뒤 완주했다 → 사전(숫자까지)
+        _trace()
+        got = SA._gate_timeout_cleared(_crash(), CRASH_AT)
+        assert got and abs(got["총초"] - 582.2) < 0.01 and got["한도초"] == 1500.0, (
+            "[496] 그 뒤 관문이 통과했는데 못 알아본다: %r" % (got,))
+
+        # ② 아직 도는 중(끝 False) → 모름. 도는 것을 '통과했다'로 치지 않는다([169]).
+        _trace(**{"끝": False})
+        assert SA._gate_timeout_cleared(_crash(), CRASH_AT) is None, (
+            "[496] 도는 중인 관문을 '통과했다'고 확언한다")
+
+        # ③ 그 실패보다 **앞선** 관문은 근거가 아니다([449]).
+        _trace(**{"잰때": "2026-08-31T09:00:00"})
+        assert SA._gate_timeout_cleared(_crash(), CRASH_AT) is None, (
+            "[496] 앞선 관문을 근거로 쓴다 — 낡은 초록으로 지금을 확언한다")
+
+        # ④ **좁히는 것도 고장이다**([172]) — `resource`·`code` 는 여기 몫이 아니다.
+        _trace()
+        for kind in ("resource", "code", ""):
+            assert SA._gate_timeout_cleared(_crash(kind), CRASH_AT) is None, (
+                "[496] 갈래 %r 까지 내린다 — 진짜 고장을 P2 로 덮는다" % kind)
+
+        # ⑤ 완주했어도 **한도를 넘겼으면** 안 풀렸다.
+        _trace(**{"총초": 1700.0})
+        assert SA._gate_timeout_cleared(_crash(), CRASH_AT) is None, (
+            "[496] 한도를 넘긴 관문을 '통과'로 친다")
+
+        # ⑥ 한도를 못 읽으면 확언하지 않는다([169]).
+        _trace(**{"한도초": None})
+        assert SA._gate_timeout_cleared(_crash(), CRASH_AT) is None, (
+            "[496] 한도를 모르는데 여유를 확언한다")
+
+        # ⑦ 자국이 아예 없으면 예전 그대로다 — 없는 초록을 지어내지 않는다([169]).
+        os.remove(str(gp))
+        assert SA._gate_timeout_cleared(_crash(), CRASH_AT) is None, (
+            "[496] 자국이 없는데 통과했다고 한다")
+
+        # ⑧ **그 실패의 자국이어야 한다**([449]) — 진행 자국보다 앞서면 다른 실패다.
+        _trace()
+        assert SA._gate_timeout_cleared(_crash(), "2026-08-31T12:00:00") is None, (
+            "[496] 앞선 자국을 지금 실패의 것으로 읽는다")
+    finally:
+        SA.REPORTS = real               # 모듈 속성은 모두의 것이다([371])
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # ⑨ **배선**([328]) — 함수만 있고 `build()` 가 안 부르면 없는 것과 같다.
+    src = _io.open(os.path.join(ROOT, "system_audit.py"),
+                   encoding="utf-8").read()
+    body = _t370_code_only(src)          # 규칙을 세기 전에 설명을 걷는다([332])
+    assert "gate_ok = _gate_timeout_cleared(" in body, (
+        "[496] build() 가 그 판정을 안 부른다 — 자국은 있는데 아무도 안 읽는다")
+    assert "daily-run-gate-timeout-cleared" in body, (
+        "[496] 갈래가 사라졌다 — 시간초과가 다시 매일 P0 가 된다")
+    # ⚠ 자국의 조치("다시 돌려 본다")를 그대로 쓰면 **이미 돌아서 초록**인데
+    #   25분짜리를 다시 돌리게 한다([172]). 읽기 전용 조치를 준다([448]).
+    i = body.index("daily-run-gate-timeout-cleared")
+    blk = body[i:i + 1200]
+    assert "schedule_watch.py --print" in blk, (
+        "[496] 조치가 읽기 전용이 아니다")
+    assert "daily_run.py" not in blk.split("source")[0], (
+        "[496] 조치가 116분짜리 회차를 띄우라고 한다 — 예약 회차와 부딪힌다")
+    # ★ **'고쳐졌다'고 말하지 않는다**([322]) — 그날 회차는 안 돌았다([169]).
+    assert "그날 회차는 안 돌았다" in blk, (
+        "[496] 회차가 돈 것처럼 읽힌다 — 안 돈 것은 여전히 참이다")
+
+    # ⑩ **이름이 세 자리에서 같아야 한다**([165]) — 어긋나면 한 건도 안 걸리면서
+    #   오류도 안 난다. 쓰는 쪽(관문)·읽는 쪽 둘.
+    assert SA.GATE_TRACE_NAME == "합성검증_시간.json", "[496] 자국 이름이 바뀌었다"
+    sh = _io.open(os.path.join(ROOT, "session_handoff.py"),
+                  encoding="utf-8").read()
+    assert SA.GATE_TRACE_NAME in sh, (
+        "[496] session_handoff 가 다른 이름을 본다 — 두 화면이 갈린다")
+
+    print(chr(9989) + " [496] 관문 시간초과가 그 뒤 통과했으면 P0 가 아니다"
+          " (갈래 8 · 배선 · 이름)")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -46908,6 +47021,7 @@ if __name__ == "__main__":
     t492_index_silence_is_told_apart_from_a_real_backlog()
     t494_collect_gate_notes_the_pass_not_only_the_block()
     t495_deleted_work_is_never_recreated()
+    t497_gate_timeout_cleared_is_not_p0(),
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
