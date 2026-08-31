@@ -32001,6 +32001,73 @@ def t493_resource_note_is_readable_by_resource_back():
           " (문 둘 통과 \u00b7 되살아나면 완화 \u00b7 옛 판정 회귀 막음)")
 
 
+
+def t494_collect_gate_notes_the_pass_not_only_the_block():
+    """수집 문은 **통과도 자국을 남긴다** — 막을 때만 적으면 굶주림이 거짓으로 뜬다.
+
+    2026-08-31 실사고: 조율 표가 *"수집이 7회 연속 양보했고 마지막으로 돈 것은
+    2026-08-27"* 이라며 매일 P0 를 올렸다. 그런데 그날 09:57·09:58 에도 사람 창이
+    수집을 시도했고 **문은 통과시켰다** — `guard()` 가 막을 때만 `_note` 를
+    부르고 **'가능' 으로 통과할 때는 안 불렀기 때문**이다.
+
+    `[293]`-12 가 정오회차·관문·원본이전에서 **세 번** 배운 자리이고 여기가
+    네 번째다([300] — 한 곳에서 배운 것을 다른 곳이 모른다).
+    거짓 경보는 진짜 경보를 덮는다([170]).
+
+    ⚠ **무인에는 절대 안 남긴다** — 증분 5분 회차가 `convert_dump`·`intake` 를
+      부르므로 담으면 하루 수백 줄이 되어 40줄 상한에 **사람 창 자국이 밀려난다**.
+    """
+    import collect_gate as CG
+    import coordinate as CO
+
+    본래 = (CG.check, CG.is_unattended, CO.record_run, CO.record_yield)
+    적힌 = []
+    try:
+        CO.record_run = lambda w, s, 왜="": 적힌.append(("run", w, s, 왜))
+        CO.record_yield = lambda w, o, 왜="": 적힌.append(("yield", w, o, 왜))
+
+        # (1) 통과 — 자국을 남기나
+        CG.is_unattended = lambda: False
+        CG.check = lambda: {"갈래": "가능", "왜": "", "주인": "", "근거": []}
+        del 적힌[:]
+        assert CG.guard("밴드 흡수") is True, "[494] 가능인데 통과를 안 시킨다"
+        assert 적힌, ("[494] 문을 통과했는데 자국이 없다 — 조율 표가 "
+                     "'한 번도 안 돌았다'는 거짓 굶주림을 올린다([293]-12)")
+        갈래, 작업, 상태, 왜 = 적힌[0]
+        assert 갈래 == "run", "[494] 통과인데 양보로 적었다: %r" % (적힌[0],)
+        assert 작업 == CG.WORK, "[494] 작업 이름이 다르다: %r" % (작업,)
+        assert str(상태).startswith("완주"), (
+            "[494] record_run 은 '완주'로 시작할 때만 완주로 접는다 — "
+            "지금 상태가 %r 이라 **실패로 적힌다**" % (상태,))
+        assert "시작 시점" in str(왜), (
+            "[494] guard 는 맨 앞이라 그 일이 끝까지 갔는지 모른다 — "
+            "'시작 시점'이라 적어야 한다([169]): %r" % (왜,))
+        assert "밴드 흡수" in str(왜), "[494] 무슨 일인지 안 적는다: %r" % (왜,)
+
+        # (2) 무인 — 아무 자국도 안 남긴다 (40줄 상한에 사람 자국이 밀려난다)
+        CG.is_unattended = lambda: True
+        del 적힌[:]
+        assert CG.guard("증분 회차") is True
+        assert not 적힌, "[494] 무인 회차가 자국을 남긴다 — 하루 수백 줄이 된다: %r" % (적힌,)
+
+        # (3) 막을 때는 예전 그대로 양보다 (좁히는 것도 고장이다 · [172])
+        CG.is_unattended = lambda: False
+        CG.check = lambda: {"갈래": "양보", "왜": "일일대조가 돈다",
+                            "주인": "일일대조", "근거": []}
+        del 적힌[:]
+        try:
+            CG.guard("밴드 흡수")
+            raise AssertionError("[494] 양보인데 안 막았다")
+        except SystemExit as e:
+            assert e.code == 3, "[494] 막을 때 종료코드가 3 이 아니다: %r" % (e.code,)
+        assert 적힌 and 적힌[0][0] == "yield", (
+            "[494] 막았는데 양보 자국이 없다: %r" % (적힌,))
+        assert 적힌[0][2] == "일일대조", "[494] 주인을 안 적는다: %r" % (적힌[0],)
+    finally:
+        CG.check, CG.is_unattended, CO.record_run, CO.record_yield = 본래
+
+    print(chr(9989) + " [494] 수집 문 — 통과도 자국 · 무인은 조용 · 막을 때는 양보 그대로")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -46622,6 +46689,7 @@ if __name__ == "__main__":
     t491_resource_failures_are_not_called_code_bugs()
     t493_resource_note_is_readable_by_resource_back()
     t492_index_silence_is_told_apart_from_a_real_backlog()
+    t494_collect_gate_notes_the_pass_not_only_the_block()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
