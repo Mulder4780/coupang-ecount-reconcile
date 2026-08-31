@@ -17917,14 +17917,61 @@ def t400_gate_margin_speaks_before_it_dies():
     # ⑥ 관문이 **실제로 그 자국을 남긴다**([328] — 코드가 있는 것과 도는 것은 다르다).
     gate = open(os.path.join(ROOT, "tests", "synthetic_check.py"),
                 encoding="utf-8").read()
+    # ★★ **소스를 글자로 찾는 검사는 제 코드도 그 소스 안에 있다**([465]·[301]-9).
+    #   아래 표의 글자가 **이 검사 자신**에도 있어서, 관문 블록의 고침을 통째로
+    #   빼도 통과했다(2026-08-31 자기시험 **0/3**). 곧 이 검사는 아무것도 안 쟀다.
+    #   그래서 **관문 블록 안에서만** 센다 — 그 블록은 파일 맨 끝이다.
+    # ⚠ 앵커도 쪼개 적는다 — 안 그러면 이 줄 자신이 `rindex` 에 걸린다.
+    gate = gate[gate.rindex("    _GATE_T0 = time." + "time()"):]
     for must, why in (
         ("_atexit.register(_gate_write_times)", "죽으면 자국이 안 남는다 — 넘겨 끊긴 "
                                                 "회차야말로 가장 알고 싶은 자리다([180])"),
         ('"합성검증_시간.json"', "자국 파일 이름이 사라졌다"),
         ("_dr.GATE_TIMEOUT_S", "한도를 손으로 적는다 — 그 값을 바꾼 날 두 화면이 "
                                "서로 다른 여유를 말한다([162])"),
+        # ★ **죽어도 남는다** — `atexit` 은 시간초과(taskkill /F · 코드 -9)에서
+        #   **안 돈다**(2026-08-31 실측). 끝에 한 번만 저장하면 넘겨 끊긴 회차가
+        #   자국을 통째로 잃는다([388]·[406]·[427]·[381] 이 네 번 배운 그것).
+        ("_gate_write_times(_done=False)", "그때그때 안 적는다 — 시간을 넘겨 죽으면 "
+                                          "무엇이 오래 걸렸는지 통째로 잃는다"),
+        ("_GATE_SAVE_EVERY_S", "상한이 시간이 아니다 — 검사마다 쓰면 476번 디스크 "
+                               "쓰기가 되고, 개수로는 시간을 못 잡는다"),
+        # ★ **넘긴 회차 것을 다음 관문이 안 덮는다**([228]).
+        ('_old.get("끝") is False', "넘겨 끊긴 자국을 그대로 덮는다 — 실측 아침 "
+                                    "10:15 것이 밤 손 관문에 덮여 사라졌다"),
     ):
         assert must in gate, "[400] " + why
+
+    # ⑧ **치우는 문**을 실행으로 잰다([295]) — 글자로는 세 갈래를 못 가른다.
+    #    진짜 자국에는 한 글자도 안 쓴다([247] · 임시 폴더로만).
+    def _sweep(old):
+        d = _tf.mkdtemp(prefix="t400c_")
+        try:
+            tr = os.path.join(d, "합성검증_시간.json")
+            if old is not None:
+                json.dump(old, open(tr, "w", encoding="utf-8"), ensure_ascii=False)
+            try:
+                o = json.load(open(tr, encoding="utf-8"))
+                if o.get("끝") is False:
+                    k = tr.replace(".json", ".미완주_%s.json"
+                                   % str(o.get("잰때") or "")[:19].replace(":", ""))
+                    if not os.path.exists(k):
+                        os.replace(tr, k)
+            except Exception:
+                pass
+            return sorted(os.listdir(d))
+        finally:
+            _sh.rmtree(d, ignore_errors=True)
+
+    got8 = _sweep({"잰때": "2026-08-31T10:15:05", "총초": 1500.0, "끝": False})
+    assert got8 == ["합성검증_시간.미완주_2026-08-31T101505.json"], (
+        "[400] 넘겨 끊긴 자국을 옆으로 안 치운다 — 다음 관문이 덮으면 그 사고를 "
+        "영영 못 잰다: %s" % (got8,))
+    assert _sweep({"잰때": "x", "끝": True}) == ["합성검증_시간.json"], (
+        "[400] 완주한 자국까지 치운다 — 매번 파일이 는다")
+    assert _sweep({"잰때": "x"}) == ["합성검증_시간.json"], (
+        "[400] 끝표식이 **없는** 옛 자국을 미완주로 친다 — 모름을 사고로 "
+        "읽으면 멀쩡한 자국을 매번 치운다([169])")
 
     # ⑦ 계기 자신을 시험한다([272]) — 그 갈래를 없애면 ②가 안 잡혀야 한다.
     hs = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
@@ -30321,7 +30368,9 @@ def t465_gate_trace_says_why_not_just_how_long():
     assert ns["_GATE_STEPS"] and ns["_GATE_SHARE"], "죽은 검사의 시간·근거가 안 남는다"
 
     # (4) 자국에 칸이 실리고, 안 쟀으면 안 실린다([169])
-    w = src[src.index('def _gate_write_times():', base):]
+    # ★ 얼릴 것은 **계약이지 그때 쓴 서명이 아니다**([39]·[219]) — 괄호까지만
+    #   집는다. 2026-08-31 에 `_done` 인자를 더하자 이 검사가 죽었다.
+    w = src[src.index('def _gate_write_times(', base):]
     w = w[:w.index("_atexit.register")]
     assert '"공유폴더": (_GATE_SHARE or None),' in w, "자국에 공유폴더 칸이 없다"
 
@@ -46239,6 +46288,35 @@ if __name__ == "__main__":
     import atexit as _atexit
     _GATE_T0 = time.time()
     _GATE_STEPS = []
+    # ★★ **`atexit` 은 시간초과로 죽을 때 안 돈다** (2026-08-31 실측:
+    #   `run_tree(timeout=)` 가 taskkill /F 로 끊으면 코드 **-9** 이고
+    #   `atexit` 자국이 **안 남는다**). 그러니 위에 적은 *"죽어도 남는다"* 가
+    #   **정작 필요한 순간에만 거짓이었다.** 2026-08-31 아침 관문이 1500초를
+    #   넘겨 죽었는데, 그 회차가 무엇을 하다 넘겼는지를 **어느 화면도 못
+    #   말한다**([169]).
+    # ★ 그래서 **그때그때 적는다** — 이 저장소가 다섯 번째 배우는 규칙이다
+    #   ([388]·[406]·[427]·[381]): **끝에 한 번만 저장하면 죽을 때 통째로 잃는다.**
+    # ★ 상한은 **개수가 아니라 시간**이다 — 검사마다 쓰면 476번 디스크 쓰기가
+    #   되고, 검사 길이가 제각각이라 개수로는 시간을 못 잡는다.
+    _GATE_SAVE_EVERY_S = 30.0
+    _GATE_LAST_SAVE = [time.time()]
+    _GATE_TRACE = os.path.join(ROOT, "reports", "합성검증_시간.json")
+
+    # ★ **넘긴 회차의 자국을 다음 관문이 덮지 않는다**([228]).
+    #   자국은 **마지막 한 회차만** 담는다 — 실측 2026-08-31: 아침 10:15 에
+    #   넘긴 회차 것이 밤 22:17 손 관문(여유 52%)에 덮여 **사라졌다**.
+    #   지우지 않고 옆으로 치운다([425]·[186]).
+    # ⚠ 끝표식(`끝`)이 **없는** 예전 자국은 안 건드린다 — 모름을 '미완주' 로
+    #   치면 멀쩡한 자국을 매번 치운다([169]).
+    try:
+        _old = json.load(io.open(_GATE_TRACE, encoding="utf-8"))
+        if _old.get("끝") is False:
+            _keep = _GATE_TRACE.replace(".json", ".미완주_%s.json"
+                                        % str(_old.get("잰때") or "")[:19].replace(":", ""))
+            if not os.path.exists(_keep):
+                os.replace(_GATE_TRACE, _keep)
+    except Exception:
+        pass
     # ★ **한 검사가 오래 걸렸다고 그 검사가 느린 것이 아니다** (2026-08-27 실사고).
     #   이 자국은 '얼마나 걸렸나'만 적고 **'왜'를 안 적었다** — 그래서 인계의 조치가
     #   언제나 "그 검사를 나눈다"였다. 실측: 09:50 회차에서 `t31_tech` 가
@@ -46275,7 +46353,7 @@ if __name__ == "__main__":
         _GATE_SHARE.append({"검사": _label[:60], "검사초": _sec,
                             "공유초": round(time.time() - _t, 1), "닿음": _ok})
 
-    def _gate_write_times():
+    def _gate_write_times(_done=True):
         try:
             _limit = None
             try:
@@ -46288,6 +46366,8 @@ if __name__ == "__main__":
             _slow = sorted(_GATE_STEPS, key=lambda x: -x[0])[:12]
             _doc = {
                 "잰때": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                # ★ 끝까지 갔나 — `False` 면 다음 관문이 이것을 치운다
+                "끝": bool(_done),
                 "총초": _total,
                 "한도초": _limit,
                 "여유율": (round(1 - _total / _limit, 3) if _limit else None),
@@ -46326,6 +46406,13 @@ if __name__ == "__main__":
                 _GATE_STEPS.append([_el, _label])
                 if _el >= _GATE_SLOW_SEC:
                     _gate_probe_share(_el, _label)
+                # ★ **죽어도 남게** — 시간으로 상한을 둔다(위 설명).
+                try:
+                    if time.time() - _GATE_LAST_SAVE[0] >= _GATE_SAVE_EVERY_S:
+                        _GATE_LAST_SAVE[0] = time.time()
+                        _gate_write_times(_done=False)
+                except Exception:
+                    pass
         _wrapped.__name__ = getattr(_fn, '__name__', 'test')
         _wrapped.__doc__ = _fn.__doc__
         return _wrapped
