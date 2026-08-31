@@ -32082,6 +32082,121 @@ def t494_collect_gate_notes_the_pass_not_only_the_block():
 
     print(chr(9989) + " [494] 수집 문 — 통과도 자국 · 무인은 조용 · 막을 때는 양보 그대로")
 
+def t495_deleted_work_is_never_recreated():
+    """사람이 앱에서 지운 건을 회차가 **다시 만들려 하지 않는다** — 그리고 그것은 실패가 아니다.
+
+    실측 2026-08-31 실사고: 8/28 에 정기점검 6건이 앱에서 지워졌다(UJ2600348 ·
+    UJ2600515 · UJ2600671 · UJ2601264 · UJ2601471 · UJ2601472).  그런데
+    `sync_records` 가 `list_work()` 로 **살아 있는 것만** 받아서 그 건들이
+    `matches` 에 안 잡혔고, 매 회차 `create_work` 를 불렀다.  DB 는 유니크 제약으로
+    거부하고(`duplicate public_id or kind/business_key`) 그 실패가 `errors` 로 가
+    `ok=False` 가 되고, 그러면 `_run_source` 가 **지문을 안 적어** 같은 자료를
+    처음부터 다시 처리한다([365]).  **3일 · 56회** 그 고리를 돌았고 6시간 창에서
+    회차가 기계를 **70%** 물었다(30회 262분) — 앱이 느려지고 아침 관문이 25분에
+    걸려 **그날 대조가 통째로 안 돌았다.**
+
+    ★ 되살리지도 않는다([172]) — `by_project` 에는 살아 있는 것만 담는다.
+      지워진 행이 거기 들어가면 `update_work` 가 **지운 기록을 되살린다**(되돌릴 수 없는 쪽).
+    ★ 조용히 넘기지도 않는다([169]) — `지운건목록` 에 프로젝트NO 를 적는다.
+    ⚠ **재료가 사고를 재현해야 한다**([272]): `business_key` 는 **프로젝트NO** 다
+      (band_canonical 이 그렇게 만든다 · 진짜 DB 읽기로 확인).  `public_id` 로 두면
+      유니크 제약에 **안 걸려** 옛 동작에서도 ok=True 가 나오고, 그러면 이 검사는
+      통과하면서 **아무것도 안 잰다**.
+    """
+    import importlib
+    A = importlib.import_module("app_store")
+    B = importlib.import_module("band_canonical")
+
+    def rec(project):
+        return {"프로젝트NO": project, "업무유형": "정기점검", "캠프명": "M_목포1",
+                "작업일": "2026-08-01", "담당기사": "홍길동",
+                "진행상태": "작업완료", "점검상태": "완료",
+                "밴드": "90610953", "게시글": "1", "게시일": "2026-08-01",
+                "비용구분": "유상"}
+
+    def mk(store, pid, project):
+        # ⚠ business_key 는 프로젝트NO 다 — 이것이 사고를 재현하는 열쇠다([272]).
+        return store.create_work(kind="정기점검", business_key=project,
+                                 public_id=pid, project_no=project,
+                                 camp_name="M_목포1", status="예정",
+                                 fields={"프로젝트NO": project},
+                                 actor="t495", source="test")["work"]
+
+    def run(mod, td):
+        """지운 건 하나(UJ2601264) + 살아 있는 건 하나로 재현한다."""
+        store = A.AppStore(os.path.join(td, "app.db")).initialize()
+        dead = mk(store, "PM-2607-043", "UJ2601264")
+        store.soft_delete_work(dead["id"], expected_version=dead["record_version"],
+                               actor="ryu", reason="중복 접수")
+        mk(store, "PM-2608-001", "UJ2609999")
+
+        calls = {"create": 0, "update": 0}
+        real_create, real_update = store.create_work, store.update_work
+
+        def spy_create(*a, **k):
+            calls["create"] += 1
+            return real_create(*a, **k)
+
+        def spy_update(*a, **k):
+            calls["update"] += 1
+            return real_update(*a, **k)
+
+        store.create_work, store.update_work = spy_create, spy_update
+        try:
+            out = mod.sync_records([rec("UJ2601264"), rec("UJ2609999")], store=store)
+        finally:
+            # 목은 인스턴스 속성이라 반드시 되돌린다([371])
+            store.create_work, store.update_work = real_create, real_update
+        rows = store.list_work(limit=100, include_deleted=True)
+        revived = [r for r in rows
+                   if r.get("project_no") == "UJ2601264" and not r.get("deleted_at")]
+        return out, calls, revived
+
+    with tempfile.TemporaryDirectory(prefix="csos-t495-") as td:
+        out, calls, revived = run(B, td)
+
+    # ① 지워진 짝이 있으면 create_work 를 **아예 안 부른다**
+    assert calls["create"] == 0, (
+        "사람이 지운 건을 다시 만들려 한다 — DB 가 거부하고 회차가 무한 반복한다([365])")
+    # ② 그리고 그것은 실패가 아니다 — 이 고침의 핵심이다([170]·[365])
+    assert out["ok"] is True and not out["errors"], (
+        "지운 건이 실패로 샜다 — ok=False 면 지문을 안 적어 같은 자료를 또 처리한다: %s"
+        % out.get("errors"))
+    # ③ 조용히 넘기지 않는다([169])
+    assert out["지운건"] == 1, "지운건을 못 셌다: %s" % out.get("지운건")
+    assert out["지운건목록"] and "UJ2601264" in out["지운건목록"][0], out.get("지운건목록")
+    # ④ 살아 있는 건은 예전 그대로다 — 좁히는 것도 고장이다([172])
+    assert calls["update"] >= 1, "살아 있는 건이 안 고쳐졌다([172])"
+    # ⑤ 지운 기록이 되살아나지 않는다 — 되돌릴 수 없는 쪽([172])
+    assert not revived, "지워진 기록이 되살아났다"
+
+    # ⑥ 계기 자신을 시험한다([272]) — 문을 없애면 ①②가 정말 잡히나
+    src = open(os.path.join(ROOT, "band_canonical.py"), encoding="utf-8").read()
+    for tag, old, new in (
+        ("include_deleted",
+         "store.list_work(limit=10_000, include_deleted=True)",
+         "store.list_work(limit=10_000)"),
+        ("지운건 문",
+         "        if not matches and (kind, project) in deleted_keys:",
+         "        if False:"),
+    ):
+        broken = src.replace(old, new)
+        assert broken != src, "[495] 고장 주입 앵커(%s)가 안 맞는다 — 자기시험이 아무것도 안 잰다" % tag
+        ns = {"__name__": "bc_broken_495",
+              "__file__": os.path.join(ROOT, "band_canonical.py")}
+        exec(compile(broken, "bc_broken_495", "exec"), ns)
+
+        class _M:
+            sync_records = staticmethod(ns["sync_records"])
+
+        with tempfile.TemporaryDirectory(prefix="csos-t495b-") as td:
+            bad, bcalls, _ = run(_M, td)
+        assert bcalls["create"] > 0 and bad["ok"] is False, (
+            "[495] %s 를 없앴는데도 ①②가 안 잡힌다([272])" % tag)
+
+    print("[495] 사람이 지운 건은 다시 안 만든다 · 그것은 실패가 아니다 OK")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -46704,6 +46819,7 @@ if __name__ == "__main__":
     t493_resource_note_is_readable_by_resource_back()
     t492_index_silence_is_told_apart_from_a_real_backlog()
     t494_collect_gate_notes_the_pass_not_only_the_block()
+    t495_deleted_work_is_never_recreated()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
