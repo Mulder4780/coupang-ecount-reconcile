@@ -32777,6 +32777,141 @@ def t500_reverted_posts_are_told_apart_from_ordinary_edits():
     assert 'rc.get("되돌아감")' in hs, "[500] 인계가 되돌아감을 안 읽는다"
     print("✅ [500] 되돌아간 글을 보통 수정과 갈라 말한다")
 
+def t501_stopped_band_collection_is_not_called_a_backlog():
+    """[330] 밴드 수집을 멈췄으면 **그 밴드만** 밀림에서 내린다 (2026-09-01 지시).
+
+    형님 지시: "밴드 자동 수집은 앞으로 하지마 이제 밴드에 자료 안올라올거야".
+    실측 2026-09-01: 스위치를 켠 그날은 조용했는데 **9/5 부터 두 밴드가 매일 거짓
+    밀림**이었다 — 밴드에 자료가 안 올라오는 것이 이제 정상인데 판정이 그것을
+    모른다.  거짓 경보가 쌓이면 진짜 경보가 묻힌다([170]).
+
+    ★ 재는 것은 **갈래가 정말 갈리는가**다([295]) — 글자로는 못 잰다.
+    ★ 진짜 Z:·밴드 캐시·색인은 한 글자도 안 만진다([247]·[211]) — 전부 목이고
+      `finally` 로 되돌린다([371] — 모듈 속성은 프로세스 전체의 것이다).
+    """
+    import datetime as _dt
+    import io
+    import os
+    import session_handoff as H
+    from band import collect_switch as CS
+
+    real = (H.band_latest_days, H._index_newest_day, H.band_quiet,
+            H.band_numbers, H._index_age_days, H._absent_judge, CS.stopped)
+    try:
+        H.band_latest_days = lambda: {"매출처업무": "2026-08-28",
+                                      "쿠팡AS": "2026-08-31"}
+        H._index_newest_day = lambda d: "2026-09-01"
+        H.band_quiet = lambda: {}
+        H.band_numbers = lambda: {"매출처업무": "90610953", "쿠팡AS": "84789192"}
+        H._index_age_days = lambda: 0.1
+        H._absent_judge = lambda no, q, day: (False, "")
+
+        def rows(day):
+            r = H.data_freshness(today=day)
+            return ([x for x in r if x["이름"].startswith("밴드:")],
+                    [x for x in r if not x["이름"].startswith("밴드:")])
+
+        # (1) 중단이면 밴드는 밀림에서 내려가고 **왜인지 칸에 남는다**([169])
+        CS.stopped = lambda: (True, "형님 지시 — 밴드에 자료 안 올라옴")
+        band, etc = rows("2026-09-10")
+        assert band and etc, "[330] 재료가 비었다 — 이 검사는 아무것도 안 잰다"
+        assert not any(b["밀림"] for b in band), (
+            "[330] 수집 중단인데 밴드가 밀림이다")
+        assert all(b.get("수집중단") for b in band), (
+            "[330] 왜 안 받는지 칸에 안 적는다 — 조용히 빼면 안 된다([169])")
+        assert all("형님 지시" in b["수집중단"] for b in band), (
+            "[330] 스위치가 준 이유를 안 싣는다([162]): %r"
+            % [b.get("수집중단") for b in band])
+
+        # (2) ★ **밴드만이다**([172]) — 카톡·ERP 는 계속 들어오므로 그대로 밀린다.
+        assert all(e["밀림"] for e in etc), (
+            "[330] 밴드 중단이 카톡·ERP 밀림까지 껐다([172]): %r"
+            % [(e["이름"], e["밀림"]) for e in etc])
+
+        # (3) ★ **좁히는 것도 고장이다**([172]) — 켜면 밴드가 되살아난다.
+        CS.stopped = lambda: (False, "")
+        band, _ = rows("2026-09-10")
+        assert all(b["밀림"] for b in band), (
+            "[330] 중단이 아닌데 밴드가 조용하다 — 좁히는 것도 고장이다([172])")
+        assert not any(b.get("수집중단") for b in band), (
+            "[330] 중단이 아닌데 중단 칸이 찼다")
+
+        # (4) ★ **못 읽으면 예전 그대로 밀림이다**([169]).  이 자리는 `collect_switch`
+        #     와 기우는 방향이 **반대다** — 저쪽이 잘못 막으면 헛 수집 한 번이지만,
+        #     여기서 잘못 조용해지면 **못 받은 것을 아무도 못 본다**.
+        def _boom():
+            raise RuntimeError("표시가 깨졌다")
+        CS.stopped = _boom
+        band, _ = rows("2026-09-10")
+        assert all(b["밀림"] for b in band), (
+            "[330] 스위치를 못 읽었다고 조용해진다 — 모름은 중단이 아니다([169])")
+    finally:
+        (H.band_latest_days, H._index_newest_day, H.band_quiet,
+         H.band_numbers, H._index_age_days, H._absent_judge, CS.stopped) = real
+
+    # (5) ★ **칸만 채우고 아무도 안 읽으면 없는 것과 같다**([328]).  표·챗봇이 그
+    #     사실을 말하는지 본다 — 레이아웃은 글자로 얼린다([39] · 되돌아가면 안 되는 것).
+    hsrc = _t370_code_only(io.open(os.path.join(ROOT, "session_handoff.py"),
+                                   encoding="utf-8").read())
+    assert "수집중단" in hsrc, "[330] 인계가 중단 칸을 안 읽는다([328])"
+    for mark in ("수집 중단", "collect_switch.py --resume"):
+        assert mark in hsrc, (
+            "[330] 신선도 표가 %r 을 안 적는다 — 조용히 빼면 다음 사람이 왜 안 "
+            "받는지도 되돌리는 법도 모른다([169])" % mark)
+    lsrc = _t370_code_only(io.open(os.path.join(ROOT, "local_ai.py"),
+                                   encoding="utf-8").read())
+    assert "수집중단" in lsrc, (
+        "[330] 앱 챗봇이 '밀린 원본 없음'만 말하고 중단을 안 말한다([169])")
+
+    # (6) ★ 계기 자신을 시험한다([272]) — 중단 문을 **실제로 빼서** 잡히는지 본다.
+    #     함수 하나만 떼어 돌린다(모듈 전체 exec 은 비싸고 import 체인이 딸려 온다).
+    #     ⚠ `inspect.getsource` 를 안 쓴다 — 줄 번호에 매여 있어 관문이 도는 동안
+    #       소스가 바뀌면 **엉뚱한 조각**을 자른다(2026-08-27 실사고).
+    src = io.open(os.path.join(ROOT, "session_handoff.py"),
+                  encoding="utf-8").read()
+    i = src.index(chr(10) + "def data_freshness(")
+    j = src.index(chr(10) + "def ", i + 5)
+    body = src[i + 1:j]
+    hurts = [
+        ("중단인데도 밀림",
+         body.replace('name.startswith("밴드:") and band_off',
+                      'name.startswith("밴드:") and False')),
+        ("밴드가 아닌 것까지 껐다",
+         body.replace('row["밀림"] and name.startswith("밴드:") and band_off',
+                      'row["밀림"] and band_off')),
+    ]
+    caught = 0
+    for why, hurt in hurts:
+        assert hurt != body, "[330] 자기시험 재료가 원본과 같다 — 아무것도 안 잰다"
+        ns = {"datetime": _dt.datetime, "FRESH_LIMIT": H.FRESH_LIMIT,
+              "band_latest_days": lambda: {"매출처업무": "2026-08-28"},
+              "_index_newest_day": lambda d: "2026-09-01",
+              "band_quiet": lambda: {}, "band_numbers": lambda: {"매출처업무": "9"},
+              "_index_age_days": lambda: 0.1,
+              "_absent_judge": lambda no, q, day: (False, "")}
+        try:
+            exec(compile(hurt, "<hurt>", "exec"), ns)
+        except SyntaxError:
+            raise AssertionError("[330] 자기시험 주입이 문법을 깼다 — 그 죽음을 "
+                                 "'잡았다'로 오인하면 안 된다([371]): " + why)
+        CS.stopped = lambda: (True, "형님 지시")
+        try:
+            r = ns["data_freshness"](today="2026-09-10")
+            band = [x for x in r if x["이름"].startswith("밴드:")]
+            etc = [x for x in r if not x["이름"].startswith("밴드:")]
+            bad = (any(b["밀림"] for b in band)          # (1) 이 잡을 것
+                   or not all(e["밀림"] for e in etc))   # (2) 가 잡을 것
+        finally:
+            CS.stopped = real[6]
+        if bad:
+            caught += 1
+    assert caught == len(hurts), (
+        "[330] 계기가 눈멀었다 — 고장 %d/%d 만 잡는다([272])" % (caught, len(hurts)))
+
+    print(chr(9989), "[330] 밴드 수집 중단 — 밀림 갈래 가르기 · 자기시험 %d/%d"
+          % (caught, len(hurts)))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -47478,6 +47613,7 @@ if __name__ == "__main__":
     t499_port_taken_is_told_apart_from_a_dead_server()
     t498_band_is_never_called_login_required(),
     t500_reverted_posts_are_told_apart_from_ordinary_edits()
+    t501_stopped_band_collection_is_not_called_a_backlog()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
