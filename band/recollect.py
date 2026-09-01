@@ -232,7 +232,11 @@ def run(days=DAYS, limit=LIMIT, today=None, do_absorb=True):
     #   이미 밀림 표가 세고 있다. 그것으로 맨 위 칸을 켜면 매일 아침 켜져 있어서,
     #   정작 글이 고쳐진 날에 아무도 눈길을 안 준다. 배너는 **고쳐진 글** 전용이다.
     if st["바뀐글"]:
+        _bands = sorted({str(c.get("글","")).partition("/")[0]
+                         for c in (st["변경상세"] or [])} - {""})
+        st["되돌아감"] = regressed(st["변경상세"], _cache_posts(_bands))
         st["최근변경"] = {"회차": started, "바뀐글": st["바뀐글"], "새글": st["새글"],
+                          "되돌아감": st["되돌아감"],
                           "변경상세": st["변경상세"]}
         st["확인함"] = False
     else:
@@ -244,6 +248,89 @@ def run(days=DAYS, limit=LIMIT, today=None, do_absorb=True):
     _log(st)
     return st
 
+
+
+# ── 되돌아감 ────────────────────────────────────────────────────────────────
+def regressed(changes, band_posts=None):
+    """완료였는데 지금은 완료가 아닌 글만 고른다 (2026-09-01 실사고).
+
+    ★ 이 회차가 여태 할 수 있던 말은 **`본문 바뀜`** 뿐이라, **완료 -> 안내로
+      되돌아간 것**과 **안내 -> 완료로 나아간 것**이 한 덩어리로 보였다.  앞은
+      사고이고 뒤는 정상이다.  실측 2026-09-01: 바뀐 글 12건 중 **11건이
+      되돌아감**이었고 그 프로젝트의 완료 글은 캐시 어디에도 없었다 —
+      곧 밴드 쪽 완료 근거가 통째로 사라졌는데 화면은 `본문 바뀜` 이라고만 했다.
+    ★ **판정을 새로 만들지 않는다**([162]) — 완료/안내는 `band_extract.parse_post`
+      하나가 정한다.  여기서 낱말을 다시 적으면 그 글자가 바뀌는 날 **한 건도
+      안 걸리면서 오류도 안 난다**([165]).
+    ★ **옛 요약은 잘린 글자다** — 그래도 양식 머리(`♣ ［ … 완료 ]`)는 앞쪽에 있어
+      살아 있다.  못 읽으면 **되돌아감이라 우기지 않는다**([169]).
+    """
+    try:
+        import band_extract as BE
+    except Exception:
+        return None                      # 못 재면 '없다'가 아니라 '모름'이다([169])
+
+    def _state(text, no, band):
+        try:
+            r = BE.parse_post(no, {"content": text or ""}, band) or {}
+        except Exception:
+            return None
+        return r.get("진행상태") or None
+
+    out = []
+    for c in changes or []:
+        key = str(c.get("글") or "")
+        band, _, no = key.partition("/")
+        how = str(c.get("어떻게") or "")
+        if " -> " in how:
+            old_s, new_s = how.split(" -> ", 1)
+        elif "→" in how:
+            old_s, new_s = how.split("→", 1)
+        else:
+            continue                     # 옛/새를 못 가른다 — 지어내지 않는다
+        was = _state(old_s, no, band)
+        now = None
+        if band_posts is not None:
+            p = (band_posts.get(band) or {}).get(no)
+            if p is not None:
+                now = _state(p.get("content") or "", no, band)
+        if now is None:
+            now = _state(new_s, no, band)
+        if was == "작업완료" and now and now != "작업완료":
+            out.append({"글": key, "작성일": c.get("작성일"),
+                        "was": was, "now": now})
+    return out
+
+
+def _ensure_regressed(d):
+    """자국에 `되돌아감` 이 없으면 **그 자리에서 계산**한다.
+
+    ★ 옛 자국은 그 칸을 **안 물었을 뿐**이지 '되돌아감 없음'이 아니다([247]).
+      그렇다고 매번 "확인 못 했다"만 말하면 회차를 다시 돌기 전까지 답이 없다.
+    ★ **바뀐 글이 있을 때만** 캐시를 읽는다([168]) — 대개 없고, `--ack` 뒤에는
+      아예 안 불린다.  Z: 는 한 번도 안 문다(밴드 캐시는 로컬이다).
+    """
+    if not isinstance(d, dict):
+        return d
+    if d.get("되돌아감") is not None:
+        return d
+    ch = d.get("변경상세") or []
+    if not ch:
+        return d
+    bands = sorted({str(c.get("글", "")).partition("/")[0] for c in ch} - {""})
+    d["되돌아감"] = regressed(ch, _cache_posts(bands))
+    return d
+
+def _cache_posts(bands):
+    """되돌아감 판정에 쓸 **지금 캐시 본문**.  못 읽으면 그 밴드는 건너뛴다."""
+    import recheck_plan as RP
+    out = {}
+    for b in bands:
+        try:
+            out[b] = RP.load(b) or {}
+        except Exception:
+            pass
+    return out
 
 def _not_recollected(band, nos, fresh_cut_ms):
     """이 번호들 중 **최근에 다시 받지 않은** 것. 판정 근거는 캐시의 captured_at.
@@ -301,10 +388,12 @@ def banner():
     rc = st.get("최근변경") or {}
     if not rc.get("바뀐글"):
         return None
+    _ensure_regressed(rc)
     return {"회차": rc.get("회차") or st.get("회차", ""),
             "창일수": st.get("창일수", DAYS),
             "바뀐글": rc.get("바뀐글") or [], "새글": rc.get("새글") or [],
-            "변경상세": rc.get("변경상세") or []}
+            "변경상세": rc.get("변경상세") or [],
+            "되돌아감": rc.get("되돌아감") or []}
 
 
 def show(st):
@@ -318,6 +407,14 @@ def show(st):
     g = st.get("흡수") or {}
     print(f"  흡수: 새 글 {g.get('신규',0)} · **바뀐 글 {g.get('변경',0)}**"
           f" · 그대로 {g.get('그대로',0)}")
+    _ensure_regressed(st)
+    _rg = st.get("되돌아감")
+    if _rg:
+        print("  ★ 그중 **완료 -> 완료 아님으로 되돌아간 글 %d건**"
+              " — 밴드 쪽 완료 근거가 사라졌다: %s"
+              % (len(_rg), ", ".join(r["글"] for r in _rg[:8])))
+    elif _rg is None and st.get("바뀐글"):
+        print("  ※ 되돌아감 여부는 **확인 못 했다**(판정을 못 불렀다)")
     for c in (st.get("변경상세") or [])[:15]:
         # 어떻게 가 이제 무엇이 바뀜는지까지 담는다 — 콘솔은 줄이되
         # **자른 것은 말한다**([273]).  JSON · 인계에는 온전히 간다.
