@@ -32734,7 +32734,7 @@ def t500_reverted_posts_are_told_apart_from_ordinary_edits():
 
     # (5) 인계가 실제로 그것을 싣는다([328]) — 함수만 있고 안 부르면 없는 것과 같다
     hs = io.open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
-    assert 'rc.get("되돌아감")' in body, "[500] 인계가 되돌아감을 안 읽는다"
+    assert 'rc.get("되돌아감")' in hs, "[500] 인계가 되돌아감을 안 읽는다"
     print("✅ [500] 되돌아간 글을 보통 수정과 갈라 말한다")
 
 def t192_synthetic_check_is_harmless():
