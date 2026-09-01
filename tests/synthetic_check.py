@@ -29795,6 +29795,41 @@ def _t460_run(step_src=None):
             "[460] 무엇을 하면 되는지 안 적거나, **막힌 길**(--adopt-mine — 크롬 136판부터"
             " 기본 프로필에서는 디버깅 문이 안 열린다)을 가리킨다([172]·[408]): %r" % line)
         BB.alive = lambda: "Chrome/x"
+        # (7) 형님이 **밴드 수집을 멈추라 하셨으면 안 긁는다** ([326] 2026-09-01 지시)
+        #     "밴드 자동 수집은 앞으로 하지마 이제 밴드에 자료 안올라올거야"
+        #     판정은 band.collect_switch 한 곳이다([162]) — 자동으로 긁는 길이 셋인데
+        #     각자 끄면 사본이 셋이 되고 넷째가 생기는 날 그것만 조용히 샌다([165]).
+        verdict({"1111111": {"갈래": "끊김"}})   # 원래대로면 가져가는 갈래
+        CS.stopped = lambda: (True, "형님 지시")
+        calls[:] = []
+        line = W.heal_band_bridge(False)
+        assert not calls, "[326] 수집 중단인데 긁었다"
+        assert "형님 지시" in line, "[326] 왜 안 긁는지 안 말한다([169]): %r" % line
+
+        # --dry 는 **왜 안 긁는지 둘 다** 말한다 — 중단 문구만 내면 "dry 인데도
+        # 긁었나" 를 알 수 없다(2026-09-01 실측: 순서를 뒤집었더니 관문이 빨갰다).
+        calls[:] = []
+        line = W.heal_band_bridge(True)
+        assert not calls, "[326] --dry 인데 긁었다"
+        assert ("dry" in line or "안 긁" in line), (
+            "[326] --dry 라고 말하지 않는다: %r" % line)
+        assert "형님 지시" in line, (
+            "[326] --dry 가 중단 사실을 안 말한다([169]): %r" % line)
+
+        # ★ **좁히는 것도 고장이다**([172]) — 중단이 아니면 예전 그대로 긁는다.
+        CS.stopped = lambda: (False, "")
+        calls[:] = []
+        W.heal_band_bridge(False)
+        assert calls, "[326] 중단이 아닌데 안 긁는다 — 좁히는 것도 고장이다([172])"
+
+        # ★ **못 읽으면 '중단 아님'이다**([169]) — 표시가 깨졌다고 막으면 나중에
+        #   밴드를 다시 켜야 할 때 왜 안 되는지 아무도 모른다.
+        def _boom():
+            raise RuntimeError("표시가 깨졌다")
+        CS.stopped = _boom
+        calls[:] = []
+        W.heal_band_bridge(False)
+        assert calls, "[326] 스위치를 못 읽었다고 막는다 — 모름은 중단이 아니다([169])"
     finally:
         (UW.check, BB.collect_band, BB.alive, BB.note, BB.up,
          CS.stopped) = real
