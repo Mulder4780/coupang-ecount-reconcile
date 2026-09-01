@@ -416,6 +416,30 @@ def _gate_timeout_cleared(crash, daily_at=""):
 
 
 
+def _recollect_paste_fix(pending: list) -> str | None:
+    """`손볼것` 문구가 이미 말한 붙여넣기 파일을 **여는 명령**으로 만든다.
+
+    ★ **파일 이름을 여기서 짓지 않는다**([162]).  어느 밴드의 어느 파일인지는
+      만드는 쪽(`band/recollect.py`)이 이미 알고 문구의 백틱 안에 넣어 두었다 —
+      읽는 쪽이 다시 지으면 그것이 **사본**이고 밴드가 늘거나 이름이 바뀌는 날
+      **오류 없이 갈린다**([165]·[450]).
+    ★ **없는 파일을 가리키면 그것도 틀린 조치다**([448]).  디스크에 없으면
+      `None` 을 주고 부르는 쪽이 예전 명령으로 물러난다.
+    ★ **못 뽑으면 지어내지 않는다**([169]) — 문구가 바뀌는 날 엉뚱한 글자를
+      명령이라 우기지 않는다.
+    """
+    for item in pending or []:
+        for name in re.findall(r"`([^`]+)`", str(item or "")):
+            name = name.strip()
+            if not name.lower().endswith(".js"):
+                continue
+            rel = name.replace("\\", "/").lstrip("/")
+            if not (ROOT / rel).exists():
+                continue                      # 없는 파일은 조치가 못 된다([448])
+            return "notepad " + name + "   # 전체 복사 후 로그인된 밴드 탭 F12 콘솔에 붙여넣기"
+    return None
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -875,7 +899,8 @@ def build() -> dict[str, Any]:
             add("band-recollect-pending", "P1", "최근 밴드 글 재수집이 덜 끝남",
                 f"로그인된 탭에서 다시 받아야 할 묶음 {len(pending)}개가 남았습니다. "
                 + " · ".join(str(x)[:120] for x in pending[:2]),
-                "앱의 Band 로그인 상태를 확인하고 준비된 재수집 목록만 수집합니다.",
+                (_recollect_paste_fix(pending)
+                 or "python band/recollect.py --print"),
                 "reports/밴드_재수집.json")
         if changed and not acknowledged:
             add("band-changes-unacknowledged", "P1", "수정된 밴드 글을 아직 확인하지 않음",
