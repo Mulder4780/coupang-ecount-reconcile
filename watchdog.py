@@ -1245,10 +1245,15 @@ def heal_band_bridge(dry):
         _off, _why = _CS.stopped()
     except Exception:
         _off, _why = False, ""
+    # ★ **--dry 를 먼저 본다** — 그것은 미리보기이고, 미리보기의 뜻은
+    #   "지금 돌리면 무엇을 하나" 다.  중단 문구만 내면 *"--dry 인데도 긁었나"* 를
+    #   알 수 없다.  그래서 **왜 안 긁는지 둘 다** 말한다([169]).
+    #   ⚠ 순서를 뒤집으면 검증 [460] 이 잡는다(2026-09-01 실측 — 관문이 빨갰다).
+    if dry:
+        return ("밴드 다리: --dry 라 안 긁음"
+                + ((" (지금은 %s)" % _why) if _off else ""))
     if _off:
         return "밴드 다리: %s" % (_why or "수집 중단")
-    if dry:
-        return "밴드 다리: --dry 라 안 긁음"
     try:
         from band import userscript_watch
         st = userscript_watch.check(write=False)

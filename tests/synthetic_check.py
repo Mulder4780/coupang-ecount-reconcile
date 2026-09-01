@@ -29699,6 +29699,7 @@ def _t460_run(step_src=None):
     import watchdog as W
     from band import userscript_watch as UW
     from band import browser_bridge as BB
+    from band import collect_switch as CS
 
     if step_src is not None:                      # 계기 자기시험용 — 고장을 넣은 사본
         import types
@@ -29708,7 +29709,7 @@ def _t460_run(step_src=None):
         W = m
 
     calls = []
-    real = (UW.check, BB.collect_band, BB.alive, BB.note, BB.up)
+    real = (UW.check, BB.collect_band, BB.alive, BB.note, BB.up, CS.stopped)
 
     def fake_collect(band, wait_s=None, **k):
         calls.append((band, wait_s))
@@ -29718,6 +29719,9 @@ def _t460_run(step_src=None):
         UW.check = lambda write=False: {"밴드": d}
 
     try:
+        # 중단 스위치를 '켬' 으로 못 박는다 — 안 걸면 실제 상태가 '중단' 인 날
+        # 아래 갈래들이 아무것도 안 재면서 통과한다([272] · 2026-09-01 실측).
+        CS.stopped = lambda: (False, "")
         BB.collect_band = fake_collect
         BB.alive = lambda: "Chrome/x"
         BB.note = lambda r: None
@@ -29792,7 +29796,8 @@ def _t460_run(step_src=None):
             " 기본 프로필에서는 디버깅 문이 안 열린다)을 가리킨다([172]·[408]): %r" % line)
         BB.alive = lambda: "Chrome/x"
     finally:
-        UW.check, BB.collect_band, BB.alive, BB.note, BB.up = real
+        (UW.check, BB.collect_band, BB.alive, BB.note, BB.up,
+         CS.stopped) = real
 
 
 def t460_bridge_takes_over_only_when_the_human_tab_is_gone():
