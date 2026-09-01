@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import urllib.request
+import urllib.error
 from datetime import datetime
 
 
@@ -102,16 +103,104 @@ def _heartbeat(state: str) -> None:
         pass
 
 
-def ping(timeout: float = PING_TIMEOUT) -> bool:
+# ── 포트가 답하나 · 그리고 **답한 것이 우리 앱인가** (2026-09-01 실사고) ──
+#
+# 그날 09:12 에 옆 프로젝트 세션이 `python -m http.server 8899` 를 띄워 이 포트를
+# **먼저** 잡았다.  윈도우는 같은 포트에 둘이 LISTEN 되게 두고 **먼저 잡은 쪽이
+# 모든 요청을 받는다.**  그래서 09:29 에 우리 앱이 떠도 손님은 남의 파일 목록을
+# 받았고, Tailscale Funnel 이 그것을 **공개 인터넷으로 그대로 내보냈다.**
+#
+# ★ 그때 이 감시자는 **이미 정확히 가르고 있었다** — `coupang-work` 를 본다.
+#   잘못은 그 결과를 **'실패' 하나로 뭉갠 것**이다.  그러면 조치가 언제나
+#   '앱 서버 재시작'인데, 재시작으로는 남이 쥔 포트를 되찾을 수 없다 —
+#   실측 **17분간 12회 헛재시작**했고 그동안 담당자 화면도 계속 끊겼다.
+#   조치는 갈래마다 달라야 한다([289]).
+#
+# 갈래 셋:
+#   ok      우리 앱이 답했다
+#   foreign 남이 이 자리를 잡았다 — 사람이 끊어야 풀린다
+#   down    연결이 안 되거나 그 밖 — 예전 그대로 재시작 대상
+#
+# ★ `foreign` 의 근거는 둘뿐이다([172]):
+#     (a) 200 인데 우리 표시가 없다
+#     (b) **404/403** — 우리 앱이 살아 있으면 `/api/ping` 은 **반드시** 있다.
+#         남의 정적 파일 서버가 그 경로에 주는 전형적인 답이 이것이다.
+#   ⚠ (b) 는 실측이 가르쳐 줬다: 처음엔 (a) 만 봤는데, 오늘 사고를 흉내 내
+#     `python -m http.server` 를 띄워 재니 **404 라서 `down` 으로 떨어졌다** —
+#     곧 그 판정으로는 **오늘 난 사고를 못 잡는다.**  검사가 없었으면
+#     '고쳤다'고 적고 넘어갔을 자리다([272]).
+#   ⚠ 500·502·401 은 넣지 않는다.  우리 앱도 그것을 줄 수 있고, 넣으면
+#     **진짜 죽은 서버를 안 살린다**(좁히는 것도 고장이지만 넓히는 것도 고장이다).
+PORT_OK = "ok"
+PORT_FOREIGN = "foreign"
+PORT_DOWN = "down"
+APP_MARK = b"coupang-work"
+
+
+def probe(timeout: float = PING_TIMEOUT) -> str:
     try:
         req = urllib.request.Request(
             f"http://127.0.0.1:{PORT}/api/ping?t={time.time_ns()}",
             headers={"Cache-Control": "no-cache"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            return response.status == 200 and b"coupang-work" in response.read(2048)
+            if response.status != 200:
+                return PORT_DOWN
+            return PORT_OK if APP_MARK in response.read(2048) else PORT_FOREIGN
+    except urllib.error.HTTPError as exc:
+        # 404/403 은 '그 경로가 없다'는 뜻이다 — 우리 앱이면 있을 수 없다.
+        return PORT_FOREIGN if exc.code in (403, 404) else PORT_DOWN
     except Exception:
-        return False
+        return PORT_DOWN
+
+
+def ping(timeout: float = PING_TIMEOUT) -> bool:
+    """옛 호출자는 한 글자도 안 바뀐다 — 갈래를 bool 로 접어 준다."""
+    return probe(timeout) == PORT_OK
+
+
+def port_holder():
+    """이 포트를 잡은 **우리 앱이 아닌** 프로세스.  조회가 실패하면 None([169]).
+
+    ★ **죽이지 않는다.**  이름으로 죽이면 그 글자를 명령줄에 담은 무관한
+      프로세스까지 죽는다(2026-08-13 에 실제로 PowerShell 을 통째로 죽였다 · [399]).
+      여기는 **누가 잡았는지 말하는 자리**까지이고, 끊는 것은 사람이 정한다.
+    """
+    ps = (
+        "Get-NetTCPConnection -LocalPort %d -State Listen -EA SilentlyContinue | "
+        "ForEach-Object { $q = Get-CimInstance Win32_Process "
+        "-Filter \"ProcessId=$($_.OwningProcess)\" -EA SilentlyContinue; "
+        "if ($q) { '{0}|{1}|{2}' -f $q.ProcessId, $q.Name, $q.CommandLine } }"
+    ) % PORT
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps],
+            capture_output=True, text=True, timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            return None
+    except Exception:
+        return None
+    out = []
+    for line in (result.stdout or "").splitlines():
+        parts = line.strip().split("|", 2)
+        if len(parts) != 3 or not parts[0].isdigit():
+            continue
+        cmd = parts[2]
+        if "app_server.py" in cmd:
+            continue                      # 우리 앱이다 — 남이 아니다
+        out.append({"pid": int(parts[0]), "name": parts[1], "cmd": cmd[:400]})
+    return out
+
+
+def _holder_text(holder) -> str:
+    """사람이 읽는 한 줄.  **못 읽었으면 0곳이라 하지 않는다**([169])."""
+    if holder is None:
+        return "누가 잡았는지 확인 못 함"
+    if not holder:
+        return "그 포트를 잡은 남의 프로세스를 못 찾음(조회는 됐다)"
+    return " / ".join("pid %s %s" % (x["pid"], x["cmd"][:160]) for x in holder)
 
 
 def staff_centers_alive(timeout: float = PING_TIMEOUT) -> dict[str, bool]:
@@ -355,7 +444,8 @@ def main() -> int:
                 _heartbeat(last_state or "starting")
                 next_heartbeat = now + HEARTBEAT_SECONDS
 
-            local_ok = ping()
+            verdict = probe()
+            local_ok = verdict == PORT_OK
             if local_ok:
                 if failures or last_state != "healthy":
                     _log("앱 서버 정상", state="healthy", consecutive_failures=0)
@@ -417,6 +507,21 @@ def main() -> int:
                                      state="funnel-repairing", funnel_ok=False)
             else:
                 failures += 1
+                if verdict == PORT_FOREIGN:
+                    # ★ 남이 이 자리를 잡았다 — 재시작해도 절대 안 낫는다.
+                    #   냉각 타이머(`last_restart`)도 안 건드린다: 남이 물러난
+                    #   순간 곧바로 정상으로 돌아와야 한다.
+                    #   ⚠ 10초마다 찍지 않는다 — 로그가 넘치면 아무도 안 읽는다([170]).
+                    if last_state != "port-taken":
+                        holder = port_holder()
+                        _log(
+                            "앱 포트 %d 를 남이 잡았다 — 재시작으로는 안 낫는다 · %s"
+                            % (PORT, _holder_text(holder)),
+                            state="port-taken", consecutive_failures=failures,
+                            port_holders=holder,
+                        )
+                        last_state = "port-taken"
+                    continue
                 pids = server_pids() if failures == 1 else None
                 missing = pids == []
                 if missing or failures >= FAIL_LIMIT:

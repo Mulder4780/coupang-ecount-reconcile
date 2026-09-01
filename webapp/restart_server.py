@@ -288,9 +288,21 @@ def stop(pids):
 
 
 def answering(timeout=1.0):
-    """포트가 실제로 **답을 주나.** 프로세스 목록에 있는 것만으로는 부족하다 —
-    소켓을 잡기 전 몇 초 동안 터널은 502 를 돌려준다(2026-08-10 지시로 추가).
-    PIN 은 넣지 않는다. 401 이 오면 그것도 '살아 있다'는 답이다."""
+    """포트가 실제로 **답을 주나 — 그리고 답한 것이 우리 앱인가.**
+
+    프로세스 목록에 있는 것만으로는 부족하다 — 소켓을 잡기 전 몇 초 동안
+    터널은 502 를 돌려준다(2026-08-10 지시로 추가).  PIN 은 넣지 않는다.
+
+    ★ **소켓만 봐서는 남이 그 자리를 잡아도 '올라왔습니다'를 찍는다**
+      (2026-09-01 실사고).  그날 옆 프로젝트 세션의 파일 서버가 8899 를 먼저
+      잡았는데, 이 함수는 소켓이 열렸다는 이유로 **거짓 성공**을 찍었고
+      고친 사람은 성공이라 읽었다 — 담당자만 남의 폴더 목록을 봤다.
+    ★ 판정은 `server_guard.probe()` **한 곳**에서 빌린다([162]).  여기에 또
+      적으면 사본이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ **좁히지 않는다**([172]): 200 인데 우리 표시가 없을 때만 거짓이고,
+      401 처럼 200 이 아닌 응답은 예전대로 '살아 있다'로 본다 —
+      그것까지 거짓으로 치면 멀쩡한 재시작이 매번 실패로 끝난다.
+    """
     import socket
     try:
         port = int(str(_port()).strip())
@@ -298,9 +310,20 @@ def answering(timeout=1.0):
         return False
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout):
-            return True
+            pass
     except OSError:
         return False
+    # 소켓은 열렸다.  그 자리에 앉은 것이 우리 앱인지 한 번 더 묻는다.
+    try:
+        import sys as _sys
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        from server_guard import probe, PORT_FOREIGN
+        return probe(timeout=max(timeout, 1.5)) != PORT_FOREIGN
+    except Exception:
+        # 못 물어봤으면 예전 그대로 '살아 있다' — 모름을 실패로 치지 않는다([169]).
+        return True
 
 
 # ── 지금 사람이 쓰고 있나 (2026-08-13 지시: "입력중인데 서버 떨어지면 골치아프다") ──
