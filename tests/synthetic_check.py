@@ -32360,6 +32360,205 @@ def t497_gate_timeout_cleared_is_not_p0():
     print(chr(9989) + " [496] 관문 시간초과가 그 뒤 통과했으면 P0 가 아니다"
           " (갈래 8 · 배선 · 이름)")
 
+def t498_port_taken_is_told_apart_from_a_dead_server():
+    """남이 앱 포트를 잡은 것과 **서버가 죽은 것**은 다른 사실이다 (2026-09-01 실사고).
+
+    그날 09:12 에 옆 프로젝트 세션이 `python -m http.server 8899` 를 띄워 이 자리를
+    **먼저** 잡았다.  윈도우는 같은 포트에 둘이 LISTEN 되게 두고 **먼저 잡은 쪽이
+    모든 요청을 받는다.**  그래서 09:29 에 우리 앱이 떠도 담당자는 남의 파일 목록을
+    봤고, Tailscale Funnel 이 그것을 **공개 인터넷으로 그대로 내보냈다.**
+
+    ★ 그때 감시자는 이미 `coupang-work` 를 보고 있었다 — 잘못은 그 결과를 **'실패'
+      하나로 뭉갠 것**이다.  그러면 조치가 언제나 재시작인데 재시작으로는 남이 쥔
+      포트를 못 되찾는다: 실측 **17분간 12회 헛재시작**했고 그동안 화면도 끊겼다.
+      조치는 갈래마다 달라야 한다([289]).
+    ★ 그리고 `restart_server.answering()` 은 **소켓만 봤다** — 남이 앉아 있어도
+      '올라왔습니다'를 찍어 고친 사람은 성공이라 읽었다.
+
+    여기서 재는 것은 **갈래가 정말 갈리는가**다.  글자로는 못 잰다([295]).
+    ⚠ 진짜 8899 는 한 글자도 안 건드린다([247]) — 임시 포트에 가짜 서버를 띄우고
+      `PORT` 를 목으로 갈아 끼운다([371] · `finally` 로 되돌린다).
+    ⚠ PowerShell 조회도 **목으로 갈아** 실제로는 한 번도 안 부른다 — 관문이 그만큼
+      느려지지 않는다([400]).  그 명령이 진짜 pid 를 짚는 것은 2026-09-01 에 임시
+      포트로 실측했다(여기서 재는 것은 파싱·거르기·실패 갈래다 · [169]).
+    """
+    # ⚠ io·ast 는 이 파일 모듈 수준에 **없다** — 떼어 돌리면 통과하고
+    #   관문에서만 NameError 로 죽는다([324]·[406]).
+    import ast, io, socket as _sock, threading as _th, types as _types
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    _web = os.path.join(ROOT, "webapp")
+    if _web not in sys.path:
+        sys.path.insert(0, _web)
+    import server_guard as G
+    import restart_server as R
+
+    # 목은 모듈 **이름칸째** 갈아 끼운다([371]) — G.subprocess 는 프로세스
+    # 전체의 모듈이라 그 안의 run 을 갈면 뒤따르는 검사가 전부 목을 쓴다.
+    real_port, real_rport, real_sub = G.PORT, R._port, G.subprocess
+    servers = []
+    bad = []
+
+    def _up(status, body):
+        """가짜 서버 하나를 띄우고 그 포트를 준다.  포트 0 = OS 가 빈 것을 고른다."""
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if body:
+                    self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        _th.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+        return srv.server_address[1]
+
+    def eq(no, got, want, why):
+        if got != want:
+            bad.append("(%d) %s: %r (기대 %r)" % (no, why, got, want))
+
+    try:
+        # ── probe 세 갈래 ────────────────────────────────────────────────
+        ours = _up(200, b'{"app":"coupang-work","ok":true}')
+        G.PORT = ours
+        eq(1, G.probe(), G.PORT_OK, "우리 앱이 답하면 ok")
+
+        # ★ (2) 가 이 검사의 핵심이다 — 실제로 난 사고의 모양.
+        #   `python -m http.server` 는 /api/ping 에 **404** 를 준다.  첫 판정은
+        #   200 일 때만 foreign 이라 이 갈래를 **못 잡았다**(실측으로 드러났다).
+        G.PORT = _up(404, b"not found")
+        eq(2, G.probe(), G.PORT_FOREIGN, "남의 파일 서버(404)는 foreign")
+
+        G.PORT = _up(200, b"<html>Directory listing for /</html>")
+        eq(3, G.probe(), G.PORT_FOREIGN, "200 인데 우리 표시가 없으면 foreign")
+
+        G.PORT = _up(403, b"forbidden")
+        eq(4, G.probe(), G.PORT_FOREIGN, "403 도 foreign")
+
+        # ★ (5)(6) 은 반대쪽 문이다 — **좁히는 것도 넓히는 것도 고장이다**([172]).
+        #   500·401 까지 foreign 으로 읽으면 **진짜 죽은 서버를 영영 안 살린다.**
+        G.PORT = _up(500, b"boom")
+        eq(5, G.probe(), G.PORT_DOWN, "500 은 down (우리 앱도 줄 수 있다)")
+
+        G.PORT = _up(401, b"pin")
+        eq(6, G.probe(), G.PORT_DOWN, "401 은 down (PIN 게이트다 — 살아 있다)")
+
+        with contextlib.closing(_sock.socket()) as _s:
+            _s.bind(("127.0.0.1", 0))
+            empty = _s.getsockname()[1]
+        G.PORT = empty
+        eq(7, G.probe(), G.PORT_DOWN, "아무도 없는 포트는 down (재시작 대상)")
+
+        # ── 옛 호출자는 한 글자도 안 바뀐다 ──────────────────────────────
+        G.PORT = ours
+        eq(8, G.ping(), True, "ping() 은 우리 앱이면 True")
+        G.PORT = _up(404, b"nope")
+        eq(9, G.ping(), False, "ping() 은 남이면 False")
+
+        # ── restart_server.answering() 이 소켓만 보지 않는다 ─────────────
+        foreign_port = G.PORT
+        R._port = lambda: foreign_port
+        eq(10, R.answering(), False, "answering 은 남이 앉아 있으면 False")
+
+        G.PORT = ours
+        R._port = lambda: ours
+        eq(11, R.answering(), True, "answering 은 우리 앱이면 True")
+
+        # 못 물어봤으면 예전 그대로 '살아 있다' — 모름을 실패로 치지 않는다([169]).
+        def _blow(*a, **k):
+            raise RuntimeError("probe 를 못 불렀다")
+
+        G.probe, _keep = _blow, G.probe
+        try:
+            eq(12, R.answering(), True, "probe 를 못 물어보면 예전대로 True")
+        finally:
+            G.probe = _keep
+
+        # ── port_holder: 파싱·거르기·실패 갈래 (PowerShell 은 목) ────────
+        class _R:
+            def __init__(self, rc, out):
+                self.returncode, self.stdout, self.stderr = rc, out, ""
+
+        def _mock(fn):
+            return _types.SimpleNamespace(run=fn, CREATE_NO_WINDOW=0)
+
+        G.subprocess = _mock(lambda *a, **k: _R(0, (
+            "4321|python.exe|python -m http.server 8899\n"
+            "1234|pythonw.exe|pythonw C:/x/webapp/app_server.py\n"
+        )))
+        got = G.port_holder()
+        eq(13, [x["pid"] for x in got], [4321],
+           "우리 앱(app_server.py)은 빼고 남만 짚는다")
+
+        G.subprocess = _mock(lambda *a, **k: _R(1, ""))
+        eq(14, G.port_holder(), None, "조회가 실패하면 None (0곳이 아니다)")
+
+        def _boom(*a, **k):
+            raise OSError("powershell 없음")
+
+        G.subprocess = _mock(_boom)
+        eq(15, G.port_holder(), None, "예외여도 None")
+
+        # ── 사람이 읽는 한 줄: 모름을 '없음'이라 하지 않는다([169]) ──────
+        t_none, t_empty = G._holder_text(None), G._holder_text([])
+        if "확인 못" not in t_none:
+            bad.append("(16) None 인데 '확인 못 함'이라 안 한다: %r" % t_none)
+        if "못 찾음" not in t_empty:
+            bad.append("(17) 빈 목록인데 '못 찾음'이라 안 한다: %r" % t_empty)
+        t_one = G._holder_text([{"pid": 7, "cmd": "python -m http.server"}])
+        if "pid 7" not in t_one or "http.server" not in t_one:
+            bad.append("(18) 목록인데 pid·명령줄을 안 적는다: %r" % t_one)
+
+    finally:
+        G.PORT, R._port, G.subprocess = real_port, real_rport, real_sub
+        for srv in servers:
+            try:
+                srv.shutdown()
+                srv.server_close()
+            except Exception:
+                pass
+
+    assert not bad, "포트 갈래가 어긋난다: " + " · ".join(bad)
+
+    # ★ 격리가 샜으면 **이 검사가 먼저 죽는다**([371]·[369]).  모듈 이름칸을
+    #   갈아 끼웠으니 프로세스 전체의 subprocess 는 한 톨도 안 바뀌어야 한다 —
+    #   새면 뒤따르는 검사가 전부 목을 쓰면서 **아무 말도 안 한다**.
+    assert G.subprocess is subprocess, "server_guard.subprocess 가 안 되돌려졌다 — 뒤 검사가 목을 쓴다"
+    assert G.PORT == 8899, "server_guard.PORT 가 안 되돌려졌다: %r" % G.PORT
+
+    # ── main 루프: foreign 이면 **재시작을 안 부른다** (글자로 얼린다 · [39]) ──
+    #   무한 루프라 실행으로는 못 잰다.  얼리는 것은 계약이지 구현이 아니다:
+    #   ① foreign 갈래가 `continue` 로 빠져나간다  ② 그 앞뒤에 재시작이 없다
+    src = io.open(os.path.join(ROOT, "webapp", "server_guard.py"),
+                  encoding="utf-8").read()
+    tree = ast.parse(src)
+    main_fn = next((n for n in tree.body
+                    if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
+    assert main_fn is not None, "server_guard.main 이 없다"
+
+    found = []
+    for node in ast.walk(main_fn):
+        if not isinstance(node, ast.If):
+            continue
+        test = ast.dump(node.test)
+        if "PORT_FOREIGN" not in test:
+            continue
+        body = ast.dump(ast.Module(body=node.body, type_ignores=[]))
+        found.append(body)
+        assert "Continue" in body,             "foreign 갈래가 continue 로 안 빠진다 — 아래 재시작으로 흘러간다"
+        for word in ("restart_server", "start_server", "server_pids", "last_restart"):
+            assert word not in body,                 "foreign 갈래에서 %s 를 만진다 — 남이 쥔 포트는 재시작으로 못 되찾는다" % word
+    assert found, "main 루프에 PORT_FOREIGN 갈래가 없다 — 남이 잡아도 재시작만 한다"
+
+    print(chr(9989) + " [498] 남이 앱 포트를 잡은 것과 서버가 죽은 것을 가른다 — "
+          "404/403 foreign · 500/401 down · answering 이 소켓만 안 본다 (18갈래)")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -47022,6 +47221,7 @@ if __name__ == "__main__":
     t494_collect_gate_notes_the_pass_not_only_the_block()
     t495_deleted_work_is_never_recreated()
     t497_gate_timeout_cleared_is_not_p0(),
+    t498_port_taken_is_told_apart_from_a_dead_server()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
