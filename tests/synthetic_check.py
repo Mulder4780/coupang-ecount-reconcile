@@ -32360,7 +32360,7 @@ def t497_gate_timeout_cleared_is_not_p0():
     print(chr(9989) + " [496] 관문 시간초과가 그 뒤 통과했으면 P0 가 아니다"
           " (갈래 8 · 배선 · 이름)")
 
-def t498_port_taken_is_told_apart_from_a_dead_server():
+def t499_port_taken_is_told_apart_from_a_dead_server():
     """남이 앱 포트를 잡은 것과 **서버가 죽은 것**은 다른 사실이다 (2026-09-01 실사고).
 
     그날 09:12 에 옆 프로젝트 세션이 `python -m http.server 8899` 를 띄워 이 자리를
@@ -32555,7 +32555,7 @@ def t498_port_taken_is_told_apart_from_a_dead_server():
             assert word not in body,                 "foreign 갈래에서 %s 를 만진다 — 남이 쥔 포트는 재시작으로 못 되찾는다" % word
     assert found, "main 루프에 PORT_FOREIGN 갈래가 없다 — 남이 잡아도 재시작만 한다"
 
-    print(chr(9989) + " [498] 남이 앱 포트를 잡은 것과 서버가 죽은 것을 가른다 — "
+    print(chr(9989) + " [499] 남이 앱 포트를 잡은 것과 서버가 죽은 것을 가른다 — "
           "404/403 foreign · 500/401 down · answering 이 소켓만 안 본다 (18갈래)")
 
 
@@ -47335,7 +47335,7 @@ if __name__ == "__main__":
     t494_collect_gate_notes_the_pass_not_only_the_block()
     t495_deleted_work_is_never_recreated()
     t497_gate_timeout_cleared_is_not_p0(),
-    t498_port_taken_is_told_apart_from_a_dead_server()
+    t499_port_taken_is_told_apart_from_a_dead_server()
     t498_band_is_never_called_login_required(),
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
