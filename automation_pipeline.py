@@ -1338,6 +1338,73 @@ def _age_days(value: Optional[str]) -> Optional[float]:
         return None
 
 
+def _band_content_age(root: Path = ROOT):
+    """밴드는 **글 작성일과 '없음 확인' 시각**으로 잰다 — 원본 파일 mtime 이 아니다.
+
+    ★ 왜 필요한가 (2026-09-01 실사고). 화면 [전체 자동화 상태] 의 밴드 칸이 매일
+      **'로그인 필요'** 딱지를 달았다. 그런데 그 판정은
+      `login_required = name in {"band","erp"} and stale` 이라
+      **로그인을 한 번도 안 본다** — 순전히 나이 검사다(`[172]` 틀린 지목).
+      형님이 다시 로그인하셔도 그 딱지는 안 없어진다.
+    ★ 그 나이도 틀린 값을 보고 있었다. `latest_record_at` 은
+      `_band_input_files`(로컬 `band/cache` 의 원본 덤프) mtime 인데, **새 덤프는
+      흡수되면 Z: 로 옮겨진다**(`[442]`). 곧 **수집이 잘 될수록 낡아 보인다** —
+      실측 2026-09-01: 캐시의 글은 8/31 인데 신호는 **8/18**(14일)이었다.
+      값이 비면 사람이 알아채지만 **그럴듯한 옛 날짜는 안 띈다**(`[169]`).
+    ★ **판정을 새로 만들지 않는다**(`[162]`) — 글 작성일은
+      `session_handoff.band_latest_days()`, '더 받을 것이 없다'는
+      `band_quiet()`(= `convert_dump._record_probe` 가 남긴 `밴드_확인시각.json`)를
+      그대로 빌린다. 여기서 다시 세면 인계 문서와 화면이 갈린다.
+    ★ **밴드마다 따로 보고 가장 뒤처진 것을 쓴다**(`[131]`) — 합쳐서 최댓값을 쓰면
+      뒤처진 밴드가 가려진다(2026-08-06 실사고: 쿠팡AS 가 8/4 에 멈춰 있었다).
+    ★ **못 읽으면 `None`**(`[169]`) — 그때는 부르는 쪽이 예전 그대로 잰다.
+      모름을 '최신'으로도 '밀림'으로도 치지 않는다.
+    ⚠ 실측 **0.3초**다(캐시 json 두 개의 `created_at` 만 훑는다) — 웹 요청에서
+      불러도 화면이 안 선다(`[168]`). 이 값이 커지면 회차가 재 둔 것을 읽는 쪽으로 옮긴다.
+
+    돌려주는 값: (나이 일수 또는 None, 사람이 읽는 한 줄)
+    """
+    import datetime as _dt
+
+    try:
+        import session_handoff as _sh          # 순환을 피해 함수 안에서 늦게
+    except Exception:
+        return None, ""
+    try:
+        quiet = _sh.band_quiet() or {}
+    except Exception:
+        quiet = {}
+    if not quiet:
+        return None, ""
+    try:
+        days = _sh.band_latest_days() or {}
+    except Exception:
+        days = {}
+
+    now = _dt.datetime.now()
+    worst_age = None
+    parts = []
+    for no, rec in sorted(quiet.items()):
+        if not isinstance(rec, dict):
+            continue
+        stamp = str(rec.get("확인시각") or "")[:16]
+        if not stamp:
+            continue
+        try:
+            when = _dt.datetime.strptime(stamp, "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue
+        age = max(0.0, (now - when).total_seconds() / 86400.0)
+        worst_age = age if worst_age is None else max(worst_age, age)
+        label = str(rec.get("이름") or "").strip() or str(no)
+        post_day = days.get(label) or days.get(str(no)) or ""
+        parts.append("%s 글 %s" % (label[:14], post_day or "?"))
+    if worst_age is None:
+        return None, ""
+    note = " · ".join(parts)
+    return worst_age, note
+
+
 def status(
     *,
     root: Path = ROOT,
@@ -1355,8 +1422,21 @@ def status(
         raw = dict((state.get("sources") or {}).get(name) or {})
         latest = raw.get("latest_record_at") or raw.get("last_success_at")
         age = _age_days(latest)
+        band_note = ""
+        if name == "band":
+            # ★ 밴드만 **글 기준**으로 다시 잰다([321]) — 원본 덤프는 흡수되면
+            #   Z: 로 옮겨져 파일 mtime 이 구조적으로 낡는다([442]).
+            #   못 재면 위에서 잰 값 그대로다([169]).
+            band_age, band_note = _band_content_age(root)
+            if band_age is not None:
+                age = band_age
         stale = age is None or age > limits[name]
-        login_required = bool(name in {"band", "erp"} and stale)
+        # ★ **밴드에는 '로그인 필요' 딱지를 안 붙인다**([169]). 이 판정은 로그인을
+        #   한 번도 안 보므로 그렇게 부를 근거가 없고, 그 말을 믿은 사람은
+        #   **이미 된 로그인을 또 한다**([172]). 밀렸으면 아래에서 `stale` 로
+        #   내려가 화면이 '갱신 필요'라 적는다 — 그것이 참이다.
+        # ⚠ ERP 는 **안 건드린다**([172]) — 재 보지 않았다. 좁히는 것도 고장이다.
+        login_required = bool(name == "erp" and stale)
         source_status = raw.get("status") or "never"
         if raw.get("error"):
             source_status = "error"
@@ -1365,6 +1445,11 @@ def status(
         detail = raw.get("error") or (
             f"최신 자료 {age:.1f}일 전" if age is not None else "처리된 자료 기록 없음"
         )
+        # ★ 무엇을 보고 그렇게 말하는지 같이 적는다([169]) — 근거 없는 '밀림'은
+        #   사람을 엉뚱한 데로 보낸다. ⚠ '로그인' 이라는 낱말을 여기 쓰지 않는다 —
+        #   화면 `autoStateOf` 가 detail 글자에서도 그 낱말을 찾아 딱지를 붙인다.
+        if name == "band" and band_note:
+            detail = "%s (%s)" % (detail, band_note)
         sources[name] = {
             "status": source_status,
             "last_success_at": raw.get("last_success_at"),
@@ -1380,6 +1465,22 @@ def status(
                     "source": "kakao",
                     "kind": "upload",
                     "message": "형님 또는 류지영 매니저가 오늘 카카오톡 내보내기 파일을 올려 주세요.",
+                }
+            )
+        elif name == "band" and stale:
+            # ★ 조치는 갈래마다 다르다([289]). 밴드가 밀린 것은 로그인 문제가
+            #   아니라 **탭이 앞에 없어 수집기가 못 돈 것**이다([111] — 탭을
+            #   앞으로 꺼내는 클릭 한 번은 끝까지 사람 몫이다).
+            # ⚠ `kind` 와 문구에 '로그인'·'login'·'auth' 를 쓰지 않는다 —
+            #   화면이 그 글자를 보고 다시 '로그인 필요'로 되돌린다([165]).
+            gates.append(
+                {
+                    "source": "band",
+                    "kind": "collect",
+                    "message": (
+                        "밴드 글이 아직 안 들어왔습니다 — 밴드 탭을 앞으로 "
+                        "꺼내 두시면 자동으로 받습니다."
+                    ),
                 }
             )
         elif login_required:

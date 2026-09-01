@@ -32559,6 +32559,117 @@ def t498_port_taken_is_told_apart_from_a_dead_server():
           "404/403 foreign · 500/401 down · answering 이 소켓만 안 본다 (18갈래)")
 
 
+
+def t498_band_is_never_called_login_required():
+    """밴드에 **'로그인 필요'** 딱지를 안 붙인다 · 나이는 **글 기준**으로 잰다([321]).
+
+    ★ 왜 (2026-09-01 실사고): 화면 [전체 자동화 상태] 의 밴드 칸이 매일
+      '로그인 필요' 였다. 그런데 판정이
+      `login_required = name in {"band","erp"} and stale` 이라
+      **로그인을 한 번도 안 본다** — 순전히 나이 검사다(`[172]` 틀린 지목).
+      그 나이도 `_band_input_files`(로컬 원본 덤프) mtime 인데 새 덤프는 흡수되면
+      Z: 로 옮겨져(`[442]`) **수집이 잘 될수록 낡아 보인다** — 실측 캐시 8/31 대
+      신호 **8/18**. 형님이 다시 로그인하셔도 그 딱지는 안 없어진다.
+    ⚠ 실측 자국에는 **한 글자도 안 쓴다**([247]) — 목으로만. 모듈 속성은
+      프로세스 전체의 것이라 `finally` 로 되돌린다([371]).
+    """
+    import io as _io, json as _json, shutil as _sh, tempfile as _tf
+    from pathlib import Path as _P     # 모듈 수준에 Path 가 없다([406])
+    import automation_pipeline as AP
+
+    src = _io.open(os.path.join(ROOT, "automation_pipeline.py"),
+                   encoding="utf-8").read()
+    body = _t370_code_only(src)          # 규칙을 세기 전에 설명을 걷는다([332])
+
+    # ① **밴드는 로그인 갈래가 아니다** — 되돌아가면 안 되는 것이라 얼린다([39]).
+    assert 'login_required = bool(name == "erp" and stale)' in body, (
+        '[321] 밴드가 다시 로그인 갈래로 들어갔다 — 로그인을 한 번도 안 보는 '
+        '판정이 그 이름을 쓰면 사람이 이미 된 로그인을 또 한다')
+    assert 'name in {"band", "erp"} and stale' not in body, (
+        "[321] 옛 판정이 되살아났다")
+
+    # ② **배선**([328]) — 함수만 있고 `status()` 가 안 부르면 없는 것과 같다.
+    assert "_band_content_age(root)" in body, (
+        "[321] status() 가 글 기준 나이를 안 부른다 — 파일 mtime 으로 되돌아갔다")
+
+    # ③ **판정을 새로 만들지 않는다**([162]) — 인계 문서가 쓰는 그 함수를 빌린다.
+    fn = body[body.index("def _band_content_age"):]
+    fn = fn[:fn.index("\ndef ", 5)] if "\ndef " in fn[5:] else fn
+    for need in ("band_quiet", "band_latest_days"):
+        assert need in fn, (
+            "[321] %s 를 안 빌린다 — 같은 물음에 두 답이 생긴다" % need)
+
+    # ④ ★ **'로그인' 낱말을 밴드 갈래에 쓰지 않는다**([165]). 화면 `autoStateOf`
+    #    는 `kind`·`message`·`detail` **글자에서도** 그 낱말을 찾아 딱지를 되돌린다.
+    i = body.index('"source": "band"')
+    blk = body[i:i + 700]
+    for bad in ("로그인", "login", "auth"):
+        assert bad not in blk, (
+            "[321] 밴드 안내에 %r 가 들어갔다 — 화면이 다시 '로그인 필요'로 그린다"
+            % bad)
+
+    # ⑤~⑧ **실행으로** 잰다([295]) — 글자만 보면 정말 갈리는지 못 잰다.
+    tmp = _tf.mkdtemp(prefix="t498_")
+    keep = AP._band_content_age
+    try:
+        st_path = os.path.join(tmp, "state.json")
+        with _io.open(st_path, "w", encoding="utf-8") as fh:
+            _json.dump({"sources": {
+                "kakao": {"status": "ok", "latest_record_at": "2099-01-01T00:00:00+00:00"},
+                # 원본 mtime 은 14일 낡았다 — 옛 판정이면 여기서 '로그인 필요'였다.
+                "band": {"status": "ok", "latest_record_at": "2026-08-18T00:56:41+00:00"},
+                "erp": {"status": "ok", "latest_record_at": "2099-01-01T00:00:00+00:00"},
+            }}, fh)
+
+        def _run():
+            return AP.status(root=_P(ROOT), state_path=_P(st_path))
+
+        # ⑤ 글 기준으로 재면 밴드는 **최신**이고 로그인 딱지가 없다.
+        AP._band_content_age = lambda root=None: (0.2, "쿠팡AS 글 2026-08-31")
+        got = _run()["sources"]["band"]
+        assert got["login_required"] is False, "[321] 밴드에 로그인 딱지가 붙는다"
+        assert got["stale"] is False, (
+            "[321] 글이 최신인데 밀렸다고 한다 — 파일 mtime 을 아직 본다")
+        assert "쿠팡AS" in (got["detail"] or ""), (
+            "[321] 무엇을 보고 그렇게 말하는지 안 적는다([169])")
+
+        # ⑥ 정말 밀렸으면 **밀렸다고** 말한다 — 좁히는 것도 고장이다([172]).
+        AP._band_content_age = lambda root=None: (9.0, "쿠팡AS 글 2026-08-22")
+        out = _run()
+        got = out["sources"]["band"]
+        assert got["stale"] is True and got["login_required"] is False, (
+            "[321] 밀렸는데 조용하거나, 밀림을 로그인 문제라 부른다")
+        gates = out.get("human_gates") or out.get("gates") or []
+        band_gate = [g for g in gates if g.get("source") == "band"]
+        assert band_gate and band_gate[0].get("kind") == "collect", (
+            "[321] 밴드 밀림이 로그인 갈래로 나간다: %r" % (band_gate,))
+
+        # ⑦ **못 재면 예전 그대로**다([169]) — 모름을 '최신'으로 치지 않는다.
+        AP._band_content_age = lambda root=None: (None, "")
+        got = _run()["sources"]["band"]
+        assert got["stale"] is True, (
+            "[321] 못 쟀는데 최신이라 한다 — 진짜 밀림이 조용해진다")
+        assert got["login_required"] is False, (
+            "[321] 못 쟀다고 로그인 딱지를 붙인다")
+
+        # ⑧ **ERP 는 한 톨도 안 바뀐다**([172]) — 재 보지 않은 갈래를 넓히지 않는다.
+        with _io.open(st_path, "w", encoding="utf-8") as fh:
+            _json.dump({"sources": {
+                "kakao": {"status": "ok", "latest_record_at": "2099-01-01T00:00:00+00:00"},
+                "band": {"status": "ok", "latest_record_at": "2099-01-01T00:00:00+00:00"},
+                "erp": {"status": "ok", "latest_record_at": "2026-08-01T00:00:00+00:00"},
+            }}, fh)
+        AP._band_content_age = lambda root=None: (0.1, "")
+        got = _run()["sources"]["erp"]
+        assert got["login_required"] is True, (
+            "[321] ERP 갈래까지 같이 껐다 — 좁히는 것도 고장이다")
+    finally:
+        AP._band_content_age = keep       # 모듈 속성은 모두의 것이다([371])
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print(chr(9989) + " [321] 밴드는 로그인 갈래가 아니다 · 나이는 글 기준"
+          " (실행 4 · 배선 · 낱말)")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -47222,6 +47333,7 @@ if __name__ == "__main__":
     t495_deleted_work_is_never_recreated()
     t497_gate_timeout_cleared_is_not_p0(),
     t498_port_taken_is_told_apart_from_a_dead_server()
+    t498_band_is_never_called_login_required(),
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
