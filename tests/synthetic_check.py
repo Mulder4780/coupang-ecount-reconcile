@@ -32685,7 +32685,7 @@ def t500_reverted_posts_are_told_apart_from_ordinary_edits():
       적으면 그 글자가 바뀌는 날 한 건도 안 걸리면서 오류도 안 난다([165]).
     ★ **좁히는 것도 고장이다**([172]) — 완료->완료, 안내->완료는 안 걸려야 한다.
     """
-    import importlib, sys, os
+    import importlib, sys, os, io   # io 는 이 파일 모듈 수준에 없다([324])
     bd = os.path.join(ROOT, "band")
     if bd not in sys.path:
         sys.path.insert(0, bd)
