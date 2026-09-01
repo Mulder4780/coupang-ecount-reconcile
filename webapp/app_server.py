@@ -10579,6 +10579,18 @@ self.addEventListener('fetch', e => {
         if p == "/api/collect_plan":
             q = parse_qs(urlsplit(self.path).query)
             band = (q.get("band", [""])[0] or "").strip()
+            # ★ 밴드 수집 중단이면 **빈 계획**을 내려준다 (2026-09-01 지시).
+            #   유저스크립트는 브라우저 안에서 도니 우리가 못 막는다 — 그러나
+            #   긁을 목록을 안 주면 긁을 것이 없다.  왜인지 같이 적는다([169]).
+            try:
+                sys.path.insert(0, os.path.join(ROOT, "band"))
+                import collect_switch as _cs
+                _off, _why = _cs.stopped()
+            except Exception:
+                _off, _why = False, ""
+            if _off:
+                return self._send(200, {"band": band, "nos": [],
+                                        "중단": True, "왜": _why})
             try:
                 sys.path.insert(0, os.path.join(ROOT, "band"))
                 import comment_backfill as _cb

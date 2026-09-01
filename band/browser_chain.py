@@ -610,6 +610,17 @@ def tick():
         return 0
 
     # 셀 때 파일도 같이 다시 만든다 — 목록과 파일이 갈리면 회차가 수렴하지 않는다.
+    # ★ 밴드 수집 중단이면 **자동 갈래에서 밴드를 건너뛴다** (2026-09-01 지시).
+    #   `manual_step` (형님 명령)은 안 막는다 — 사람이 그때 판단해 시키신 것이다([172]).
+    try:
+        from band import collect_switch as _CS
+        _band_off, _band_why = _CS.stopped()
+    except Exception:
+        try:
+            import collect_switch as _CS
+            _band_off, _band_why = _CS.stopped()
+        except Exception:
+            _band_off, _band_why = False, ""
     band_n = band_remaining(write=True)
     erp_n = erp_unfinished()
     print("남은 것 — 밴드 댓글 %s · ERP 실패 %s · %s"
@@ -617,6 +628,8 @@ def tick():
              "모름" if erp_n is None else erp_n, why))
 
     # ① 밴드가 먼저다 — 취소 댓글이 오늘 숫자를 바꾼다([177]).
+    if _band_off:
+        band_n = 0                    # 조용히 빼지 않는다 — 아래 note 가 왜인지 적는다([169])
     if band_n:
         for js in sorted(glob.glob(os.path.join(HERE, "댓글채우기_붙여넣기_*.js"))):
             무엇 = "밴드 댓글 " + os.path.basename(js).split("_")[-1][:-3]

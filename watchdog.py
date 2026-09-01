@@ -1237,6 +1237,16 @@ def heal_band_bridge(dry):
       10건마다 저장하므로([388]) 짧은 창에서도 진도가 남고 다음 회차가 이어받는다.
       길게 잡으면 워치독 예산을 통째로 먹는다([436]).
     """
+    # ★ 형님이 밴드 수집을 멈추라 하셨으면 **긁지 않는다** (2026-09-01 지시).
+    #   판정은 `band.collect_switch` 한 곳이다([162]) — 여기서 다시 재면
+    #   자동 경로 셋이 서로 다른 답을 한다.  못 읽으면 예전 그대로 긁는다([169]).
+    try:
+        from band import collect_switch as _CS
+        _off, _why = _CS.stopped()
+    except Exception:
+        _off, _why = False, ""
+    if _off:
+        return "밴드 다리: %s" % (_why or "수집 중단")
     if dry:
         return "밴드 다리: --dry 라 안 긁음"
     try:
