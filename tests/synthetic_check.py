@@ -32673,6 +32673,70 @@ def t498_band_is_never_called_login_required():
     print(chr(9989) + " [321] 밴드는 로그인 갈래가 아니다 · 나이는 글 기준"
           " (실행 4 · 배선 · 낱말)")
 
+
+def t500_reverted_posts_are_told_apart_from_ordinary_edits():
+    """[500] 완료 -> 완료 아님으로 **되돌아간 글**을 보통 수정과 갈라 말한다.
+
+    2026-09-01 실사고 — 재수집이 할 수 있던 말은 `본문 바뀜` 뿐이라, 밴드 글 12건
+    중 **10건이 완료 근거를 잃었는데** 화면은 그것을 보통 수정과 한 덩어리로
+    보여 줬다.  다녀온 현장이 미처리로 뒤집히는 자리다([376]·[397]).
+
+    ★ 판정은 `band_extract.parse_post` 하나를 빌린다([162]) — 여기서 낱말을 다시
+      적으면 그 글자가 바뀌는 날 한 건도 안 걸리면서 오류도 안 난다([165]).
+    ★ **좁히는 것도 고장이다**([172]) — 완료->완료, 안내->완료는 안 걸려야 한다.
+    """
+    import importlib, sys, os
+    bd = os.path.join(ROOT, "band")
+    if bd not in sys.path:
+        sys.path.insert(0, bd)
+    R = importlib.import_module("recollect")
+
+    mk = lambda no, old, new: {
+        "글": "90610953/%s" % no, "작성일": "2026-08-01",
+        "어떻게": "본문 바뀜 · %s -> %s" % (old, new)}
+    DONE = "♣ ［ 돌발유료 A/S 완료 ] ● 프로젝트NO : UJ2600001"
+    OPEN = "♣ ［ 돌발유료 A/S 안내 ] ● 프로젝트NO : UJ2600001"
+
+    got = R.regressed([mk("1", DONE, DONE + " 추가"),      # 정상: 완료 -> 완료
+                       mk("2", DONE, OPEN),                # 사고: 되돌아감
+                       mk("3", OPEN, DONE)], {})           # 정상: 안내 -> 완료
+    assert got is not None, "[500] 되돌아감 판정이 '모름'을 냈다"
+    keys = [r["글"] for r in got]
+    assert keys == ["90610953/2"], "[500] 사고만 걸려야 하는데: %r" % keys
+    assert got[0]["was"] == "작업완료" and got[0]["now"] != "작업완료"
+
+    # (2) 옛/새를 못 가르면 **되돌아감이라 우기지 않는다**([169])
+    assert R.regressed([{"글": "90610953/4", "작성일": "x",
+                         "어떻게": "본문 바뀜 · 옛것만 있다"}], {}) == []
+
+    # (3) 자국에 칸이 없으면 **그 자리에서 계산**한다([247]) — 옛 자국은 안 물었을
+    #     뿐이지 '되돌아감 없음'이 아니다.
+    d = {"변경상세": [mk("2", DONE, OPEN)]}
+    R._ensure_regressed(d)
+    assert d.get("되돌아감") and d["되돌아감"][0]["글"] == "90610953/2",         "[500] 자국에 없을 때 계산하지 않는다"
+    # 이미 있으면 다시 안 센다
+    d2 = {"변경상세": [mk("2", DONE, OPEN)], "되돌아감": []}
+    R._ensure_regressed(d2)
+    assert d2["되돌아감"] == [], "[500] 이미 있는 값을 덮었다"
+
+    # (4) 계기 자기시험([272]) — 방향 문을 없애면 정상 글까지 걸린다
+    src = io.open(os.path.join(ROOT, "band", "recollect.py"),
+                  encoding="utf-8").read()
+    anchor = 'if was == "작업완료" and now and now != "작업완료":'
+    assert src.count(anchor) == 1, "[500] 방향 문이 사라졌거나 여럿이다"
+    ns = {"__file__": os.path.join(ROOT, "band", "recollect.py"),
+          "__name__": "_t500_mut"}   # 모듈을 exec 할 때는 둘을 준다([329])
+    exec(compile(src.replace(anchor, "if was or now:"),
+                 "<t500-mut>", "exec"), ns)
+    bad = ns["regressed"]([mk("1", DONE, DONE + " 추가"),
+                           mk("3", OPEN, DONE)], {})
+    assert bad, "[500] 방향 문을 없애도 정상 글이 안 걸린다 — 이 검사는 아무것도 안 잰다"
+
+    # (5) 인계가 실제로 그것을 싣는다([328]) — 함수만 있고 안 부르면 없는 것과 같다
+    hs = io.open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
+    assert 'rc.get("되돌아감")' in body, "[500] 인계가 되돌아감을 안 읽는다"
+    print("✅ [500] 되돌아간 글을 보통 수정과 갈라 말한다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -47337,6 +47401,7 @@ if __name__ == "__main__":
     t497_gate_timeout_cleared_is_not_p0(),
     t499_port_taken_is_told_apart_from_a_dead_server()
     t498_band_is_never_called_login_required(),
+    t500_reverted_posts_are_told_apart_from_ordinary_edits()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
