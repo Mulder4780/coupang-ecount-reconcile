@@ -32919,6 +32919,48 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
           % (caught, len(hurts)))
 
 
+def t502_recollect_fix_is_a_runnable_command():
+    """[502] 밴드 재수집 조치 칸은 **붙여넣어 도는 명령**이다 (2026-09-01).
+
+    옛 조치는 `앱의 Band 로그인 상태를 확인하고 준비된 재수집 목록만 수집합니다.`
+    라는 **안내 문장**이었다.  붙여넣으면 아무 일도 안 일어난다([247]·[448]) —
+    그런데 진짜 조치(붙여넣기 파일 이름)는 `손볼것` 문구에 **이미 들어 있었다**.
+
+    ★ 이름을 읽는 쪽이 다시 짓지 않는다([162]·[450]) · 없는 파일은 조치가
+      못 된다([448]) · 못 뽑으면 지어내지 않는다([169]).
+    """
+    import importlib, sys as _sys, os as _os, io as _io, tempfile as _tf
+    from pathlib import Path as _Path
+    SA = importlib.import_module("system_audit")
+
+    with _tf.TemporaryDirectory() as td:                 # 실측 파일은 안 건드린다([247])
+        band = _Path(td) / "band"
+        band.mkdir()
+        (band / "재수집_붙여넣기_1234.js").write_text("x", encoding="utf-8")
+        real = SA.ROOT
+        try:
+            SA.ROOT = _Path(td)
+            back = "`" + "band" + chr(92) + "재수집_붙여넣기_1234.js" + "`"
+            got = SA._recollect_paste_fix(["밴드 1234 — " + back + " 를 붙여넣으면 자동이다."])
+            assert got and got.startswith("notepad "), "(1) 여는 명령이 아니다: %r" % got
+            assert "재수집_붙여넣기_1234.js" in got, "(1) 그 파일을 안 가리킨다: %r" % got
+
+            miss = "`" + "band/없는파일.js" + "`"
+            assert SA._recollect_paste_fix([miss]) is None, "(2) 없는 파일을 조치로 준다([448])"
+            assert SA._recollect_paste_fix(["그냥 문장"]) is None, "(3) 백틱이 없는데 지어낸다([169])"
+            assert SA._recollect_paste_fix([]) is None, "(4) 빈 목록에 조치를 지어낸다([169])"
+        finally:
+            SA.ROOT = real                                # 모듈 속성은 프로세스 전체의 것([371])
+
+    code = _io.open(_os.path.join(ROOT, "system_audit.py"), encoding="utf-8").read()
+    body = code[code.index("def _recollect_paste_fix"):]
+    body = body[:body.index(chr(10) + "def ")]
+    assert "재수집_붙여넣기" not in body, "(5) 파일 이름을 손으로 적는다([162])"
+    assert "_recollect_paste_fix(pending)" in code, "(6) 부르는 자리가 없다([328])"
+    assert "준비된 재수집 목록만 수집합니다" not in code, "(7) 옛 안내 문장이 돌아왔다([247])"
+    print(chr(9989) + " [502] 밴드 재수집 조치는 붙여넣어 도는 명령이다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -47629,6 +47671,7 @@ if __name__ == "__main__":
     t498_band_is_never_called_login_required(),
     t500_reverted_posts_are_told_apart_from_ordinary_edits()
     t501_stopped_band_collection_is_not_called_a_backlog()
+    t502_recollect_fix_is_a_runnable_command()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
