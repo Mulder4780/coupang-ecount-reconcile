@@ -9593,9 +9593,16 @@ def t131_band_quiet_vs_stalled():
     #     아니라 캐시의 실제 수확과도 대 보므로([217] 추월 판정), 실데이터 밴드번호를
     #     쓰면 그날 캐시 상태에 따라 이 검증이 흔들린다. 합성검증이 실데이터에
     #     기대는 것 자체가 냄새다 — 여기서 재는 것은 **나이 규칙** 하나다.
-    keep = (SH.band_latest_days, SH.band_quiet)
+    from band import collect_switch as _CS
+    keep = (SH.band_latest_days, SH.band_quiet, _CS.stopped)
     BQ = "99999999"
     try:
+        # ★ **수집 중단 스위치를 '켬' 으로 못 박는다** ([330] · 2026-09-01).
+        #   `data_freshness` 는 밴드 수집이 중단이면 그 밴드를 **조용함 판정에 보내지
+        #   않는다**(중단이 더 센 사실이다). 그런데 여기서 재는 것은 **조용함 규칙**
+        #   자체라 스위치와 무관하다 — 안 걸면 스위치 상태에 따라 이 검사가 초록·빨강을
+        #   오간다([211] 관문이 실데이터에 매이는 병 · 2026-09-01 실측으로 그렇게 죽었다).
+        _CS.stopped = lambda: (False, "")
         SH.band_latest_days = lambda: {BQ: "2026-08-05"}
         SH.band_quiet = lambda: {BQ: {"이름": "매출처업무", "수집최대": 3538,
                                       "확인시각": "2026-08-07 09:52",
@@ -9617,7 +9624,7 @@ def t131_band_quiet_vs_stalled():
         row = [f for f in SH.data_freshness("2026-08-07") if f["이름"].startswith("밴드:")][0]
         assert row["밀림"], "근거가 없는데 밀림을 내렸다"
     finally:
-        SH.band_latest_days, SH.band_quiet = keep
+        SH.band_latest_days, SH.band_quiet, _CS.stopped = keep
 
     # ⑤ 문서에 '조용함'과 이유가 보인다
     src = open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read()
@@ -33815,8 +33822,15 @@ def t343_band_quiet_evidence_is_looked_up_by_number():
     """
     import session_handoff as SH
     day = "2026-08-20"
-    orig = (SH.band_latest_days, SH.band_quiet, SH.band_numbers)
+    from band import collect_switch as _CS
+    orig = (SH.band_latest_days, SH.band_quiet, SH.band_numbers, _CS.stopped)
     try:
+        # ★ **수집 중단 스위치를 '켬' 으로 못 박는다** ([330] · 2026-09-01).
+        #   `data_freshness` 는 밴드 수집이 중단이면 그 밴드를 **조용함 판정에 보내지
+        #   않는다**(중단이 더 센 사실이다). 그런데 여기서 재는 것은 **조용함 규칙**
+        #   자체라 스위치와 무관하다 — 안 걸면 스위치 상태에 따라 이 검사가 초록·빨강을
+        #   오간다([211] 관문이 실데이터에 매이는 병 · 2026-09-01 실측으로 그렇게 죽었다).
+        _CS.stopped = lambda: (False, "")
         SH.band_latest_days = lambda: {"테스트밴드": "2026-08-14"}
         SH.band_quiet = lambda: {"99999999": {"없음확인": 3543, "확인시각": day,
                                               "수집최대": 3542}}
@@ -33838,7 +33852,8 @@ def t343_band_quiet_evidence_is_looked_up_by_number():
         assert r2["밀림"] is True, (
             "번호를 못 찾는데도 조용함이라 한다 — 이 검사는 아무것도 안 재고 있다")
     finally:
-        SH.band_latest_days, SH.band_quiet, SH.band_numbers = orig
+        (SH.band_latest_days, SH.band_quiet, SH.band_numbers,
+         _CS.stopped) = orig
     print("[343] 조용한 밴드 판정 — 근거를 번호로 찾는다 · 못 찾으면 밀림에 머문다 ✅")
 
 def t342_a_round_that_skipped_steps_says_so():
