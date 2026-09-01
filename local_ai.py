@@ -420,7 +420,13 @@ def a_collect(q):
     late = [r for r in rows if r.get("밀림")]
     if not late:
         quiet = [r for r in rows if r.get("조용함")]
+        # ★ **사람이 멈춘 것을 조용히 넘기지 않는다**([169] · [326]). 밀림이 아닌 것은
+        #   맞지만, 그것만 말하면 "밴드가 왜 이렇게 오래됐지" 를 물을 근거가 없다.
+        offs = [r for r in rows if r.get("수집중단")]
         return {"답": "밀린 원본이 없습니다(%d갈래 확인)." % len(rows) +
+                      ("\n수집 중단: " + " · ".join(
+                          "%s — %s" % (r.get("이름"), r.get("수집중단")) for r in offs[:3])
+                       if offs else "") +
                       ("\n조용한 것: " + " · ".join(
                           "%s — %s" % (r.get("이름"), r.get("조용함")) for r in quiet[:3])
                        if quiet else ""),

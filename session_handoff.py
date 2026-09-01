@@ -614,6 +614,23 @@ def data_freshness(today=None):
     ]
     quiet = band_quiet()
     numbers = band_numbers()   # 이름 -> 번호 (근거 파일 키가 번호다)
+    # ★ **밴드 자동 수집을 멈췄으면 밴드만 밀림에서 내린다** (2026-09-01 지시 · [326]).
+    #   형님 지시: "밴드 자동 수집은 앞으로 하지마 이제 밴드에 자료 안올라올거야".
+    #   그러면 밴드에 새 글이 없는 것이 **정상**인데 이 판정은 그것을 모른다 —
+    #   실측(2026-09-01)으로 **9/5 부터 두 밴드가 매일 거짓 밀림**이고, 거짓 경보가
+    #   쌓이면 진짜 경보가 묻힌다([170]).
+    #   ★ 판정은 `band.collect_switch` 한 곳에서 **빌린다**([162]) — 여기서 다시
+    #     재면 자동 경로 넷이 서로 다른 답을 한다.
+    #   ★ **밴드만이다**([172] — 좁히는 것도 고장이다). 카톡·ERP 는 계속 들어오므로
+    #     그쪽 밀림은 예전 그대로 경보한다.
+    #   ★ **못 읽으면 예전 그대로 밀림이다**([169]). 여기서 기우는 방향은
+    #     `collect_switch` 와 **반대다** — 저쪽이 잘못 막으면 헛 수집 한 번이지만,
+    #     여기서 잘못 조용해지면 **못 받은 것을 아무도 못 본다**.
+    try:
+        from band import collect_switch as _CS
+        band_off, band_off_why = _CS.stopped()
+    except Exception:
+        band_off, band_off_why = False, ""
     out = []
     for name, latest, how in rows:
         limit = FRESH_LIMIT.get(name.split(":")[0].strip(), 3)
@@ -653,7 +670,15 @@ def data_freshness(today=None):
         #   근거가 오래됐으면 그 사이에 새 글이 올라왔을 수 있으므로 그대로 밀림이다.
         #   ★ 나이만 보면 안 된다 — 근거는 **추월될 수 있다**(2026-08-11, `[217]`).
         #   그래서 판정은 수집 계획과 같은 자리(`recheck_plan.absent_line`)에 맡긴다.
-        if row["밀림"] and name.startswith("밴드:"):
+        if row["밀림"] and name.startswith("밴드:") and band_off:
+            # ★ **조용히 빼지 않는다**([169]) — 왜 안 받는지 칸에 적어 두고 신선도
+            #   표가 `(수집 중단)` 으로 보여 준다. 그냥 빼면 나중에 밴드를 다시 켰을 때
+            #   '왜 이 밴드만 안 들어오지' 를 물을 근거가 아무 데도 없다.
+            #   ★ 여기서 `_absent_judge` 를 안 부른다 — 그것은 밴드 캐시를 훑는
+            #     비싼 판정인데([168]) 중단 중에는 답이 무의미하다.
+            row["밀림"] = False
+            row["수집중단"] = band_off_why or "밴드 자동 수집 중단"
+        elif row["밀림"] and name.startswith("밴드:"):
             band = name.split(":", 1)[1].strip()
             no = numbers.get(band) or band   # 못 찾으면 예전대로(밀림에 머문다)
             q = quiet.get(no) or quiet.get(band) or {}
@@ -2151,9 +2176,14 @@ def to_md(st, for_sol=False):
               "| 원본 | 최신 | 밀린 일수 | 한도 |", "|---|---|---:|---:|"]
         for f in fr:
             late = "?" if f["밀린일"] is None else str(f["밀린일"])
-            tag = " ★밀림" if f.get("밀림") else (" (조용함)" if f.get("조용함") else "")
+            # ★ 중단은 '조용함'보다 **센 사실**이라 먼저 본다 — 조용함은 "그 위에
+            #   새 글이 없음을 확인했다" 이고 중단은 "앞으로 안 받는다" 다([289]).
+            tag = " ★밀림" if f.get("밀림") else (
+                " (수집 중단)" if f.get("수집중단")
+                else (" (조용함)" if f.get("조용함") else ""))
             L.append("| %s%s | %s | %s | %d |"
                      % (f["이름"], tag, f["최신"], late, f["한도"]))
+        offs = [f for f in fr if f.get("수집중단")]
         quiet = [f for f in fr if f.get("조용함")]
         L += ["", "> 밴드·이카운트는 **사람 로그인**이 있어야 긁힌다(절대규칙 3).",
               "> 밀려 있으면 화면 숫자가 그만큼 적게 나온다 — 숫자를 의심하기 전에 여기부터 본다."]
@@ -2163,6 +2193,14 @@ def to_md(st, for_sol=False):
             L += ["> **조용함**: 최신 글이 오래됐지만 그 위로 새 글이 없음을 확인한 것이다 —"
                   " 긁을 것이 없다. 없는 번호를 긁으면 쓰레기가 캐시에 들어간다."]
             L += ["> · %s — %s" % (f["이름"], f["조용함"]) for f in quiet]
+        if offs:
+            # ★ **조용히 빼지 않는다**([169]) — 밀림 경보에서는 내렸지만 왜 안 받는지는
+            #   여기 남는다. 안 적으면 다음 사람이 '밴드가 왜 이렇게 오래됐지' 를 물을
+            #   근거가 없고, 되돌리는 법도 모른다.
+            L += ["> **수집 중단**: 사람이 멈춘 것이라 안 들어오는 것이 정상이다 —"
+                  " 밀림 경보에서 뺐다. 다시 켜려면"
+                  " `python band/collect_switch.py --resume`."]
+            L += ["> · %s — %s" % (f["이름"], f["수집중단"]) for f in offs]
         why = [f for f in fr if f.get("밀림") and f.get("근거")]
         if why:
             # ★ '밀림'만 적고 이유를 안 적으면 사람이 없는 번호를 긁으러 간다([217]).
