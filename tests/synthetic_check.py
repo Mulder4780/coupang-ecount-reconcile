@@ -46900,6 +46900,34 @@ if __name__ == "__main__":
             _t0 = time.time()
             try:
                 return _fn(*a, **k)
+            except ValueError as _ve:
+                # * `str.index()` 가 못 찾으면 파이썬은 `substring not found`
+                #   다섯 글자만 준다 - 화면에는 **계약이 깨진 것**과 **검사가
+                #   낡은 것**이 구별 없이 빨갛게 뜬다.  2026-09-01 아침 실사고:
+                #   t264 가 옛 구현 글자(local_ok = ping())를 못 박아 죽었는데
+                #   계약은 한 톨도 안 깨져 있었다([219]/[39] - 얼릴 것은 계약이지
+                #   구현이 아니다).  이 관문은 daily_run 의 **0단계**라 여기서
+                #   틀리게 짚으면 그날 대조가 통째로 안 돈다.
+                # * 동작은 한 톨도 안 바꾼다([172]) - 여전히 실패한다.  바뀌는
+                #   것은 **무엇을 못 찾았는지 말해 주는 것**뿐이다.  검사 507개
+                #   중 150개가 소스 글자를 못 박고 그런 자리가 535곳이라
+                #   (2026-09-01 실측), 그 535곳을 손대는 대신 **감싸는 자리
+                #   한 곳**에서 말한다([162]).
+                if "substring not found" not in str(_ve):
+                    raise                    # 진짜 값 오류는 안 삼킨다([355])
+                try:
+                    import traceback as _tbm     # 모듈 수준에 없다([324])
+                    _fr = _tbm.extract_tb(_ve.__traceback__)[-1]
+                    _where = "%s:%s  %s" % (
+                        os.path.basename(_fr.filename), _fr.lineno,
+                        (_fr.line or "").strip()[:140])
+                except Exception:
+                    raise _ve                # 못 읽으면 원래 것 그대로([169])
+                raise AssertionError(
+                    "[검사낡음] 이 검사가 소스에서 찾던 글자가 없다 - 계약이"
+                    " 깨진 것이 아니라 **검사가 낡았을 수 있다**([219]).  고치기"
+                    " 전에 그 계약이 정말 깨졌는지 먼저 본다([309]).",
+                    "  못 찾은 자리: " + _where)
             finally:
                 _el = round(time.time() - _t0, 1)
                 _GATE_STEPS.append([_el, _label])
