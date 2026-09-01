@@ -32602,7 +32602,10 @@ def t498_band_is_never_called_login_required():
     # ④ ★ **'로그인' 낱말을 밴드 갈래에 쓰지 않는다**([165]). 화면 `autoStateOf`
     #    는 `kind`·`message`·`detail` **글자에서도** 그 낱말을 찾아 딱지를 되돌린다.
     i = body.index('"source": "band"')
-    blk = body[i:i + 700]
+    # 그 갈래 안에서만 본다 - 넓게 잡으면 다음 갈래(ERP 안내)를 삼켜
+    #   멀쩡한 코드를 지목한다([309] 만들면서 그대로 밟았다).
+    j = body.find(chr(101)+chr(108)+chr(105)+chr(102)+chr(32)+chr(108)+chr(111)+chr(103)+chr(105)+chr(110)+chr(95)+chr(114)+chr(101)+chr(113)+chr(117)+chr(105)+chr(114)+chr(101)+chr(100)+chr(58), i)
+    blk = body[i:j if j > i else i + 400]
     for bad in ("로그인", "login", "auth"):
         assert bad not in blk, (
             "[321] 밴드 안내에 %r 가 들어갔다 — 화면이 다시 '로그인 필요'로 그린다"
