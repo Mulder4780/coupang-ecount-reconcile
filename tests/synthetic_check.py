@@ -40936,7 +40936,15 @@ def t264_fixed_funnel_is_a_separate_guarded_failure_domain():
     funnel = open(os.path.join(ROOT, "tailscale_serve.py"), encoding="utf-8").read()
     assert "dns.google/resolve" in funnel and "cloudflare-dns.com/dns-query" in funnel, \
         "공개 DNS 한 곳의 일시 오류를 Funnel 장애로 오판한다"
-    assert guard.index("local_ok = ping()") < guard.index("if fixed_funnel_alive():"), \
+    # ★ 얼릴 것은 **계약**이지 그때 쓴 구현이 아니다([39]·[219]).
+    #   2026-09-01 [499] 포트 가로채기 고침으로 `local_ok = ping()` 이
+    #   `local_ok = verdict == PORT_OK` 가 되자 **계약은 한 톨도 안 바뀌었는데**
+    #   이 검사만 죽었다 — 관문은 daily_run 의 0단계라 그날 대조가 통째로 안 돈다.
+    #   재는 것은 "로컬을 먼저 보고 그 다음 Funnel 을 보나" 하나다.
+    _m_local = re.search(r"^\s*local_ok\s*=", guard, re.M)
+    assert _m_local, \
+        "server_guard 에 local_ok 를 정하는 자리가 없다 — 로컬 판정 자체가 사라졌다"
+    assert _m_local.start() < guard.index("if fixed_funnel_alive():"), \
         "로컬 앱이 죽은 동안 Funnel을 갈아 주소 장애를 더 크게 만든다"
     assert "ensure_public_funnel(repair=True)" in guard, \
         "검증된 공개 DNS/SNI 재등록 정본을 쓰지 않고 Funnel 복구를 새로 지어냈다"
