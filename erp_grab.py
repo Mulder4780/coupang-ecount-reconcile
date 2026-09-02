@@ -271,6 +271,43 @@ def run(limit_days=DEFAULT_LIMIT_DAYS):
     return 0
 
 
+
+# ── 엑셀 단추 찾기 — 두 JS 가 같은 규칙을 쓴다 (한 곳이다 · [162]) ────────────
+#   2026-09-02 실사고: 판매조회(E040206)가 '엑셀 버튼이 없다' 로 매번 멈췄다.
+#   재 보니 단추는 **멀쩡히 있었고**(보임 · 클래스 btn btn-default) 글자가
+#   **'Excel(표시형식)'** 이라 `data-cid` 도 정확 일치('Excel')도 안 걸린 것이다.
+#   화면마다 생김새가 다르다: 계정별원장류 = data-cid="outputExcel" ·
+#   판매조회 = 'Excel(표시형식)' · 견적서조회 = 'Excel(데이터)'([401]).
+# ★★ 넓히되 **누르면 되돌릴 수 없는 것**은 뺀다. 이 화면들에는 '신규(F2)' 처럼
+#   누르면 진짜 전표가 만들어지는 단추가 같은 줄에 있다([401] 실사고 · 판매조회
+#   에서도 실측됐다). 지금 규칙으로는 그것이 'Excel' 로 시작하지 않아 안 걸리지만,
+#   'Excel업로드'·'Excel양식' 같은 것이 생기는 날 그대로 눌린다. 없으면 아무 일도
+#   안 일어나고 있으면 사고를 막는 쪽이라(비대칭) 미리 막는다.
+# ★ 못 찾으면 **무엇이 있었는지 말한다**([169]·[289]). 옛 문구는 '인쇄 미리보기
+#   안에만 있는 화면일 수 있다' 라고 **원인을 확언**했는데 오늘 그것은 틀렸다 —
+#   그 말을 믿었으면 인쇄 미리보기를 뒤졌을 것이다([172] 틀린 지목). 이제 화면에
+#   실제로 있는 'Excel/엑셀' 글자를 같이 적는다. 그것이 없어서 오늘 단추 239개를
+#   훑는 스크립트를 따로 짜야 했다.
+_EXCEL_PICK_JS = r"""
+  const __excelPick = () => {
+    const bad = /업로드|양식|등록|불러오기|가져오기|import|upload/i;
+    const ok  = t => /^(excel|엑셀)/i.test(t) && !bad.test(t);
+    const vis = e => { try { return e.getClientRects().length > 0; } catch (_) { return true; } };
+    const byCid = [...document.querySelectorAll('[data-cid="outputExcel"]')];
+    const c0 = byCid.filter(vis)[0] || byCid[0];
+    if (c0) return {btn: c0, 후보: ['(data-cid=outputExcel)']};
+    const all = [...document.querySelectorAll('button,a,input[type=button],input[type=submit]')];
+    const hit = [], 비슷 = [];
+    for (const e of all) {
+      const t = (e.textContent || e.value || '').trim();
+      if (!t || t.length > 40) continue;
+      if (/excel|엑셀/i.test(t)) 비슷.push(t);
+      if (ok(t)) hit.push(e);
+    }
+    return {btn: hit.filter(vis)[0] || hit[0] || null, 후보: [...new Set(비슷)]};
+  };
+"""
+
 GRAB_JS = r"""
 // ERP 화면 몰이 — 로그인된 ec5 탭에서 그대로 실행한다 (erp_grab.py --js 가 찍어 준 것)
 // 메뉴: %(menu)s · 기간 프리셋: %(preset)s
@@ -392,16 +429,20 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
   }
   if (!inRange.length){ say({오류:'격자 날짜가 요청 기간 밖이다 — 조회가 안 걸렸다. Excel 을 누르지 않는다'}); return; }
 
-  // ④ 엑셀
-  const x = document.querySelector('[data-cid="outputExcel"]');
-  if (!x) { say({오류:'엑셀 버튼을 못 찾음'}); return; }
+  // ④ 엑셀 — 찾는 규칙은 _EXCEL_PICK_JS 한 곳이다([162])
+  //__EXCEL_PICK__
+  const __ex = __excelPick();
+  const x = __ex.btn;
+  if (!x) { say({오류:'엑셀 단추를 못 찾았다 — 화면에 있는 비슷한 글자: ' +
+                 (__ex.후보.length ? __ex.후보.join(' / ') : '(없음)') +
+                 ' · 인쇄 미리보기 안에만 있는 화면일 수도 있다(확인 필요)'}); return; }
   x.click(); await wait(4000);
   say({단계:'엑셀 다운로드 요청', 요청완료:true, 디스크확인:false,
        다음:'download_intake.py가 새 XLSX 도착을 확인해야 최종 완료'});
 })();
 // 여기서 즉시 반환된다 — 진행은 window.__ERPGRAB 을 다시 읽어서 본다.
 window.__ERPGRAB;
-"""
+""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS)
 
 # 메뉴명 → 기본 기간 프리셋. '금월(~오늘)' 이 이번 달 1일~오늘이라 밀린 며칠을 받기 좋다.
 MENUS = {
@@ -662,6 +703,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     return true;
   };
 
+  //__EXCEL_PICK__
   const pick = (cid, txt, exact) => {
     const hit = list => list.find(e => {
       const t = (e.textContent || '').trim();
@@ -780,9 +822,11 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       // ⑥ 엑셀
       // ★ 여기서만 **한 번** 누른다. 진행단계 화면처럼 Excel 단추가 둘인 곳에서
       //   후보를 모두 누르면 같은 파일이 두 벌 떨어진다(2026-08-08 실측 289KB ×2).
-      const x = document.querySelector('[data-cid="outputExcel"]')
-             || pick(null, 'Excel', true) || pick(null, '엑셀', true);
-      if (!x) { done({결과: '실패', 왜: '엑셀 버튼이 없다 — 인쇄 미리보기 안에만 있는 화면일 수 있다'}); continue; }
+      const __ex = __excelPick();
+      const x = __ex.btn;
+      if (!x) { done({결과: '실패', 왜: '엑셀 단추를 못 찾았다 — 화면에 있는 비슷한 글자: ' +
+                      (__ex.후보.length ? __ex.후보.join(' / ') : '(없음)') +
+                      ' · 인쇄 미리보기 안에만 있는 화면일 수도 있다(확인 필요)'}); continue; }
       x.click(); await wait(5000);
       // 브라우저는 다운로드 단추를 눌렀다는 사실까지만 안다. 디스크 파일은 브라우저
       // 샌드박스 밖이라 여기서 존재를 확인할 수 없다. 예전의 '받음'은 실제 XLSX가
@@ -798,7 +842,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
   A.지금 = null; A.완료 = true; save();
 })();
 window.__ERPALL;
-"""
+""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS)
 
 
 def build_all(keys=None, preset=None):

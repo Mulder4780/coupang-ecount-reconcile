@@ -13888,6 +13888,26 @@ const DATA_SECTION_DEFS={
   exec:{label:'대표보고',path:'/api/exec_report'},
   representative:{label:'대표 예외·진도',path:'/api/v1/reports/daily/exceptions'},
   erpdocs:{label:'ERP 매출서류',path:'/api/erpdocs'},
+  /* 캠프 거래처코드 — 09:50 회차가 새로 확보했거나 사람이 캠프 창에서 확인해 준
+     코드([235]-4)가 **업무 카드에 저절로 반영되게** 한다(2026-09-02 형님 지시).
+     예전에는 `campsData()` 가 `if(CAMPS) return CAMPS;` 라 **한 번 받으면 영영
+     다시 안 받아**, 그 브라우저를 새로고침하기 전까지 옛 값을 그대로 보여 줬다 —
+     오류도 안 나고 화면도 멀쩡하다([169]). [377] 계약(저장 완료는 모든 화면이 같은
+     값이 된 뒤다)이 **이 자료에만 안 걸려 있었다**.
+     ★ 화면이 코드를 다시 판정하지 않는다([162]) — `campCode` 한 곳이 정한다.
+       여기서 하는 것은 **자료를 새로 받는 것까지**다. */
+  camps:{label:'전국 쿠팡캠프',path:'/api/camps',apply:function(d){
+    /* 못 받은 것을 빈 목록으로 덮지 않는다([169]) — 알던 값을 그대로 둔다. */
+    if(!d||typeof d!=='object') return;
+    CAMPS=d;
+    /* 지금 보고 있는 화면만 다시 그린다. `curView()` 는 읽으면서 DEEP_VIEW 를
+       비우므로 여기서 부르지 않는다([452]). */
+    try{
+      var v=(typeof window!=='undefined'&&window.__view)||'';
+      if(v==='as'||v==='pm') renderWorkTab(v);
+      else if(v==='camps') renderCampList();
+    }catch(e){}
+  }},
 };
 const DATA_SECTION_STATE=Object.fromEntries(Object.keys(DATA_SECTION_DEFS).map(k=>[k,{
   key:k,label:DATA_SECTION_DEFS[k].label,path:DATA_SECTION_DEFS[k].path,
@@ -14207,13 +14227,13 @@ function liveDataKeysForView(view){
     // 대시보드는 실제 카드가 쓰는 네 묶음만 받는다. 예전에는 대표보고·ERP서류·
     // 4원천검증까지 일곱 API를 모두 열어 첫 화면이 가장 느린 화면이 됐다.
     dash:['settlements','works','issues','representative'],
-    as:['works'],pm:['works'],center:['works'],
+    as:['works','camps'],pm:['works','camps'],center:['works'],
     settle:['settlements','erpdocs'],
     check:['issues','checks'],
     daily:['exec','representative','settlements','works','issues','erpdocs'],
     report:['exec','representative'],
     // 아래 화면은 각자의 경량 API를 직접 읽는다. 공용 대용량 묶음을 얹지 않는다.
-    run:[],revenue:[],sources:[],remote:[],flow:[],org:[],settings:[],worklog:[],camps:[]
+    run:[],revenue:[],sources:[],remote:[],flow:[],org:[],settings:[],worklog:[],camps:['camps']
   };
   // 새 화면을 맵에 넣지 않았다고 동기화가 조용히 빠지면 안 된다. 전용 맵이 없는
   // 신규 view는 등록된 모든 자료 section을 받아 안전하게 시작하고, 성능이 필요할 때
