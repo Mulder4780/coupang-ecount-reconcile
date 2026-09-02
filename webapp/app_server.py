@@ -7138,6 +7138,9 @@ def _deposit_daily():
 # (무상·보험은 애초에 계산서가 없다 — 발행월 집계에서는 둘이 같은 것을 가리킨다).
 KIM_KIND_MAP = {"정기점검": "정기점검", "유료AS": "돌발AS"}
 REVENUE_KIND_ORDER = ["정기점검", "돌발AS", "신규납품", "철거", "계단", "기타"]
+# KPI 를 눌러 근거를 볼 때 실어 보내는 계산서 전표의 상한. 실측 2026-09-02 는 96장
+# (35.3KB)이라 지금은 한 번도 안 걸린다 — 늘어나도 화면이 안 죽게 두는 문일 뿐이다.
+REVENUE_SLIP_CAP = 400
 # ★ 낱말은 **한 곳에서** 만든다([162]). `잔여 미수금액` 은 6 만, `잔여 미청구액` 은
 #   6·7·8 이 아닌 것이라 셋을 따로 부를 수 있어야 한다([233]).
 UNPAID_STATE = "6."                     # 계산서는 끊었고 아직 수금 전 — **받을 돈**
@@ -7267,6 +7270,12 @@ def _build_revenue():
         "kinds": {k: int(v) for k, v in (docs.get("kinds") or {}).items()},
         "total": int(docs.get("total") or 0),
         "건수": len(docs.get("rows") or []),
+        # ★ KPI 숫자를 눌러 **그 숫자를 만든 건**으로 가려면 근거 행이 있어야 한다
+        #   (2026-09-02 형님 지시). `get_erpdocs()` 는 바로 위에서 이미 불렀으므로
+        #   **새 계산이 0** 이다([168] — 비싼 탐색을 여기서 다시 하지 않는다).
+        # ★ 자른 만큼은 숫자로 말한다([273]) — 조용히 자르면 그것이 전부로 읽힌다.
+        "전표": (docs.get("rows") or [])[:REVENUE_SLIP_CAP],
+        "전표더있음": max(0, len(docs.get("rows") or []) - REVENUE_SLIP_CAP),
         "만든때": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
     if docs.get("error"):
