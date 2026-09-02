@@ -4722,37 +4722,96 @@ def demo_works():
 _MT = {"at": 0.0, "v": 0, "path": ""}
 _MT_TTL = 30.0
 _MT_LOCK = threading.Lock()
+_MT_REFRESHING = False          # 지금 한 스레드가 Z: 를 훑는 중인가
+_MT_LAST_MS = 0.0               # 마지막 탐색이 몇 ms 걸렸나 - 진단용, 판정에 안 쓴다
+
+
+def _master_mtime_age():
+    """지금 쓰고 있는 기준시각이 **몇 초 전** 것인가. 한 번도 못 읽었으면 None.
+
+    ★ 0 을 주지 않는다 - '방금 읽었다'와 '한 번도 못 읽었다'는 다른 사실이다([169])."""
+    if not _MT["at"]:
+        return None
+    return time.time() - _MT["at"]
+
+
+def _master_mtime_refresh():
+    """Z: 를 훑어 최신 원장 시각을 다시 잡는다. **한 스레드만** 돈다.
+
+    ★ 못 읽었으면(0) **알던 값을 버리지 않는다** - Z: 가 잠깐 끊겼다고 기준시각이
+      1970년으로 돌아가면 이 값을 지문으로 쓰는 캐시가 **한꺼번에** 어긋나
+      멀쩡한 자료를 전부 다시 계산한다([169])."""
+    global _MT_REFRESHING, _MT_LAST_MS
+    t0 = time.time()
+    path = ""
+    try:
+        from ecount_reconcile import load_config, resolve_master
+        path = resolve_master(load_config()["reconcile"]["master_xlsx"])
+        v = os.path.getmtime(path)
+    except Exception:
+        v = 0
+    try:
+        _MT_LAST_MS = (time.time() - t0) * 1000.0
+        with _MT_LOCK:
+            if v or not _MT["v"]:
+                _MT["v"], _MT["path"] = v, path
+            _MT["at"] = time.time()
+    finally:
+        with _MT_LOCK:
+            _MT_REFRESHING = False
 
 
 def _master_mtime():
-    """관리대장이 마지막으로 저장된 시각. **30초 단일 캐시**를 둔다.
+    """관리대장이 마지막으로 저장된 시각. **낡았어도 기다리지 않는다**(SWR).
 
-    ★ `resolve_master` 는 Z: 폴더를 훑어 최신 vN 을 고른다(실측 1.24초). 그런데
-      `_fresh()` 가 **모든 캐시 조회마다** 이걸 불렀다 — 화면 하나가 API 를 예닐곱 개
-      부르므로 아무것도 안 바뀐 상태에서도 Z: 를 예닐곱 번 훑었다. 갱신이 오래
-      걸리던 가장 큰 몫이 여기였다(사용자 지시 2026-08-08: "갱신 빨리빨리하게").
-    ★ 30초는 안전하다. 원장 저장은 11:00·15:00 회차나 사람 손으로 일어나며,
-      화면에는 원장 실제 mtime을 기준시각으로 표시한다. 매 요청이 Z:를 훑는 것보다
-      최대 30초 뒤 다음 조회에서 바뀐 원장을 잡는 편이 빠르고 정직하다.
-    """
+    ★ 왜 이렇게 바꿨나 (2026-09-02 실사고). 예전에는 30초가 지나면 **첫 스레드가
+      자물쇠를 잡고 Z: 를 훑고 나머지는 전부 그 뒤에 줄을 섰다**. Z: 가 멀쩡할 때는
+      1.24초라 티가 안 났는데, **회차가 Z: 를 물면 그 한 번이 몇 분**이 된다
+      ([443] 실측 40~156초 · [465] 68.4초). 그러면 앱이 통째로 멈춘다.
+      · 실측 ux 2026-09-02 10:03:28 - `/api/erpdocs` **558.9초** · `/api/exec_report`
+        **558.6초**. **같은 초에 똑같은 값**이다. 곧 API 가 각자 느린 것이 아니라
+        **한 자물쇠 뒤에 줄을 선 것**이고, 그 자리가 여기였다.
+      · 그날 오전 느린 화면 46건 평균 **37,970 ms** - 다른 날(2,664~7,100)의 5~14배.
+    ★ 그래서 값이 **있으면 낡았어도 즉시 주고** 갱신은 뒤에서 한 스레드가 한다.
+      [367]·[431] 이 works·settle·status 에서 쓴 그 방식인데 **여기에만 안 와
+      있었다**([300]).
+    ★ 낡은 값을 주는 것이 안전한 근거:
+      ① 원장 vN+1 은 **2주에 한 번**만 생긴다(2026-09-02 지시 · [417]) - 이 값이
+         바뀌는 일 자체가 드물다.
+      ② 업무 정본은 **DB** 다(2026-08-10). 이 시각은 '엑셀 보관본이 언제 만들어졌나'
+         일 뿐 업무값이 아니다.
+      ③ 예전에도 **30초는 낡은 값**을 줬다. 늘어나는 것은 Z: 가 느린 그 몇 분뿐이다.
+    ★ 그래도 **첫 호출은 기다린다** - 값이 아예 없는데 0 을 주면 그 0 이 지문에
+      박혀 캐시가 통째로 어긋난다. 없는 값을 지어내지 않는다([169]).
+    ★ 얼마나 낡았는지는 `_master_mtime_age()` 가 따로 말한다 - 반환 모양은 한 톨도
+      안 바꿨다(부르는 곳이 일곱이다 · [172])."""
+    global _MT_REFRESHING
     now = time.time()
     if now - _MT["at"] < _MT_TTL:
         return _MT["v"]
-    # 첫 화면 API 7개가 동시에 들어와도 Z: 최신본 탐색은 한 스레드만 한다. 락을
-    # 잡은 뒤 다시 확인하지 않으면 대기하던 여섯 요청이 차례로 같은 탐색을 반복한다.
     with _MT_LOCK:
         now = time.time()
         if now - _MT["at"] < _MT_TTL:
             return _MT["v"]
-        path = ""
-        try:
-            from ecount_reconcile import load_config, resolve_master
-            path = resolve_master(load_config()["reconcile"]["master_xlsx"])
-            v = os.path.getmtime(path)
-        except Exception:
-            v = 0
-        _MT["at"], _MT["v"], _MT["path"] = now, v, path
-        return v
+        have = bool(_MT["at"])
+        start = not _MT_REFRESHING
+        if start:
+            _MT_REFRESHING = True
+    if not have:
+        # 첫 호출 - 값이 없으면 기다린다. 남이 훑는 중이면 그 결과를 기다린다.
+        if start:
+            _master_mtime_refresh()
+        else:
+            for _ in range(600):        # 최대 60초 - 그 뒤에는 0 을 준다(예전과 같다)
+                time.sleep(0.1)
+                if _MT["at"]:
+                    break
+        return _MT["v"]
+    if start:
+        # 뒤에서 한 번만 훑는다. 지금 부른 사람은 **안 기다린다**.
+        threading.Thread(target=_master_mtime_refresh, daemon=True).start()
+    return _MT["v"]
+
 
 
 def _live_master_meta():
