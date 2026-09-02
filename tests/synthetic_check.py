@@ -32919,6 +32919,108 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
           % (caught, len(hurts)))
 
 
+def t503_master_mtime_never_blocks_the_whole_app():
+    """자물쇠 하나가 앱을 통째로 세우지 않는다 — `_master_mtime` (2026-09-02 실사고).
+
+    ★ 무엇이 났나: 30초 TTL 이 지나면 첫 스레드가 락을 잡고 Z: 를 훑고 **나머지는
+      전부 그 뒤에 줄을 섰다**. Z: 가 멀쩡하면 1.24초라 티가 안 나는데 회차가
+      Z: 를 물면 몇 분이 된다. 실측 ux 10:03:28 — `/api/erpdocs` 558.9초 ·
+      `/api/exec_report` 558.6초로 **같은 초에 똑같은 값**이었다.
+    ★ 진짜 Z: 는 한 글자도 안 건드린다 — `resolve_master` 를 목으로 갈아
+      끼우고 `finally` 로 되돌린다([247]·[211]·[371])."""
+    import time as _t, threading as _th
+    A = _app_server()
+    import ecount_reconcile as _ER
+    real = _ER.resolve_master
+    slow = {"n": 0}
+
+    def _slow_master(*a, **k):
+        slow["n"] += 1
+        _t.sleep(1.2)                      # Z: 가 느린 상황
+        return real(*a, **k)
+
+    saved = dict(A._MT)
+    try:
+        # (1) 값이 아예 없으면 **기다린다** — 없는 값을 0 으로 지어내지 않는다([169])
+        _ER.resolve_master = _slow_master
+        A._MT.update({"at": 0.0, "v": 0, "path": ""})
+        A._MT_REFRESHING = False
+        t0 = _t.time()
+        v1 = A._master_mtime()
+        first = _t.time() - t0
+        assert first >= 1.0, "첫 호출이 안 기다렸다 — 0 이 지문에 박히면 캐시가 통째로 어긋난다([169])"
+        assert v1, "첫 호출이 값을 못 가져왔다"
+
+        # (2) **낡았어도 안 기다린다** — 이것이 이 고침의 전부다
+        A._MT["at"] = _t.time() - 100
+        A._MT_REFRESHING = False
+        t0 = _t.time()
+        v2 = A._master_mtime()
+        stale = _t.time() - t0
+        assert stale < 0.3, (
+            "낡았다고 기다렸다(%.2f초) — 자물쇠 하나가 앱을 통째로 세운다"
+            "(2026-09-02 실측 558초)" % stale)
+        assert v2 == v1, "낡은 값을 안 주고 다른 값을 줬다"
+
+        # (3) 동시에 여럿이 들어와도 **아무도 안 막힌다**
+        A._MT["at"] = _t.time() - 100
+        A._MT_REFRESHING = False
+        xs = []
+
+        def _go():
+            a = _t.time()
+            A._master_mtime()
+            xs.append(_t.time() - a)
+
+        th = [_th.Thread(target=_go) for _ in range(8)]
+        for x in th:
+            x.start()
+        for x in th:
+            x.join(timeout=20)
+        assert len(xs) == 8 and max(xs) < 0.3, (
+            "동시 요청이 자물쇠 뒤에 줄을 섰다(최대 %.2f초) — 그것이 그 사고다"
+            % (max(xs) if xs else -1))
+
+        # (4) 뒤에서 **한 스레드만** 훑는다 — 여덟이 각자 Z: 를 훑으면 더 나빠진다
+        for _ in range(60):
+            _t.sleep(0.1)
+            if not A._MT_REFRESHING:
+                break
+        assert slow["n"] <= 3, "동시 8개가 Z: 를 %d번 훑었다 — 한 번이어야 한다" % slow["n"]
+
+        # (5) Z: 가 죽어도 **알던 값을 안 버린다**([169])
+        def _dead(*a, **k):
+            raise OSError("[WinError 53] 네트워크 경로를 찾지 못했습니다")
+
+        _ER.resolve_master = _dead
+        A._MT["at"] = _t.time() - 100
+        A._MT_REFRESHING = False
+        t0 = _t.time()
+        v3 = A._master_mtime()
+        dead_ms = (_t.time() - t0) * 1000
+        assert dead_ms < 300, "Z: 가 죽었는데 %.0fms 기다렸다" % dead_ms
+        assert v3 == v1, "Z: 를 못 읽자 알던 값을 버렸다 — 그러면 캐시 지문이 한꺼번에 어긋난다([169])"
+        for _ in range(60):
+            _t.sleep(0.1)
+            if not A._MT_REFRESHING:
+                break
+        assert A._MT["v"] == v1, "갱신 실패가 값을 0 으로 덮었다([169])"
+
+        # (6) 나이를 따로 말한다 — 반환 모양은 안 바꿨다([172])
+        assert isinstance(A._master_mtime(), float), "반환 모양이 바뀌었다 — 부르는 곳이 일곱이다"
+        A._MT["at"] = 0.0
+        assert A._master_mtime_age() is None, "한 번도 못 읽었는데 0 을 줬다 — 모름과 방금은 다르다([169])"
+        A._MT["at"] = _t.time() - 5
+        age = A._master_mtime_age()
+        assert age is not None and 4 < age < 7, "나이를 틀리게 잰다: %r" % age
+    finally:
+        _ER.resolve_master = real
+        A._MT.update(saved)
+        A._MT_REFRESHING = False
+    print("✅ [503] 자물쇠 하나가 앱을 통째로 안 세운다 — 낡아도 안 기다림 · 동시 8개 안 막힘 · Z: 죽어도 알던 값 지킴")
+
+
+
 def t502_recollect_fix_is_a_runnable_command():
     """[502] 밴드 재수집 조치 칸은 **붙여넣어 도는 명령**이다 (2026-09-01).
 
@@ -47689,6 +47791,7 @@ if __name__ == "__main__":
     t500_reverted_posts_are_told_apart_from_ordinary_edits()
     t501_stopped_band_collection_is_not_called_a_backlog()
     t502_recollect_fix_is_a_runnable_command()
+    t503_master_mtime_never_blocks_the_whole_app()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
