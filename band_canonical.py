@@ -34,6 +34,24 @@ from app_store import AppStore, VersionConflict, canonical_json, default_store
 #:   조치는 갈래마다 다르므로 그 말이 없으면 자국이 반쪽이다.
 AMBIGUOUS_FIX = "앱에서 그 프로젝트를 열어 사람이 정한다"
 
+#: ERP 자료가 **아직 안 닿은 구간** — 그것은 "등록이 안 됐다" 가 아니다
+#: (2026-09-02 실사고).  실측: 색인이 담은 마지막 전표일이 **2026-08-05** 인데
+#: UJ2601393(완료 8/10) · UJ2601416(예정 8/6)은 그 뒤였다.  그런데 문구가
+#: "ERP 색인에 이 프로젝트가 없다" 하나뿐이라 읽는 사람은 *"류지영이 ERP 에
+#: 등록을 안 했나"* 로 읽는다 — **틀린 지목은 못 잡는 것보다 나쁘다**([172]).
+#: 조치가 정반대다([289]): 앞은 "ERP 에 등록해 주세요", 뒤는
+#: **"판매조회를 그 뒤 기간으로 다시 받는다"** 이고 그러면 스스로 풀린다.
+#: ⚠ 문구를 만드는 곳과 조치를 고르는 곳이 **이 상수 하나**를 본다([162]) —
+#:   손으로 적으면 문구를 다듬는 날 그 갈래가 조용히 죽는다([165]).
+ERP_BEHIND_MARK = "ERP 자료가 "
+ERP_BEHIND_FIX = ("ERP 판매조회를 그 뒤 기간으로 다시 받는다"
+                  " — 들어오면 이 건은 스스로 풀린다(사람이 고를 것 없다)")
+
+
+def ambiguous_fix(why):
+    """왜 모호한지에 따라 조치가 갈린다([289]) — 문구를 지어내지 않는다."""
+    return ERP_BEHIND_FIX if _text(why).startswith(ERP_BEHIND_MARK) else AMBIGUOUS_FIX
+
 #: 모호한 건(같은 프로젝트에 행이 여럿)을 남기는 자리.  **실패 자국이 아니다** —
 #: 이름을 `*_오류.json` 으로 두면 `schedule_watch.traces()` 가 실패로 모아 다시
 #: 경보가 된다([170]).  사람이 정할 것을 모아 두는 자리다.
@@ -195,6 +213,41 @@ def _done_day(work):
     return ""
 
 
+def _erp_last_day():
+    """ERP 색인이 담은 **마지막 전표일** — 그 뒤 건은 없는 것이 아니라 못 받은 것이다.
+
+    ★ 색인을 다시 만들지 않는다([168]) — 이미 읽어 둔 것을 훑을 뿐이다(1822건 · 밀리초).
+    ★ **캐시하지 않는다** — 검증이 `_ERP_IDX` 를 갈아 끼우는데 여기만 옛 값을 들고
+      있으면 그 검사는 **아무것도 안 재면서 통과한다**([371]).  이 함수는 모호한
+      건에서만 불리므로(하루 몇 건) 캐시가 필요 없다.
+    ★ 못 재면 `""` 다([169]) — 그러면 아래 갈래가 안 열려 예전 문구 그대로다.
+    """
+    best = ""
+    for entry in _erp_index().values():
+        day = _erp_day((entry or {}).get("date"))
+        if day > best:
+            best = day
+    return best
+
+
+def _latest_day(matches):
+    """그 건의 아는 날짜 중 **가장 늦은 것** — 전표는 일이 끝난 뒤에 끊긴다.
+
+    ★ 완료일만 보면 안 된다: 정기점검은 완료 칸이 비고 `점검예정일` 만 있는 행이
+      실재한다(실측 UJ2601416 · 두 행 다 점검상태만 "완료").  그러면 갈래가 안 열려
+      예전 문구로 떨어지고, 사람은 다시 엉뚱한 데를 본다([172]).
+    """
+    best = ""
+    for work in matches or ():
+        fields = (work or {}).get("fields") or {}
+        for key in ("작업완료일", "점검완료일", "완료일",
+                    "점검예정일", "접수일자", "작업일"):
+            day = _text(fields.get(key))[:10]
+            if len(day) == 10 and day > best:
+                best = day
+    return best
+
+
 def erp_pick(project, matches):
     """ERP 가 가려 주면 그 행을, 아니면 `(None, 왜)` 를 돌려준다.
 
@@ -215,6 +268,11 @@ def erp_pick(project, matches):
     """
     entry = _erp_index().get(_text(project).upper())
     if not entry:
+        last, day = _erp_last_day(), _latest_day(matches)
+        if last and day and day > last:
+            fmt = "%s%s 까지만 들어왔다 — 이 건(%s)은 그 뒤라 아직 못 받은 것이다"
+            fmt += " (ERP 에 등록이 안 된 것이 아니다)"
+            return None, fmt % (ERP_BEHIND_MARK, last, day)
         return None, "ERP 색인에 이 프로젝트가 없다"
     rows = entry.get("rows")
     if rows != 1:
@@ -325,7 +383,7 @@ def sync_records(
                 result["ambiguous"] += 1
                 result["모호"].append(
                     f"{kind}/{project}: 앱 DB에 같은 프로젝트가 {len(matches)}건"
-                    f" — {why} · {AMBIGUOUS_FIX}")
+                    f" — {why} · {ambiguous_fix(why)}")
                 continue
 
         desired_status = _status(kind, row)
