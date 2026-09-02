@@ -214,5 +214,14 @@
   "Transfer-Encoding": "(없음)",
   "Content-Type": "application/x-www-form-urlencoded",
   "User-Agent": "Python-urllib/3.12"
+ },
+ {
+  "때": "2026-09-02T10:29:26",
+  "갈래": "PO 첨부",
+  "왜": "본문 없음",
+  "Content-Length": "0",
+  "Transfer-Encoding": "(없음)",
+  "Content-Type": "application/x-www-form-urlencoded",
+  "User-Agent": "Python-urllib/3.12"
  }
 ]
