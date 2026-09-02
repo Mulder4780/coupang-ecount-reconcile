@@ -382,6 +382,27 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
 )
 
 
+# 빠르기만을 위한 색인 - **지문(SCHEMA_STATEMENTS)에 안 넣는다.**
+#   이것들은 뜻을 한 톨도 안 바꾸므로, 여기 두면 옛 코드로 되돌려도 DB 가 그대로
+#   열린다(스키마 지문이 안 움직인다). 진짜 스키마 변경만 SCHEMA_VERSION 을 올린다.
+# * 왜 필요한가: 5초마다 도는 심장박동(get_live_state)이 status() 를 부르는데,
+#   그 안의 MAX(created_at) 이 색인 없이는 표를 통째로 훑는다.
+#   실측 2026-09-02(change_event 23,695행): MAX(id) 0.0ms / MAX(created_at) 704.8ms.
+#   status() 여덟 질의 중 나머지 일곱은 전부 0~1ms 였다 - 이 한 칸이 거의 전부였다.
+# * 질의를 "마지막 행"으로 바꾸지 않았다: 그것은 id 순서 == created_at 순서라는
+#   짐작이라 시계가 뒤로 가거나 옛 자료를 채워 넣는 날 조용히 틀린다([169]).
+#   색인은 뜻을 안 바꾸면서 같은 값을 빨리 준다([172]).
+PERF_INDEX_STATEMENTS: Tuple[str, ...] = (
+    """
+    CREATE INDEX IF NOT EXISTS ix_change_created
+    ON change_event(created_at)
+    """,
+)
+
+# 색인을 못 만들었으면 그 이유가 여기 남는다 - "0개"와 "못 만들었다"는 다른 사실이다([169]).
+PERF_INDEX_ERRORS: Dict[str, str] = {}
+
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -514,6 +535,23 @@ class AppStore:
                 except Exception:
                     conn.rollback()
                     raise
+                # 빠르기 색인은 스키마가 확정된 **뒤에** 따로 만든다.
+                # * 지문 밖이라 옛 코드로 되돌려도 DB 가 그대로 열린다.
+                # * 여기서 실패해도 앱은 열려야 한다 - 색인이 없으면 느려질 뿐이고,
+                #   앱이 안 열리는 것이 훨씬 나쁘다. 대신 조용히 넘기지 않고
+                #   왜 못 만들었는지를 남긴다([169]).
+                for statement in PERF_INDEX_STATEMENTS:
+                    try:
+                        conn.execute(statement)
+                        conn.commit()
+                    except Exception as exc:  # pragma: no cover - 디스크·잠금 사정
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        PERF_INDEX_ERRORS[statement.strip().splitlines()[-1].strip()] = (
+                            "%s: %s" % (type(exc).__name__, exc)
+                        )
             finally:
                 conn.close()
             self._initialized = True
