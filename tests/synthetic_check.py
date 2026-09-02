@@ -32929,7 +32929,7 @@ def t503_master_mtime_never_blocks_the_whole_app():
     ★ 진짜 Z: 는 한 글자도 안 건드린다 — `resolve_master` 를 목으로 갈아
       끼우고 `finally` 로 되돌린다([247]·[211]·[371])."""
     import time as _t, threading as _th
-    A = _app_server()
+    import app_server as A
     import ecount_reconcile as _ER
     real = _ER.resolve_master
     slow = {"n": 0}
