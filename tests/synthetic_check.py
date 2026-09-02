@@ -22859,7 +22859,13 @@ def t314_camp_unknown_is_filled_only_with_proof():
     # ⑦ ★ **계기 자신을 시험한다**([272]) — 유일 후보 문을 빼면 ③이 통과해 버려야 한다.
     src = io.open(os.path.join(ROOT, "camp_contacts.py"),
                   encoding="utf-8", newline="").read()
-    _NL = chr(10)
+    # ★ 줄끝을 짐작하지 않는다([318]) — `camp_contacts.py` 는 **CRLF** 다.
+    #   LF 로 앵커를 지으면 코드가 한 톨도 안 바뀌었는데도 '주입 지점을 못
+    #   찾았다'로 죽는다(2026-09-02 실측: LF 앵커 0개 · CRLF 앵커 1개).
+    #   그리고 그 죽음은 관문을 통째로 세운다 — 관문은 daily_run 의 0단계라
+    #   그날 대조가 전부 안 돈다. 파일에서 재서 지으면 어느 줄끝이든 맞는다.
+    _CRLF = chr(13) + chr(10)
+    _NL = _CRLF if _CRLF in src else chr(10)
     _old = "        if len(cand) == 1:" + _NL + "            return next(iter(cand)), 라벨"
     _new = "        if cand:" + _NL + "            return sorted(cand)[0], 라벨"
     broken = src.replace(_old, _new)
