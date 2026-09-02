@@ -1340,6 +1340,15 @@ def main():
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
         os.replace(tmp, OUT)
+        # * 자료를 새로 만들었으면 **밀림 자국도 그 자리에서 다시 잰다**.
+        #   안 그러면 인계.화면이 다음 워치독 회차(30분)까지 '아직 밀렸다'고 말해,
+        #   방금 고친 사람이 **같은 명령을 또 돌린다**(수십 초짜리 Z: 작업이다).
+        #   [453] 이 달력에서 배운 그대로다 - **돌았다고 고쳐졌다 하지 않고**
+        #   끝난 뒤 **다시 재서** 말한다([322]). 자국 하나로 회차를 안 죽인다([169]).
+        try:
+            stale_mark()
+        except Exception:
+            pass
     print(f"캠프 {d['캠프수']}개 · 정기점검 {d['정기점검캠프수']}개 · "
           f"전화 있음 {d['전화있음']} · 모름 {d['전화모름']}"
           + (f" · 이번에 바뀐 캠프 {len(changed)}개" if changed else "")

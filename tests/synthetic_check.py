@@ -32967,6 +32967,64 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
 
 
 
+
+def t506_camp_rebuild_refreshes_stale_mark():
+    """[151] 캠프 담당자 자료를 다시 만들면 **밀림 자국도 그 자리에서 다시 잰다**.
+
+    예전에는 `stale_mark()` 이 `--stale --write` 일 때만 불려, 정작 자료를 새로
+    만드는 `--write` 는 자국을 안 건드렸다. 그러면 인계.화면이 다음 워치독 회차
+    (30분)까지 **'아직 밀렸다'고 말하고**, 방금 고친 사람이 **같은 명령을 또 돌린다**
+    — 밴드 전체를 파싱하는 수십 초짜리 Z: 작업이다.
+    [453] 이 달력(`pm_schedule_sync`)에서 배운 것이 **여기 안 와 있었다**([300]).
+
+    ★ 글자로는 '정말 갱신되나'를 못 잰다([295]) — **불러서** 잰다.
+    ★ 진짜 자료.진짜 자국에는 한 글자도 안 쓴다([247]) — 임시 폴더로만 잰다.
+    ★ 자국 하나로 회차를 안 죽인다([169]) — 못 써도 그냥 지나간다.
+    """
+    import io as _io, json as _j, os, sys, tempfile
+    sys.path.insert(0, ROOT)
+    import camp_contacts as C
+
+    keep = (C.OUT, C.STALE_MARK, C.REPORT_DIR, C.build, C.sched_stale,
+            C.record_changes, sys.argv)
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            C.OUT = os.path.join(td, "camp.json")
+            C.STALE_MARK = os.path.join(td, "stale.json")
+            C.REPORT_DIR = td
+            calls = {"n": 0}
+            C.build = lambda: {"rows": [], "캠프수": 1, "정기점검캠프수": 1,
+                               "전화있음": 1, "전화모름": 0}
+            C.record_changes = lambda rows, at: []
+
+            def _fake():
+                calls["n"] += 1
+                return {"갈래": "정상", "말": "재기 %d" % calls["n"], "원본": "x",
+                        "원본시각": "", "자료시각": "", "늦은분": 0,
+                        "조치": "python camp_contacts.py --write",
+                        "잰때": "T%d" % calls["n"]}
+            C.sched_stale = _fake
+
+            sys.argv = ["camp_contacts.py", "--write"]
+            C.main()
+            # ① 자료를 다시 만들면 자국도 남는다
+            assert os.path.exists(C.STALE_MARK),                 "[151] --write 가 밀림 자국을 안 남긴다 — 인계가 30분 동안 옛 판정을 말한다"
+            rec = _j.load(_io.open(C.STALE_MARK, encoding="utf-8"))
+            # ② **자료를 쓴 뒤에** 잰다 — 앞에서 재면 옛 mtime 으로 '아직 밀림'이 박힌다
+            assert rec.get("잰때") == "T1",                 "[151] 자료를 쓰기 **전에** 쟀다 — 옛 판정이 그대로 박힌다: %s" % rec.get("잰때")
+            # ③ 비싼 재기를 두 번 하지 않는다([168])
+            assert calls["n"] == 1, "[151] 밀림을 여러 번 잰다: %d" % calls["n"]
+
+            # ④ 자국을 못 써도 회차를 안 죽인다([169])
+            C.STALE_MARK = os.path.join(td, "없는곳", "깊이", "stale.json")
+            sys.argv = ["camp_contacts.py", "--write"]
+            C.main()          # 예외가 오르면 그대로 실패한다
+        finally:
+            (C.OUT, C.STALE_MARK, C.REPORT_DIR, C.build, C.sched_stale,
+             C.record_changes, sys.argv) = keep
+    print(chr(9989) + " [506] 캠프 담당자 자료를 다시 만들면 밀림 자국도 그 자리에서"
+          " 다시 잰다 (쓴 뒤에 잼 - 못 써도 안 죽음 - 실행으로 잼)")
+
 def t505_camp_code_reaches_work_cards():
     """[339] 확보된 거래처코드가 업무 카드에 저절로 반영된다 (2026-09-02 형님 지시).
 
@@ -48047,6 +48105,7 @@ if __name__ == "__main__":
     t503_master_mtime_never_blocks_the_whole_app()
     t504_revenue_kpi_drilldown()
     t505_camp_code_reaches_work_cards()
+    t506_camp_rebuild_refreshes_stale_mark()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
