@@ -32966,6 +32966,103 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
           % (caught, len(hurts)))
 
 
+
+def t505_camp_code_reaches_work_cards():
+    """[339] 확보된 거래처코드가 업무 카드에 저절로 반영된다 (2026-09-02 형님 지시).
+
+    예전에는 `campsData()` 가 `if(CAMPS) return CAMPS;` 라 **한 번 받으면 영영 다시
+    안 받아**, 09:50 회차가 코드를 새로 확보하거나 사람이 캠프 창에서 확인해 줘도
+    ([235]-4) 그 브라우저를 새로고침하기 전까지 옛 값을 그대로 보여 줬다 —
+    오류도 안 나고 화면도 멀쩡하다([169]). [377] 계약(저장 완료는 모든 화면이 같은
+    값이 된 뒤다)이 **이 자료에만 안 걸려 있었다**.
+
+    ★ 글자로는 '정말 반영되나'를 못 잰다([295]) — node 로 **실행해서** 잰다.
+      스텁으로 때우지 않는다([366]) — 표와 함수는 실제 소스에서 중괄호 짝으로 뽑는다.
+    ★ **좁히는 것도 고장이다**([172]) — center 는 코드를 안 그리므로 안 넓혔고,
+      못 받았을 때 알던 값을 덮지 않는 것까지 같이 잰다([169]).
+    """
+    import io as _io, json as _j, os, tempfile
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    def _chunk(head, op="{", cl="}"):
+        i = src.index(head)
+        j = src.index(op, i)
+        d = 0
+        for k in range(j, len(src)):
+            if src[k] == op:
+                d += 1
+            elif src[k] == cl:
+                d -= 1
+                if d == 0:
+                    return src[i:k + 1]
+        raise AssertionError("[339] 짝을 못 찾았다: " + head)
+
+    defs = _chunk("const DATA_SECTION_DEFS={")
+    keys = _chunk("function liveDataKeysForView(view){")
+
+    js = "\n".join([
+        "let CAMPS=null; let DREW=[];",
+        "function renderWorkTab(k){ DREW.push('work:'+k); }",
+        "function renderCampList(){ DREW.push('camplist'); }",
+        defs + ";",
+        keys,
+        "function ap(k,d){ const f=DATA_SECTION_DEFS[k]&&DATA_SECTION_DEFS[k].apply;",
+        "  if(typeof f!=='function') return false; f(d); return true; }",
+        "const O={};",
+        "O.has=!!DATA_SECTION_DEFS.camps;",
+        "O.path=O.has?DATA_SECTION_DEFS.camps.path:'';",
+        "O.as=liveDataKeysForView('as'); O.pm=liveDataKeysForView('pm');",
+        "O.camps=liveDataKeysForView('camps'); O.center=liveDataKeysForView('center');",
+        "global.window={__view:'as'};",
+        "CAMPS={rows:[{'\uce90\ud504\uba85':'x','\uac70\ub798\ucc98\ucf54\ub4dc':''}]};",
+        "DREW=[]; O.applied=ap('camps',{ok:true,rows:[{'\uce90\ud504\uba85':'x',"
+        "'\uac70\ub798\ucc98\ucf54\ub4dc':'CU999'}]});",
+        "O.code=CAMPS&&CAMPS.rows&&CAMPS.rows[0]?CAMPS.rows[0]['\uac70\ub798\ucc98\ucf54\ub4dc']:'';",
+        "O.drewWork=DREW.slice();",
+        "DREW=[]; ap('camps',null);",
+        "O.afterNull=CAMPS&&CAMPS.rows&&CAMPS.rows[0]?"
+        "CAMPS.rows[0]['\uac70\ub798\ucc98\ucf54\ub4dc']:'(CAMPS \uac00 \ube44\uc5c8\ub2e4)';",
+        "O.drewNull=DREW.slice();",
+        "global.window={__view:'camps'}; DREW=[]; ap('camps',{ok:true,rows:[]});",
+        "O.drewCamps=DREW.slice();",
+        "global.window={__view:'settle'}; DREW=[]; ap('camps',{ok:true,rows:[]});",
+        "O.drewOther=DREW.slice();",
+        "O.noCurView=String(DATA_SECTION_DEFS.camps.apply)"
+        ".replace(/[/][*][^]*?[*][/]/g,' ').indexOf('curView(')<0;",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t505.js")
+        with _io.open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=90, drain_timeout=15)
+    assert r.returncode == 0, "[339] 하네스가 죽었다: %s" % (r.stderr or "")[:300]
+    o = _j.loads((r.stdout or "{}").strip().splitlines()[-1])
+
+    # 1) 공통 재조회 표에 있다 - 없으면 이 자료만 영영 안 갱신된다
+    assert o["has"] and o["path"] == "/api/camps",         "[339] camps 가 DATA_SECTION_DEFS 에 없다 - 업무 카드가 옛 코드를 계속 보여 준다"
+    # 2) 코드를 그리는 화면이 받는다
+    assert "camps" in o["as"], "[339] 돌발AS 화면이 캠프 목록을 안 받는다: %s" % o["as"]
+    assert "camps" in o["pm"], "[339] 정기점검 화면이 캠프 목록을 안 받는다: %s" % o["pm"]
+    assert "camps" in o["camps"], "[339] 캠프 화면이 제 자료를 안 받는다: %s" % o["camps"]
+    # 3) 넓히지 않았다([172]) - center 는 코드를 안 그린다
+    assert "camps" not in o["center"],         "[339] center 까지 넓혔다 - 코드를 안 그리는 화면이라 헛 조회다([172])"
+    # 4) 받으면 값이 바뀌고 그 화면을 다시 그린다
+    assert o["applied"] and o["code"] == "CU999",         "[339] 새 코드가 안 들어온다: %s" % o["code"]
+    assert "work:as" in o["drewWork"],         "[339] 업무 카드를 다시 안 그린다 - 자료만 바뀌고 화면은 옛 값이다"
+    # 5) 못 받은 것을 빈 목록으로 덮지 않는다([169])
+    assert o["afterNull"] == "CU999",         "[339] 못 받았는데 알던 값을 덮었다([169]): %s" % o["afterNull"]
+    assert not o["drewNull"], "[339] 못 받았는데 다시 그린다"
+    # 6) 캠프 화면은 표를 다시 그린다 / 딴 화면은 조용하다
+    assert "camplist" in o["drewCamps"], "[339] 캠프 표를 다시 안 그린다"
+    assert not o["drewOther"], "[339] 딴 화면에서 헛 그림을 그린다: %s" % o["drewOther"]
+    # 7) curView() 를 안 부른다([452] - 읽으면서 DEEP_VIEW 를 비운다)
+    assert o["noCurView"],         "[339] curView() 를 부른다 - 그 값을 기다리던 코드가 못 받는다([452])"
+    print(chr(9989) + " [505] 확보된 거래처코드가 업무 카드에 저절로 반영된다"
+          " (공통 재조회 편입 - 못 받으면 안 덮음 - 실행으로 잼)")
+
 def t504_revenue_kpi_drilldown():
     """[338] 매출 실적 KPI 를 눌러 그 숫자를 만든 건으로 간다 (2026-09-02 형님 지시).
 
@@ -47949,6 +48046,7 @@ if __name__ == "__main__":
     t502_recollect_fix_is_a_runnable_command()
     t503_master_mtime_never_blocks_the_whole_app()
     t504_revenue_kpi_drilldown()
+    t505_camp_code_reaches_work_cards()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
