@@ -604,9 +604,27 @@ def json_queue_lock(path, timeout=30):
 #   ★ 되돌리려면 `COUPANG_ARCHIVE_WEEKLY=0` 한 줄이다([126] 과 같은 보호장치).
 WEEKLY_ARCHIVE = os.environ.get("COUPANG_ARCHIVE_WEEKLY", "1") != "0"
 
+# * 2026-09-02 형님 지시: "이 앱의 데이터를 2주에 한번 엑셀에 반영"
+#   "이 앱이 원본이고 여기서 전부 관리할거야" - 업무 정본이 DB 라는 것은 2026-08-10
+#   부터 정본 규칙이고, 바뀐 것은 **엑셀 스냅샷 빈도**뿐이다(주 1회 -> 2주 1회).
+#   업무값은 예전 그대로 저장 즉시 확정된다 - 느려지는 업무는 하나도 없다.
+#   ★ 되돌리려면 COUPANG_ARCHIVE_PERIOD_DAYS=7 (또는 =0 으로 이 문을 통째로 끈다).
+try:
+    ARCHIVE_PERIOD_DAYS = int(os.environ.get("COUPANG_ARCHIVE_PERIOD_DAYS", "14"))
+except (TypeError, ValueError):
+    ARCHIVE_PERIOD_DAYS = 14   # 못 읽으면 지시받은 값이다 - 0 으로 뭉개면 문이 사라진다([169])
+if ARCHIVE_PERIOD_DAYS < 1:
+    ARCHIVE_PERIOD_DAYS = 1
+
 
 def iso_week(s):
-    """회차 이름에서 ISO 주차를 뽑는다(`2026-08-24 11:00` · `…(강제)` 둘 다).
+    """회차 이름에서 ISO 주차를 뽑는다
+
+    ⚠ **이 함수는 이제 보관 주기를 판정하지 않는다**(2026-09-02).
+      2주 주기로 바뀌면서 판정은 `days_since_archive`(구르는 창) 한 곳으로
+      갔다 - 고정 격자는 경계에서 무너지기 때문이다. 여기 남겨 둔 것은
+      주차 표시가 필요한 자리를 위해서다. 주기를 이것으로 다시 세지 말 것.
+    (원래 설명)(`2026-08-24 11:00` · `…(강제)` 둘 다).
 
     못 읽으면 **None** 이다 — 0 이나 빈 문자열로 뭉개면 서로 다른 주가 같은 주로
     보여 그 주 보관본이 통째로 빠진다([169])."""
@@ -618,6 +636,39 @@ def iso_week(s):
         return None
 
 
+def slot_day(s):
+    """회차 이름에서 **날짜만** 뽑는다(`2026-08-24 11:00` · `…(강제)` 둘 다).
+
+    못 읽으면 **None** 이다 - 오늘로 치거나 0 으로 뭉개면 서로 다른 날이 같은 날로
+    보여 그 회차 보관본이 통째로 빠지거나 반대로 영영 막힌다([169])."""
+    try:
+        y, m, d = (int(x) for x in str(s)[:10].split("-"))
+        return datetime(y, m, d)
+    except (TypeError, ValueError):
+        return None
+
+
+def days_since_archive(now, done_slots):
+    """마지막 보관본이 **며칠 전**인가. 하나도 없거나 다 못 읽으면 None.
+
+    ★ 고정 격자(ISO 주차·2주 묶음)로 세지 않는 이유: 격자는 **경계에서 무너진다**.
+      실측 2026-09-02 - 8/24 에 만들고 8/31 에 또 물으면 두 묶음이 달라 통과했다.
+      곧 "2주에 한 번"이 자리에 따라 "일주일에 한 번"이 된다. 사람이 말하는
+      "2주에 한 번"은 **지난번에서 2주**이므로 그렇게 센다.
+    ★ 못 읽은 회차 이름은 **없는 것으로 치지 않는다**: 그 이름만 건너뛴다."""
+    last = None
+    for s in (done_slots or []):
+        d = slot_day(s)
+        if d is not None and (last is None or d > last):
+            last = d
+    if last is None:
+        return None
+    today = slot_day(f"{now:%Y-%m-%d}")
+    if today is None:
+        return None
+    return (today - last).days
+
+
 def archive_when_text():
     """'보관본이 언제 만들어지나'를 말하는 **유일한 자리**([162]).
 
@@ -626,7 +677,13 @@ def archive_when_text():
     주 1회로 바꿨는데 화면은 그대로 "하루 두 번"이라고 적고 있었다."""
     hhmm = " · ".join("%02d:%02d" % (w.hour, w.minute) for w in WINDOWS)
     if WEEKLY_ARCHIVE:
-        return "주 1회 — 그 주 첫 %s 회차" % hhmm
+        if ARCHIVE_PERIOD_DAYS == 7:
+            return "주 1회 — 그 주 첫 %s 회차" % hhmm
+        if ARCHIVE_PERIOD_DAYS % 7 == 0:
+            return "%d주에 한 번 — 지난 보관본에서 %d일 뒤 첫 %s 회차" % (
+                ARCHIVE_PERIOD_DAYS // 7, ARCHIVE_PERIOD_DAYS, hhmm)
+        return "%d일에 한 번 — 지난 보관본에서 그만큼 뒤 첫 %s 회차" % (
+            ARCHIVE_PERIOD_DAYS, hhmm)
     return "하루 두 번 — %s" % hhmm
 
 
@@ -643,13 +700,12 @@ def weekly_blocked(now, done_slots):
     """
     if not WEEKLY_ARCHIVE:
         return None
-    this = iso_week(f"{now:%Y-%m-%d}")
-    if not this:
-        return None                      # 오늘을 못 읽으면 막지 않는다([169])
-    for s in (done_slots or []):
-        if iso_week(s) == this:
-            return this
-    return None
+    gap = days_since_archive(now, done_slots)
+    if gap is None:
+        return None                      # 지난번을 못 읽으면 막지 않는다([169])
+    if gap >= ARCHIVE_PERIOD_DAYS:
+        return None
+    return "지난 보관본에서 %d일 (주기 %d일)" % (gap, ARCHIVE_PERIOD_DAYS)
 
 
 # ── 시각 판정 (순수 함수 — 합성 검증 대상) ──────────────────────
