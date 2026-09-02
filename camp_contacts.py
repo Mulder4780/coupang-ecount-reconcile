@@ -1107,6 +1107,18 @@ def summarize(rows):
 CHANGES = os.path.join(REPORT_DIR, "캠프_변경.json")
 CHANGE_KEEP = 400          # 이 이상은 오래된 것부터 버린다(파일이 무한히 자라지 않게)
 
+# ★ 종전 담당자 이력은 **전부 남긴다** (2026-09-02 형님 지시).
+#   위 `CHANGES` 는 화면·리포트가 읽는 **최근 창**이라 400줄에서 오래된 것부터
+#   버린다 — 실측 2026-09-02 에 이미 꽉 차 12일치(2026-08-20~)만 남아 있었다.
+#   그래서 **안 버리는 원본**을 따로 둔다. 한 줄에 한 변경(JSONL)이라 덧붙이기만
+#   하면 되고, 앞줄을 다시 안 읽으므로 커져도 쓰기가 안 느려진다.
+#   ★ 판정은 여전히 `diff_changes` **한 곳**이다([162]) — 여기는 그 결과를 두
+#     자리에 적을 뿐이라 두 파일이 갈릴 수 없다.
+#   ★ 담는 것은 **담당자 연락처**(현장책임·안전관리·담당자의 이름/전화/메일)다.
+#     거래처코드 이력은 안 담는다 — 지시가 담당자 이력이고, 넓히면 코드가 바뀔
+#     때마다 이력이 부풀어 **정작 사람 바뀜이 묻힌다**([170]·[172]).
+HISTORY = os.path.join(REPORT_DIR, "캠프_담당자_이력.jsonl")
+
 
 def contact_sig(row):
     """한 캠프의 **연락처 지문**. 건수·최근작업일은 매일 움직이므로 넣지 않는다 —
@@ -1161,13 +1173,71 @@ def record_changes(new_rows, when):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"갱신": when, "rows": log}, f, ensure_ascii=False, indent=1)
     os.replace(tmp, CHANGES)
+    append_history(fresh)
     return fresh
+
+
+def append_history(rows):
+    """종전 이력을 **전부** 남긴다(2026-09-02 형님 지시). 한 줄에 한 변경.
+
+    ★ 덧붙이기만 한다 — 앞줄을 다시 안 읽으므로 파일이 커져도 안 느려지고,
+      쓰다 죽어도 **앞줄은 그대로 산다**([388] 이 배운 그 이유다).
+    ★ 이력 하나로 회차를 안 죽인다([169]) — 못 써도 그냥 지나간다.
+    """
+    if not rows:
+        return 0
+    try:
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        with open(HISTORY, "a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        return len(rows)
+    except Exception:
+        return 0
+
+
+def seed_history():
+    """이력 파일이 **없을 때만** 최근 창(CHANGES)을 씨앗으로 옮긴다.
+
+    ★ 이미 버려진 2026-08-20 이전은 **되살릴 수 없다** — 그것을 그대로 적는다([169]).
+      여기서 하는 것은 아직 창에 남아 있는 것을 잃지 않는 것까지다.
+    ★ 파일이 있으면 **아무것도 안 한다** — 두 번 넣으면 같은 변경이 두 줄이 된다.
+    """
+    if os.path.exists(HISTORY):
+        return 0
+    rows = load_changes(limit=0) or []
+    if not rows:
+        return 0
+    return append_history(list(reversed(rows)))   # 이력은 오래된 것부터 쌓인다
+
+
+def load_history(limit=0, camp=None):
+    """이력을 **새것부터** 읽는다. limit 0 이면 전부. 못 읽으면 빈 목록이다."""
+    out = []
+    try:
+        with open(HISTORY, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue          # 한 줄이 깨져도 나머지는 읽는다([169])
+                if camp and _norm(r.get("캠프명")) != _norm(camp):
+                    continue
+                out.append(r)
+    except Exception:
+        return []
+    out.reverse()
+    return out[:limit] if limit else out
 
 
 def load_changes(limit=30):
     try:
         with open(CHANGES, encoding="utf-8") as f:
-            return (json.load(f).get("rows") or [])[:limit]
+            rows = json.load(f).get("rows") or []
+            return rows[:limit] if limit else rows
     except Exception:
         return []
 
@@ -1317,6 +1387,31 @@ def stale_read():
 
 def main():
     import datetime as _dt
+    if "--history" in sys.argv:
+        # 자료를 다시 만들지 않는다 — 이력 파일만 읽는다([168]).
+        if hasattr(sys.stdout, "reconfigure"):
+            try:
+                sys.stdout.reconfigure(encoding="utf-8")   # [235] pythonw 대비
+            except Exception:
+                pass
+        rest = [a for a in sys.argv[1:] if not a.startswith("-")]
+        camp = rest[0] if rest else None
+        rows = load_history(camp=camp)
+        if not rows:
+            print("이력이 없습니다 — 아직 안 쌓였거나 파일을 못 읽었습니다"
+                  + (" (캠프: %s)" % camp if camp else ""))
+            return
+        print("이력 %d줄%s · %s" % (len(rows), (" · 캠프 " + camp) if camp else "",
+                                    HISTORY))
+        for r in rows[:40]:
+            print("  %s  [%s] %s" % (str(r.get("때"))[:16], r.get("갈래"),
+                                     r.get("캠프명")))
+            if r.get("이전"):
+                print("      이전 %s" % r.get("이전"))
+            print("      지금 %s" % r.get("지금"))
+        if len(rows) > 40:
+            print("  … 그 밖 %d줄 (전부는 %s 에 있습니다)" % (len(rows) - 40, HISTORY))
+        return
     if "--stale" in sys.argv:
         # * 여기서는 build() 를 부르지 않는다([168]) - mtime 둘만 재고 끝낸다.
         rec = stale_mark() if "--write" in sys.argv else sched_stale()
@@ -1334,6 +1429,9 @@ def main():
     changed = []
     if "--write" in sys.argv:
         os.makedirs(REPORT_DIR, exist_ok=True)
+        # ★ 이력 파일이 없으면 최근 창에 남은 것을 먼저 옮긴다 — 안 그러면
+        #   400줄 창이 밀려 나가는 만큼 그 이력이 영영 사라진다([169]).
+        seed_history()
         # ★ 덮기 **전에** 무엇이 달라졌는지 적는다 — 덮은 뒤에는 물어볼 곳이 없다.
         changed = record_changes(d["rows"], d["갱신"])
         tmp = OUT + ".tmp"
