@@ -3890,6 +3890,31 @@ button[aria-busy="true"]::after{
         </div>
       </div>
 
+      <!-- 김형래 — 재무이사(CFO). 2026-09-02 형님 지시로 신설.
+           ★ 이 구역도 **손으로 적은 사본**이다(바로 위 김미영 주석과 같은 자리) —
+             로스터에 사람을 더해도 여기는 안 따라온다. 검증 [234] 가 그것을 묻는다.
+           ★ 아바타가 '김' 이면 김미영과 구별이 안 된다 — 두 글자로 가른다. -->
+      <div class="cc-block" data-cb="cfo">
+        <div class="card ios-person">
+          <div class="ios-person-head">
+            <span class="ios-avatar" style="background:linear-gradient(180deg,#5EEAD4,#0E7490)">김형</span>
+            <div class="ios-person-id"><b>김형래</b><span>재무이사(CFO) · 매출 · 청구 · 수금</span></div>
+          </div>
+          <div class="wt-meta ios-footnote" id="centerCfoStat">현황 계산 중…</div>
+          <div class="ui-cards" data-fold="cc-cfo" data-fold-label="김형래 — 할 수 있는 일" data-fold-default="phone">
+            <a class="ui-card primary" href="/staff/kim-hyeongrae" target="_blank" rel="noopener">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
+              <span class="ui-card-tx"><b>센터 열기</b><span>김형래 전용 화면(새 창)</span></span></a>
+            <button class="ui-card" onclick="show('revenue')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-graph-up-arrow"/></svg></span>
+              <span class="ui-card-tx"><b>매출 실적</b><span>발행월 기준·미발행 잔액</span></span></button>
+            <button class="ui-card" onclick="show('settle')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
+              <span class="ui-card-tx"><b>정산 화면</b><span>미청구·미수금·입금 대사</span></span></button>
+          </div>
+        </div>
+      </div>
+
       <div class="cc-block" data-cb="yoo">
         <div class="card ios-person">
           <div class="ios-person-head">
@@ -5824,6 +5849,9 @@ const STAFF_CENTERS = {
      한쪽만 고치면 화면 제목과 서버 권한이 갈린다(검증 [234] 가 둘을 대 본다). */
   'kim-miyeong':{name:'김미영',title:'김미영 쿠팡 매출·정산 업무센터',assignee:'김미영',
     checklist:['쿠팡 매출 실적(전체) 월별 확인 — 세금계산서 발행월 기준','정기점검·유료AS 실적표와 앱 집계 대조','세금계산서 미발행 건 확인과 발행 요청','입금내역 대사 — 입금일·입금액·미수금','보험사 입금 확인(자기부담금·감가로 청구액과 다를 수 있음)','차이 나는 달의 원인 확인 — 미발행분인지 자료 밀림인지']},
+  /* 김형래 — 재무이사(CFO). 2026-09-02 형님 지시. 정본은 서버 app_server.STAFF_CENTERS 다. */
+  'kim-hyeongrae':{name:'김형래',title:'김형래 재무이사 업무센터',assignee:'김형래',
+    checklist:['월별 매출·계산서 발행 현황 확인 — 세금계산서 발행월 기준','세금계산서 미발행 잔액 확인 — 근거는 ERP 진행상태(원장 빈 칸이 아니다)','미청구·미수금 잔액 확인','입금 대사 — 입금일·입금액·잔여 미수금','실적표와 앱 집계가 다른 달의 원인 확인 — 미발행분인지 자료 밀림인지','대표 보고 금액이 무엇으로 센 숫자인지 근거 확인']},
   'yoo-hyeonmin':{name:'유현민',title:'유현민 업무센터',assignee:'유현민',
     checklist:['돌발AS·정기점검 전체 진행상태와 예외 확인','담당자·일정·비용구분 정정 승인','거래서류·세금계산서·입금 근거 확인','앱 DB 저장과 Excel 자동 보관본 상태 확인','확인 필요 항목의 객관 근거와 완료 판정 검토']},
 };
@@ -8904,6 +8932,7 @@ const CENTER_BLOCKS=[
   {id:'ryu',    label:'류지영 — 돌발AS·정기점검'},
   {id:'oh',     label:'오종현 — PO·구매·입금'},
   {id:'kim',    label:'김미영 — 매출·계산서·입금'},
+  {id:'cfo',    label:'김형래 — 재무이사(매출·청구·수금)'},
   {id:'yoo',    label:'유현민 — 전체 업무·검증·승인'},
   {id:'tech',   label:'AS 담당기사 4명 — 현장'},
   {id:'sources',label:'원본 자료 갈래'},
@@ -9005,6 +9034,20 @@ function renderCenter(){
     }else{
       kimEl.textContent='매출 실적 화면을 열면 발행월 기준 집계와 실적표 대조가 나옵니다';
     }
+  }
+  const cfoEl=$('centerCfoStat');
+  if(cfoEl){
+    /* ★ 여기서 새로 세지 않는다([162]) — 매출은 **발행월**(REV), 청구·입금은
+       **완료월**(settleRows) 이라 기준이 다르다. 그래서 한 줄에 담되 **어느 기준인지
+       같이 적는다** — 안 적으면 두 숫자를 그냥 빼서 '왜 안 맞지'가 된다([234]).
+       ★ 아직 안 읽었으면 0 을 그리지 않는다([169]) — 없는 것과 안 본 것은 다르다. */
+    const st=s=>settleRows.filter(r=>String(r.상태||'')===s).length;
+    const un=(REV&&REV.미발행)||null;
+    const 매출=(REV&&REV.total!=null)?`발행월 매출 ${fmt(REV.total)}원`
+                                     :'발행월 매출 — 매출 실적 화면을 열면 나옵니다';
+    const 미발행=un?(un.있음?`미발행 ${fmt(un.건수)}건 ${fmt(un.공급가액)}원`:'미발행 못 셈')
+                  :'미발행 — 아직 안 읽음';
+    cfoEl.textContent=`${매출} · ${미발행} · 완료월 기준 미청구 ${st('미청구(전표 없음)')} · 입금 대기 ${st('입금 대기')}건`;
   }
   applyCenterLayout();
   renderReceiptUpload('centerReceiptHost');
