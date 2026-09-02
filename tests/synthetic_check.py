@@ -10848,7 +10848,19 @@ def t146_erp_bulk_grab_registry():
         assert f"pick('{cid}'" in all_js, f"{cid} 를 아직 cid 로만 찾는다"
         assert f"""querySelectorAll('button[data-cid="{cid}"]')""" not in all_js, \
             f"{cid} 를 cid 로만 직접 긁는 옛 줄이 남아 있다"
-    assert "pick(null, 'Excel', true)" in all_js, "엑셀 버튼도 글자로 찾을 수 있어야 한다"
+    # ★ 얼릴 것은 **계약**이지 그때 쓴 구현이 아니다([39]·[219]). 2026-09-02 에
+    #   찾는 규칙을 `_EXCEL_PICK_JS` 한 곳으로 모으면서([162]·[344]) 옛 글자
+    #   `pick(null,'Excel',true)` 가 사라졌다 — 판매조회 버튼 글자가
+    #   `Excel(표시형식)` 이라 **정확일치로는 영영 안 걸렸기** 때문이다.
+    #   재려는 것은 하나다: **엑셀 버튼을 cid 만이 아니라 글자로도 찾는가.**
+    assert ("pick(null, 'Excel', true)" in all_js
+            or "/^(excel|엑셀)/i.test(t)" in all_js), \
+        "엑셀 버튼도 글자로 찾을 수 있어야 한다"
+    # ★ 그리고 **위험한 단추를 거른다**([172]) — `신규(F2)` 처럼 누르면 진짜
+    #   전표가 만들어지는 단추가 같은 줄에 있다. 넓히기만 하면 그것도 고장이다.
+    if "/^(excel|엑셀)/i.test(t)" in all_js:
+        assert "업로드|양식|등록" in all_js, \
+            "엑셀을 글자로 넓혀 찾으면서 업로드·양식류를 안 거른다"
     # ⑧ 보임 판정은 `offsetParent` 가 아니라 **사각형 유무**다.
     #    position:fixed 안의 `검색(F8)` 이 '후보 1 · 보이는 것 0' 으로 걸러졌던 자리다.
     assert "getClientRects().length > 0" in all_js
