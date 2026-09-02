@@ -3905,12 +3905,13 @@ button[aria-busy="true"]::after{
             <a class="ui-card primary" href="/staff/kim-hyeongrae" target="_blank" rel="noopener">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-person-workspace"/></svg></span>
               <span class="ui-card-tx"><b>센터 열기</b><span>김형래 전용 화면(새 창)</span></span></a>
-            <button class="ui-card" onclick="show('revenue')">
-              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-graph-up-arrow"/></svg></span>
-              <span class="ui-card-tx"><b>매출 실적</b><span>발행월 기준·미발행 잔액</span></span></button>
-            <button class="ui-card" onclick="show('settle')">
-              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-receipt"/></svg></span>
-              <span class="ui-card-tx"><b>정산 화면</b><span>미청구·미수금·입금 대사</span></span></button>
+            <!-- ★ 매출 실적·정산 단추를 여기 두지 않는다 — 김미영·오종현 구역이 **같은
+                 화면**을 이미 가리킨다. 한 화면에 같은 일을 하는 단추가 둘이면 사람이
+                 어느 것을 눌러야 하는지 모른다(관문이 그것을 잡았다).
+                 재무이사가 볼 것은 **그 숫자를 무엇으로 셌나**이고 그 답은 보고 화면이다. -->
+            <button class="ui-card" onclick="show('report')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-camera-fill"/></svg></span>
+              <span class="ui-card-tx"><b>보고 화면</b><span>대표 보고 금액과 그 근거</span></span></button>
           </div>
         </div>
       </div>
