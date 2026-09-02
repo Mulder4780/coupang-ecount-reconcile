@@ -300,9 +300,14 @@ _PRESET_LIST_JS = r"""
     const out = [];
     for (const e of document.querySelectorAll('button,a,input[type=button]')) {
       const t = (e.textContent || e.value || '').trim();
-      if (!t || t.length > 12 || !vis(e)) continue;
+      // ★ 안 보인다고 빼지 않는다([169]). 조회조건이 접혀 있으면 프리셋 단추가
+      //   DOM 에 있으면서 사각형이 없다 — 그래서 첫 판이 '(없음)' 을 말했는데
+      //   같은 화면에서 '금월(~오늘)' 은 멀쩡히 걸렸다(pick 은 안 보여도 잡는다).
+      //   계기가 눈먼 채 0을 말하는 자리다. 담되 숨김이라고 적는다.
+      if (!t || t.length > 12) continue;
       if (e.getAttribute('data-cid') === 'simpleSearch'
-          || /기수|금일|전일|금주|금월|전월|당월|올해|연간|기간/.test(t)) out.push(t);
+          || /기수|금일|전일|금주|금월|전월|당월|올해|연간|기간/.test(t))
+        out.push(vis(e) ? t : t + '(숨김)');
     }
     return [...new Set(out)].slice(0, 20);
   };
@@ -420,6 +425,12 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
     if (preset === '금주(~오늘)') return {from: back(7),  to};
     if (preset === '최근30일')    return {from: back(30), to};
     if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    // ★ '전월+금월' — 판매조회(E040206) 화면에 실재하는 낱말이다(2026-09-02 실측).
+    //   이 화면에는 '이번기수'가 없어 올해 전체를 못 받는다. 짐작이 아니라
+    //   실패 문구가 화면에서 읽어다 준 목록에서 골랐다([169]).
+    if (preset === '전월+금월') {
+      const d = new Date(t.getFullYear(), t.getMonth() - 1, 1); return {from: fmt(d), to};
+    }
     // 기수(회계연도) — 이 회사는 기수 = 달력해다. 없으면 2025년 조회가 '기간 밖'으로 버려진다.
     if (preset === '이번기수') return {from: `${t.getFullYear()}/01/01`, to};
     // ★ 화면에 있는 낱말은 '직전기수' 다 (2026-08-08 실측으로 확인 — '전기수' 라고
@@ -756,6 +767,12 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     if (preset === '전일')        return {from: back(1), to: back(1)};
     if (preset === '금주(~오늘)') return {from: back(7), to};
     if (preset === '금월(~오늘)') return {from: `${t.getFullYear()}/${p2(t.getMonth()+1)}/01`, to};
+    // ★ '전월+금월' — 판매조회(E040206) 화면에 실재하는 낱말이다(2026-09-02 실측).
+    //   이 화면에는 '이번기수'가 없어 올해 전체를 못 받는다. 짐작이 아니라
+    //   실패 문구가 화면에서 읽어다 준 목록에서 골랐다([169]).
+    if (preset === '전월+금월') {
+      const d = new Date(t.getFullYear(), t.getMonth() - 1, 1); return {from: fmt(d), to};
+    }
     // ★ 기수(회계연도) 프리셋 — 이 회사는 기수 = 달력해다(E010809 요령에 '이번기수(=올해 전체)').
     //   이것이 없으면 2025년을 받으려 해도 want 가 '최근 45일'로 떨어져서, 격자에
     //   2025년 날짜만 있는 화면이 **'기간 밖 → 실패'** 로 버려진다. 조회는 제대로
