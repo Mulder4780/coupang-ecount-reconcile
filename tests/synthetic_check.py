@@ -32986,6 +32986,130 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
 
 
 
+def t507_camp_manager_history_is_never_dropped():
+    """[349] 종전 캠프 담당자 이력을 **전부** 남긴다 (2026-09-02 형님 지시).
+
+    최근 창(`캠프_변경.json`)은 400줄에서 오래된 것부터 버린다 — 실측 2026-09-02 에
+    이미 꽉 차 **12일치(2026-08-20~)만** 남아 있었고 그 전은 이미 사라진 뒤였다.
+    그래서 **안 버리는 원본**(`캠프_담당자_이력.jsonl`)을 따로 뒀다.
+    여기서 재는 것은 하나다 — **창은 한도에서 버려도 이력은 안 버리는가.**
+
+    ★ 창(CHANGES)은 한 글자도 안 건드렸다([172]) — 화면.리포트가 그것을 읽고
+      400줄 한도는 '최근 소식'으로서 옳다. 넓힌 것이 아니라 자리를 하나 더 둔 것이다.
+      그래서 '창은 한도에서 버린다'도 같이 잰다(좁히는 것도 고장이다).
+    ★ 판정은 여전히 `diff_changes` **한 곳**이다([162]) — `record_changes` 가 그
+      결과를 두 자리에 적을 뿐이라 두 파일이 갈릴 수 없다.
+    ★ 글자로는 '정말 안 버리나'를 못 잰다([295]) — **불러서** 잰다.
+    ★ 진짜 자료.진짜 이력에는 한 글자도 안 쓴다([247]) — 임시 폴더로만 잰다.
+    """
+    import io as _io, json as _j, os, sys, tempfile
+    sys.path.insert(0, ROOT)
+    import camp_contacts as C
+
+    def _rows(name, phone):
+        return [{"캠프명": "가캠프",
+                 "현장책임": {"이름": name, "전화": phone, "메일": ""},
+                 "안전관리": {}, "담당자": {}}]
+
+    def _measure(td):
+        """계약을 실제로 굴려 **사실만** 돌려준다 — 판단은 밖에서 한다."""
+        C.OUT = os.path.join(td, "camp.json")
+        C.CHANGES = os.path.join(td, "chg.json")
+        C.HISTORY = os.path.join(td, "hist.jsonl")
+        C.REPORT_DIR = td
+        r = {}
+        # ① 씨앗 — 이력 파일이 없으면 최근 창에 남은 것을 옮긴다
+        #    ⚠ 실제 창은 **새것이 먼저**다. 재료를 옛것 먼저로 지으면 그 검사는
+        #      아무것도 안 재면서 통과한다([272]).
+        _j.dump({"갱신": "x", "rows": [
+            {"때": "2026-08-21T01:00", "캠프명": "다캠프", "갈래": "새 캠프",
+             "이전": "", "지금": "c"},
+            {"때": "2026-08-20T01:00", "캠프명": "나캠프", "갈래": "연락처 바뀜",
+             "이전": "a", "지금": "b"},
+        ]}, _io.open(C.CHANGES, "w", encoding="utf-8"), ensure_ascii=False)
+        r["씨앗"] = C.seed_history()
+        h = C.load_history()
+        r["첫줄"] = (h[0].get("캠프명") if h else "") or ""
+        # ② 두 번 넣지 않는다 — 넣으면 같은 변경이 두 줄이 된다
+        r["두번째씨앗"] = C.seed_history()
+        r["씨앗뒤"] = len(C.load_history())
+        # ③ 변경이 나면 창과 이력에 **둘 다** 쌓인다
+        _j.dump({"rows": _rows("김철수", "010-1111-1111")},
+                _io.open(C.OUT, "w", encoding="utf-8"), ensure_ascii=False)
+        fresh = C.record_changes(_rows("이영희", "010-2222-2222"), "2026-09-02T10:00")
+        r["잡은변경"] = len(fresh)
+        h = C.load_history()
+        r["쌓인줄"] = len(h)
+        r["옛사람"] = "김철수" in ((h[0].get("이전") if h else "") or "")
+        r["새사람"] = "이영희" in ((h[0].get("지금") if h else "") or "")
+        # ④ 창은 한도에서 버려도 **이력은 안 버린다** — 이것이 이 검사의 요점이다
+        old_keep = C.CHANGE_KEEP
+        C.CHANGE_KEEP = 2
+        try:
+            for i in range(5):
+                _j.dump({"rows": _rows("사람%d" % i, "010-0000-000%d" % i)},
+                        _io.open(C.OUT, "w", encoding="utf-8"), ensure_ascii=False)
+                C.record_changes(_rows("사람%d" % (i + 1), "010-0000-000%d" % (i + 1)),
+                                 "2026-09-02T1%d:00" % i)
+        finally:
+            C.CHANGE_KEEP = old_keep
+        r["창"] = len(C.load_changes(limit=0))
+        r["이력"] = len(C.load_history())
+        r["캠프로좁힘"] = len(C.load_history(camp="가캠프"))
+        # ⑤ 한 줄이 깨져도 나머지는 읽는다([169])
+        with _io.open(C.HISTORY, "a", encoding="utf-8") as f:
+            f.write("{깨진 줄" + chr(10))
+        r["깨진뒤"] = len(C.load_history())
+        # ⑥ 이력 하나로 회차를 안 죽인다([169]) — 예외가 오르면 그대로 실패한다
+        C.HISTORY = os.path.join(td, "없는곳", "깊이", "h.jsonl")
+        C.append_history([{"때": "x"}])
+        return r
+
+    keep = (C.OUT, C.CHANGES, C.HISTORY, C.REPORT_DIR, C.append_history,
+            C.load_history)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            r = _measure(td)
+        assert r["씨앗"] == 2, \
+            "[349] 창에 남은 것을 씨앗으로 안 옮긴다 — 400줄이 밀려 나가는 만큼 영영 사라진다: %s" % r["씨앗"]
+        assert r["첫줄"] == "다캠프", \
+            "[349] 이력을 새것부터 안 읽는다: %s" % r["첫줄"]
+        assert r["두번째씨앗"] == 0 and r["씨앗뒤"] == 2, \
+            "[349] 씨앗을 두 번 넣는다 — 같은 변경이 두 줄이 된다: %s/%s" % (r["두번째씨앗"], r["씨앗뒤"])
+        assert r["잡은변경"] == 1, "[349] 연락처 바뀜을 못 잡는다: %s" % r["잡은변경"]
+        assert r["쌓인줄"] == 3, "[349] 새 변경이 이력에 안 쌓인다: %s" % r["쌓인줄"]
+        assert r["옛사람"], "[349] 옛 담당자가 안 남는다 — 그때 누구였나를 잃는다"
+        assert r["새사람"], "[349] 새 담당자가 안 남는다"
+        # ★ 창은 예전 그대로 버린다 — 좁히는 것도 고장이다([172])
+        assert r["창"] == 2, \
+            "[349] 최근 창이 한도를 안 지킨다 — 화면이 읽는 파일이 무한히 자란다: %s" % r["창"]
+        # ★★ 요점 — 창이 버려도 이력은 그대로다
+        assert r["이력"] == 8, \
+            "[349] 이력이 버려졌다 — 종전 담당자 이력을 전부 남기라는 지시가 안 지켜진다: %s" % r["이력"]
+        assert r["캠프로좁힘"] == 6, \
+            "[349] 캠프로 좁혀 못 본다: %s" % r["캠프로좁힘"]
+        assert r["깨진뒤"] == 8, \
+            "[349] 한 줄이 깨지면 나머지까지 못 읽는다([169]): %s" % r["깨진뒤"]
+
+        # ★ 계기 자신을 시험한다([272]) — **고침 전 세상**을 넣어 본다.
+        #   그때는 이력이라는 자리가 없어 '이력'이 곧 최근 창이었다.
+        #   ⚠ 씨앗이나 쌓기부터 막으면 **앞선 계약이 먼저 걸려** 정작 요점
+        #     (창이 버려도 이력은 안 버린다)을 **한 번도 안 재게 된다** — 그러면
+        #     "잡았다"는 말이 거짓이다. 그래서 앞선 계약은 **다 통과하게 두고**
+        #     한도에 걸리는 그 자리만 옛 세상으로 되돌린다.
+        with tempfile.TemporaryDirectory() as td2:
+            C.load_history = lambda limit=0, camp=None: C.load_changes(limit=limit)
+            r2 = _measure(td2)
+        assert r2["쌓인줄"] == 3, \
+            "[349] 자기시험 재료가 앞선 계약에서 먼저 걸린다 — 요점을 못 잰다([272]): %s" % r2["쌓인줄"]
+        assert r2["이력"] == 2, \
+            "[349] 이력이 최근 창과 같아도 통과한다 — 요점을 한 번도 안 잰다([272]): %s" % r2["이력"]
+    finally:
+        (C.OUT, C.CHANGES, C.HISTORY, C.REPORT_DIR, C.append_history,
+         C.load_history) = keep
+    print(chr(9989) + " [507] 종전 캠프 담당자 이력을 전부 남긴다"
+          " (창은 한도에서 버려도 이력은 안 버림 - 실행으로 잼)")
+
 def t506_camp_rebuild_refreshes_stale_mark():
     """[151] 캠프 담당자 자료를 다시 만들면 **밀림 자국도 그 자리에서 다시 잰다**.
 
@@ -48124,6 +48248,7 @@ if __name__ == "__main__":
     t504_revenue_kpi_drilldown()
     t505_camp_code_reaches_work_cards()
     t506_camp_rebuild_refreshes_stale_mark()
+    t507_camp_manager_history_is_never_dropped()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
