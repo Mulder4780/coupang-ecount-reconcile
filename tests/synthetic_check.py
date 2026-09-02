@@ -32966,6 +32966,115 @@ def t501_stopped_band_collection_is_not_called_a_backlog():
           % (caught, len(hurts)))
 
 
+def t504_revenue_kpi_drilldown():
+    """[338] 매출 실적 KPI 를 눌러 그 숫자를 만든 건으로 간다 (2026-09-02 형님 지시).
+
+    ★ 글자로는 '정말 도나'를 못 잰다([295]) — node 로 **실행해서** 잰다.
+      스텁으로 때우지 않는다([366]) — 필요한 함수는 실제 소스에서 중괄호 짝으로 뽑는다.
+    ★ 제일 중요한 계약은 **못 가는 것**이다([172]): 계산서 한 장에 프로젝트가 여럿
+      묶이면 원본이 그 칸을 비워 두거나 여럿을 적는다. 짐작으로 하나를 고르면
+      엉뚱한 건으로 보낸다 — 못 가는 것보다 나쁘다.
+    """
+    import io as _io, json as _j, os, re, tempfile
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+
+    # ① 서버가 근거 행을 실어 준다 — 안 실으면 목록이 통째로 빈다([328])
+    ap = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                  encoding="utf-8", newline="").read()
+    assert '"전표": (docs.get("rows") or [])[:REVENUE_SLIP_CAP],' in ap, \
+        "[338] 서버가 계산서 전표를 안 실어 준다 — 화면만 고치면 목록이 빈다"
+    assert '"전표더있음"' in ap, "[338] 자른 만큼을 안 말한다([273])"
+
+    # ② 넷 다 누를 수 있다
+    m = re.search(r"\$\('revKpis'\)\.innerHTML=`(.*?)`;", src, re.S)
+    assert m, "[338] revKpis 블록을 못 찾았다"
+    cards = m.group(1)
+    for key in ("'sum'", "'cnt'", "'cmp'", "'unissued'"):
+        assert ("revKpiOpen(%s)" % key) in cards, \
+            "[338] KPI 카드가 안 눌린다: %s" % key
+    assert cards.count('role="button"') == 4, "[338] 넷 다 단추여야 한다"
+
+    def _fn(name):
+        i = src.index("function %s(" % name)
+        d, j = 0, src.index("{", i)
+        for k in range(j, len(src)):
+            if src[k] == "{":
+                d += 1
+            elif src[k] == "}":
+                d -= 1
+                if not d:
+                    return src[i:k + 1]
+        raise AssertionError("[338] 함수 짝이 안 맞는다: %s" % name)
+
+    js = "\n".join([
+        "let SHEET='',TOASTS=[];",
+        "function esc2(s){return String(s==null?'':s)}",
+        "function esc4(s){return JSON.stringify(String(s==null?'':s))}",
+        "function fmt(n){return String(Number(n)||0)}",
+        "function toast(m){TOASTS.push(m)}",
+        "function showSheet(h){SHEET=h}",
+        "function openByPrj(k,p){}",
+        "let PICK='',REV=null;",
+        "var $=id=>({'revYearKind':{value:PICK}})[id]||null;",
+        _fn("revSlipPrj"), _fn("revSlipRows"), _fn("revSlipList"), _fn("revKpiOpen"),
+        "REV={기준:'x',출처:'y',건수:3,전표더있음:7,전표:[",
+        " {전표:'S1',월:'2026/01',유형:'정기점검',공급가액:100,거래처:'쿠팡',"
+        "포함건수:1,포함프로젝트:'UJ2600004',판정:'확정'},",
+        " {전표:'S2',월:'2026/01',유형:'돌발AS',공급가액:200,거래처:'쿠팡',"
+        "포함건수:2,포함프로젝트:'',판정:'PO확인'},",
+        " {전표:'S3',월:'2026/02',유형:'정기점검',공급가액:300,거래처:'쿠팡',"
+        "포함건수:2,포함프로젝트:'UJ2600090,UJ2600091',판정:'PO확인'}],",
+        " 미발행:{있음:true,건수:2,공급가액:500,근거:'ERP',색인시각:'x',더있음:177,",
+        "  행:[{프로젝트NO:'UJ2601000',업무구분:'정기점검',완료월:'2026-03',"
+        "캠프명:'A',공급가액:400,ERP진행상태:'3.오더처리'}]},",
+        " 대조:{있음:true,요약:{'일치한 달':1,'다른 달':1},행:["
+        "{월:'2026-01',항목:'정기점검',우리:1,김미영:1,일치:true,차이:0},"
+        "{월:'2026-02',항목:'정기점검',우리:1,김미영:9,일치:false,차이:-8}]}};",
+        "const O={};",
+        "revKpiOpen('sum');O.sum=SHEET;",
+        "PICK='돌발AS';revKpiOpen('cnt');O.cnt=SHEET;PICK='';",
+        "revKpiOpen('cmp');O.cmp=SHEET;",
+        "revKpiOpen('slips','2026-02');O.slips=SHEET;",
+        "revKpiOpen('unissued');O.un=SHEET;",
+        "const 옛=REV;REV=null;TOASTS=[];SHEET='';revKpiOpen('sum');",
+        "O.empty=SHEET;O.toast=TOASTS.length;REV=옛;",
+        "console.log(JSON.stringify(O));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t504.js")
+        with _io.open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=90, drain_timeout=15)
+    assert r.returncode == 0, "[338] 하네스가 죽었다: %s" % (r.stderr or "")[:200]
+    o = _j.loads((r.stdout or "{}").strip().splitlines()[-1])
+
+    # ③ 유일할 때만 뛴다 — 여럿이면 **안 그린다**([172])
+    assert 'openByPrj("UJ2600004"' in o["sum"], "[338] 유일한 프로젝트로 못 뛴다"
+    assert 'openByPrj("S2"' not in o["sum"], "[338] 전표번호로 뛰면 안 된다"
+    assert 'openByPrj("UJ2600090' not in o["sum"], \
+        "[338] 프로젝트가 여럿인데 하나를 골라 뛴다 — 엉뚱한 건으로 보낸다([172])"
+    # ④ 못 뛰면 **왜인지 말한다**([169]) — 조용히 안 그리면 고장으로 읽힌다
+    assert "원본이 하나로 못 집는다" in o["sum"], "[338] 왜 못 뛰는지 안 말한다"
+    # ⑤ 잘린 것을 말한다([273])
+    assert "7장" in o["sum"], "[338] 서버가 자른 전표를 안 말한다"
+    # ⑥ 유형 고르기를 따른다 — 안 따르면 화면 숫자와 목록이 어긋난다
+    assert "S1" not in o["cnt"] and "S2" in o["cnt"], "[338] 유형 고르기를 무시한다"
+    # ⑦ 대조는 **달**이다 — 다른 달이 먼저 · 누르면 그 달 계산서로
+    assert o["cmp"].index("2026-02") < o["cmp"].index("2026-01"), \
+        "[338] 실적표와 다른 달이 먼저 와야 한다"
+    assert "revKpiOpen('slips'" in o["cmp"], "[338] 달에서 그 달 계산서로 못 간다"
+    assert "S3" in o["slips"] and "S1" not in o["slips"], "[338] 그 달만 나와야 한다"
+    # ⑧ 미발행은 프로젝트NO 로 바로 간다
+    assert 'openByPrj("UJ2601000"' in o["un"], "[338] 미발행에서 그 건으로 못 간다"
+    assert "177" in o["un"], "[338] 화면에 안 실린 건수를 안 말한다([273])"
+    # ⑨ 자료가 없으면 **안 죽고 말한다**([169])
+    assert o["empty"] == "" and o["toast"] == 1, "[338] 자료가 없을 때 조용히 지나간다"
+    print(chr(9989) + " [504] 매출 실적 KPI -> 그 숫자를 만든 목록 -> 그 건 화면"
+          " (유일할 때만 뜀 · 못 뛰면 왜인지 말함 · 실행으로 잼)")
+
+
 def t503_master_mtime_never_blocks_the_whole_app():
     """자물쇠 하나가 앱을 통째로 세우지 않는다 — `_master_mtime` (2026-09-02 실사고).
 
@@ -47839,6 +47948,7 @@ if __name__ == "__main__":
     t501_stopped_band_collection_is_not_called_a_backlog()
     t502_recollect_fix_is_a_runnable_command()
     t503_master_mtime_never_blocks_the_whole_app()
+    t504_revenue_kpi_drilldown()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
