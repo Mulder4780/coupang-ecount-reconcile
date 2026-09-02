@@ -17228,7 +17228,7 @@ function sgKey(el){
   return SG_MAP[el.name] || SG_MAP[el.dataset.f] || SG_MAP[el.dataset.sgField] || '';
 }
 async function sgFetch(field, q){
-  const key = field + ' ' + (q||'');
+  const key = field + '\u0000' + (q||'');
   if(SG_CACHE.has(key)) return SG_CACHE.get(key);
   const p = api('/api/suggest?f='+encodeURIComponent(field)+'&q='+encodeURIComponent(q||''))
     .then(d => (d && d.values) || []).catch(() => []);
