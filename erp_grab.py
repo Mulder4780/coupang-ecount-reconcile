@@ -288,6 +288,26 @@ def run(limit_days=DEFAULT_LIMIT_DAYS):
 #   그 말을 믿었으면 인쇄 미리보기를 뒤졌을 것이다([172] 틀린 지목). 이제 화면에
 #   실제로 있는 'Excel/엑셀' 글자를 같이 적는다. 그것이 없어서 오늘 단추 239개를
 #   훑는 스크립트를 따로 짜야 했다.
+
+# ── 기간 프리셋 후보 말하기 — 엑셀 단추와 같은 규칙이다([300]) ────────────────
+#   2026-09-02: 판매조회를 '이번기수'로 돌렸더니 '기간 프리셋을 못 찾음' 만 남았다.
+#   그 화면에 그 낱말이 없다는 것까지는 알겠는데 **무엇이 있는지는 말해 주지 않아**
+#   그 화면을 다시 열어 훑는 도구를 따로 짜야 했다. 게다가 수집이 끝나면 화면이
+#   홈으로 돌아가 그럴 수도 없었다. 이제 화면이 스스로 적는다([169]·[289]).
+_PRESET_LIST_JS = r"""
+  const __presetList = () => {
+    const vis = e => { try { return e.getClientRects().length > 0; } catch (_) { return false; } };
+    const out = [];
+    for (const e of document.querySelectorAll('button,a,input[type=button]')) {
+      const t = (e.textContent || e.value || '').trim();
+      if (!t || t.length > 12 || !vis(e)) continue;
+      if (e.getAttribute('data-cid') === 'simpleSearch'
+          || /기수|금일|전일|금주|금월|전월|당월|올해|연간|기간/.test(t)) out.push(t);
+    }
+    return [...new Set(out)].slice(0, 20);
+  };
+"""
+
 _EXCEL_PICK_JS = r"""
   const __excelPick = () => {
     const bad = /업로드|양식|등록|불러오기|가져오기|import|upload/i;
@@ -365,7 +385,10 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
       .filter(e => { try { return e.getClientRects().length > 0; } catch(_) { return true; } })[0];
     if (h) { h.click(); await wait(1800); p = preset(); }
   }
-  if (!p) { say({오류:'기간 프리셋을 못 찾음(조회조건도 펴 봤다)'}); return; }
+  //__PRESET_LIST__
+  if (!p) { const c = __presetList();
+            say({오류:'기간 프리셋을 못 찾음(조회조건도 펴 봤다) — 화면에 있는 기간 단추: '
+                      + (c.length ? c.join(' / ') : '(없음)')}); return; }
   p.click(); await wait(2500); kill(); await wait(5000);
 
   // ③ 조회 — 걸렸는지 **행 수 변화로** 확인한다(안 걸리면 옛 결과를 새 기간으로 착각한다)
@@ -442,7 +465,7 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
 })();
 // 여기서 즉시 반환된다 — 진행은 window.__ERPGRAB 을 다시 읽어서 본다.
 window.__ERPGRAB;
-""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS)
+""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS).replace("  //__PRESET_LIST__", _PRESET_LIST_JS)
 
 # 메뉴명 → 기본 기간 프리셋. '금월(~오늘)' 이 이번 달 1일~오늘이라 밀린 며칠을 받기 좋다.
 MENUS = {
@@ -703,6 +726,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
     return true;
   };
 
+  //__PRESET_LIST__
   //__EXCEL_PICK__
   const pick = (cid, txt, exact) => {
     const hit = list => list.find(e => {
@@ -788,8 +812,10 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       // ③ 기간 프리셋 — 없으면 **조회조건이 접힌 것**이니 한 번 펴고 다시 본다
       let p = pick('simpleSearch', step.프리셋, true);
       if (!p && await expandSearch()) p = pick('simpleSearch', step.프리셋, true);
-      if (!p) { done({결과: '실패', 왜: '기간 프리셋을 못 찾음(조회조건도 펴 봤다): '
-                                       + step.프리셋}); continue; }
+      if (!p) { const __pc = __presetList();
+                done({결과: '실패', 왜: '기간 프리셋을 못 찾음(조회조건도 펴 봤다): ' + step.프리셋
+                                       + ' — 화면에 있는 기간 단추: '
+                                       + (__pc.length ? __pc.join(' / ') : '(없음)')}); continue; }
       p.click(); await wait(2500); kill(); await wait(4500);
       // ④ 조회
       // ★ 단추가 없는 것은 **실패가 아니다.** 프리셋을 누르면 조회까지 같이 되고 조건판이
@@ -842,7 +868,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
   A.지금 = null; A.완료 = true; save();
 })();
 window.__ERPALL;
-""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS)
+""".replace("  //__EXCEL_PICK__", _EXCEL_PICK_JS).replace("  //__PRESET_LIST__", _PRESET_LIST_JS)
 
 
 def build_all(keys=None, preset=None):
