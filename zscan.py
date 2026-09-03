@@ -56,6 +56,11 @@ DOC_PROGRESS_SCHEMA = 1
 DOC_PROGRESS_NAME = ".zscan_docs_progress.json"
 DOC_CHECKPOINT_DIRS = 250
 
+# 기본 갈래(원장 누락·금액 공백 스캔)의 진도. `--docs` 와 **파일을 나눠 쓴다** —
+# 담는 것이 서로 다르고, 한 파일을 같이 쓰면 한쪽이 다른 쪽 진도를 지운다.
+SCAN_PROGRESS_NAME = ".zscan_scan_progress.json"
+SCAN_PROGRESS_SCHEMA = 1
+
 RE_UJ = re.compile(r"UJ\s?(\d{7})", re.I)
 RE_PO = re.compile(r"PO\s?(\d{6})", re.I)
 RE_MONEY = re.compile(r"([0-9]{1,3}(?:,[0-9]{3})+)\s*원")
@@ -105,6 +110,136 @@ def scan(root=ROOT, only=None):
             out.append(rec)
     return out
 
+
+def _scan_progress_path(path=None):
+    return path or os.path.join(REPORT_DIR, SCAN_PROGRESS_NAME)
+
+
+def _new_scan_progress(root, only):
+    return {"schema": SCAN_PROGRESS_SCHEMA,
+            "root": os.path.normcase(os.path.abspath(root)),
+            "only": only or "",
+            "pending_dirs": [""],
+            "files": 0, "kinds": {}, "codes": {}, "po": [], "folders": {},
+            "scanned_dirs": 0,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+
+
+def _load_scan_progress(root, only, path=None):
+    """같은 루트·같은 --folder 의 완전한 체크포인트만 이어받는다.
+
+    깨진 JSON 을 빈 진행으로 삼키면 이미 센 디렉터리를 처음부터 다시 훑고도
+    이유를 숨긴다([169]). 그래서 깨진 파일은 실패로 올린다 — `--docs` 와 같다.
+    """
+    path = _scan_progress_path(path)
+    if not os.path.exists(path):
+        return _new_scan_progress(root, only)
+    with open(path, encoding="utf-8") as f:
+        value = json.load(f)
+    if (value.get("schema") != SCAN_PROGRESS_SCHEMA
+            or value.get("root") != os.path.normcase(os.path.abspath(root))
+            or value.get("only") != (only or "")):
+        return _new_scan_progress(root, only)
+    if not isinstance(value.get("pending_dirs"), list) or not isinstance(value.get("codes"), dict):
+        raise ValueError("Z폴더 스캔 진도 파일 형식이 올바르지 않습니다: %s" % path)
+    return value
+
+
+def _save_scan_progress(value, path=None):
+    _atomic_json(_scan_progress_path(path), value)
+
+
+def _clear_scan_progress(path=None):
+    try:
+        os.unlink(_scan_progress_path(path))
+    except FileNotFoundError:
+        pass
+
+
+def _fold_into(value, rel, name):
+    """파일 한 개를 집계에 접는다. 레코드는 담지 않는다."""
+    kind = classify(rel, name)
+    value["files"] += 1
+    value["kinds"][kind] = value["kinds"].get(kind, 0) + 1
+    for k in IRRELEVANT_FOLDERS:
+        if k in rel:
+            value["folders"][k] = value["folders"].get(k, 0) + 1
+    if not kind.startswith("관련"):
+        return
+    money = [int(x.replace(",", "")) for x in RE_MONEY.findall(name)]
+    first_money = max(money) if money else None
+    for m in RE_PO.findall(name):
+        po = "PO" + m
+        if po not in value["po"]:
+            value["po"].append(po)
+    for m in RE_UJ.findall(name):
+        code = "UJ" + m
+        cur = value["codes"].get(code)
+        if cur is None:
+            # `f`·`fm` = 그 코드의 **첫 파일**(리포트 표가 쓴다),
+            # `m` = 금액이 있는 것만 모은 목록(금액 불일치 판정이 쓴다).
+            cur = {"f": name, "fm": first_money, "m": []}
+            value["codes"][code] = cur
+        if first_money is not None:
+            cur["m"].append(first_money)
+
+
+def scan_incremental(root=ROOT, only=None, state_path=None, stop=None):
+    """디렉터리 단위로 이어서 세고 **집계만** 남긴다.
+
+    반환은 ``(집계, complete, 집계)``. ``complete`` 가 거짓이면 호출자는 기존
+    리포트를 절대 덮지 않고 75 로 돌아가야 한다([169] — 반쪽 숫자를 완전한
+    리포트처럼 내면 '원장에 없는 프로젝트NO' 가 실제보다 적게 나온다).
+
+    ★ 레코드를 통째로 담지 않는다. 실측 2026-09-03 파일 **232,384개**라 그것을
+      JSON 으로 250 디렉터리마다 저장하면 그 저장이 다시 회차를 먹는다
+      (`--docs` 는 서류만 걸러 담아 이 문제가 없었다).
+    """
+    if not os.path.isdir(root):
+        raise FileNotFoundError("폴더에 닿지 못했습니다(네트워크 드라이브 확인): %s" % root)
+    stop = stop or child_budget.over
+    value = _load_scan_progress(root, only, state_path)
+    pending = value["pending_dirs"]
+    since_checkpoint = 0
+    base_rel = only or ""
+
+    while pending:
+        if stop():
+            _save_scan_progress(value, state_path)
+            return value, False, value
+
+        rel = pending.pop()
+        folder = root if not rel else os.path.join(root, rel)
+        try:
+            with os.scandir(folder) as it:
+                entries = list(it)
+            child_dirs, found = [], []
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False):
+                    child_dirs.append(os.path.relpath(entry.path, root))
+                    continue
+                if entry.name.lower() in SKIP_NAMES or entry.name.startswith("~$"):
+                    continue
+                found.append(entry.name)
+        except OSError:
+            # 이 디렉터리는 **완주하지 않았다**. 다시 넣고 자국을 남긴 뒤 실패로 올린다.
+            pending.append(rel)
+            _save_scan_progress(value, state_path)
+            raise
+
+        # 디렉터리 하나를 끝까지 읽은 뒤에만 집계에 접는다(재개해도 중복되지 않는다).
+        for name in found:
+            _fold_into(value, rel, name)
+        value["scanned_dirs"] = int(value.get("scanned_dirs") or 0) + 1
+        child_dirs.sort(reverse=True)
+        pending.extend(child_dirs)
+        since_checkpoint += 1
+        if since_checkpoint >= DOC_CHECKPOINT_DIRS:
+            _save_scan_progress(value, state_path)
+            since_checkpoint = 0
+
+    _save_scan_progress(value, state_path)
+    return value, True, value
 
 def ledger_index():
     """원장 프로젝트NO → (시트, 금액). 06시트 금액이 있으면 그걸 쓴다."""
