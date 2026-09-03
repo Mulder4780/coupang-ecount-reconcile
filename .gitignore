@@ -2,6 +2,8 @@
 config/ecount_config.json
 config/webapp.json
 config/*.local.json
+config/*.bak
+config/*.bak.*
 config/cloud_queue.local.json
 reports/
 __pycache__/
