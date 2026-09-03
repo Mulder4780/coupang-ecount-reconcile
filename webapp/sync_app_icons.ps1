@@ -52,7 +52,21 @@ foreach ($size in $sizes) {
         -Destination (Join-Path $docsRoot "icon-$size.png") -Force
 }
 
-$sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant()
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    # Codex/Claude can launch Windows PowerShell from a PowerShell 7 parent.
+    # In that case the inherited PSModulePath may not contain the Windows
+    # PowerShell utility module, so Get-FileHash is present interactively but
+    # missing in this background child.  The .NET implementation is available
+    # in both hosts and keeps unattended publishing independent of modules.
+    $sourceBytes = [System.IO.File]::ReadAllBytes($Source)
+    $sourceHash = ([System.BitConverter]::ToString(
+        $sha256.ComputeHash($sourceBytes)
+    ) -replace "-", "").ToLowerInvariant()
+}
+finally {
+    $sha256.Dispose()
+}
 $revision = "csos-" + $sourceHash.Substring(0, 12)
 
 $manifestPath = Join-Path $docsRoot "manifest.json"

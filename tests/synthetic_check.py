@@ -1289,6 +1289,14 @@ def t6_webapp():
         assert "icon_revision()" in app_server_src
         assert "sync_installed_app_icons()" in app_server_src
         assert os.path.isfile(os.path.join(ROOT, "webapp", "sync_app_icons.ps1"))
+        icon_sync_src = open(os.path.join(ROOT, "webapp", "sync_app_icons.ps1"),
+                             encoding="utf-8").read()
+        # A pwsh parent can pass a PowerShell 7 PSModulePath to Windows
+        # PowerShell.  Get-FileHash then disappears only in the unattended
+        # child even though it works in an interactive shell.  Keep the hash
+        # calculation on the host-independent .NET API.
+        assert "$sourceHash = (Get-FileHash" not in icon_sync_src
+        assert "[System.Security.Cryptography.SHA256]::Create()" in icon_sync_src
         assert os.path.isfile(os.path.join(ROOT, "webapp", "build_windows_icon.ps1"))
         assert os.path.isfile(os.path.join(ROOT, "webapp", "install_staff_shortcut.ps1"))
         compact_html = html.replace(" ", "")
