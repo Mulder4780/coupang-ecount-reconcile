@@ -33695,6 +33695,86 @@ def t508_zscan_default_scan_survives_a_kill():
     print(chr(9989) + " [508] Z폴더 기본 스캔은 죽어도 진도가 남는다")
 
 
+def t509_kakao_kind_by_body_only_narrows_outing_share():
+    """[365] 카톡 '(외근공유)' 인데 **본문이 돌발이라 적어 둔** 글만 02 로 되돌린다.
+
+    2026-09-03 [360] 의 뒤끝이다 — 그때 고치고 검증을 못 붙였다(옆 창이 이 파일을
+    쥐고 있었다 · [412]).  실측 UJ2601508 양주3캠프(호원동): 머리글은 외근 공유인데
+    설비 칸에 '돌발'이 적혀 있어 어느 시트에도 안 들어갔다.
+
+    ★ extract() 를 부르지 않는다([211]) — 실측 2026-09-03 카톡 1,153건 중
+      (외근공유)는 **2건**뿐이라, 실자료로 재면 그 2건이 바뀌는 날 이 검사가
+      **아무것도 안 재면서 통과한다**.  kind_by_body 를 직접 부른다.
+    ★ 넓히는 쪽이 되돌릴 수 없다([172]) — 진짜 외근 공유글이 02 로 박히면
+      그 현장은 아무도 안 가는데 원장에는 접수로 선다.  그래서 (4)를 같이 잰다.
+    """
+    import ast as _ast
+    import kakao_extract as _ke
+
+    OUT, AS2 = "(외근공유)", "02_돌발AS접수"
+
+    # (1) 설비 칸에 '돌발' → 02.  실측 UJ2601508 의 모양 그대로다.
+    assert _ke.kind_by_body(OUT, {"설비": "4R/T 03호기 04호기 돌발",
+                                  "신청내용": "조작판넬 도어 손잡이 교체"}) == AS2, \
+        "(1) 설비에 '돌발'이 있는 외근공유가 02 로 안 갔다"
+
+    # (2) 신청내용 칸만 있어도 같다 — 원본이 어느 칸에 적든 근거는 그 낱말 하나다.
+    assert _ke.kind_by_body(OUT, {"신청내용": "돌발 조치 요청"}) == AS2, \
+        "(2) 신청내용에 '돌발'이 있는 외근공유가 02 로 안 갔다"
+
+    # (3) 좁은 문 — 외근공유인데 '돌발'이 없으면 그대로 둔다.
+    assert _ke.kind_by_body(OUT, {"설비": "4R/T 03호기",
+                                  "신청내용": "정기 점검 협의"}) == OUT, \
+        "(3) 돌발이 없는 진짜 외근공유까지 02 로 박았다"
+
+    # (4) ★ 외근공유 밖은 '돌발'이 있어도 한 글자도 안 건드린다.
+    #     철거·납품은 제 시트가 있고, 02·04 로 이미 간 글은 머리글이 더 센 근거다.
+    for other in ("(철거·보관)", "(납품설치)", "02_돌발AS접수", "04_정기점검", ""):
+        assert _ke.kind_by_body(other, {"설비": "돌발", "신청내용": "돌발"}) == other, \
+            "(4) 외근공유가 아닌 '%s' 를 건드렸다 — 넓히면 되돌릴 수 없다" % (other or "빈칸")
+
+    # (5) 칸이 None 이어도 안 죽는다 — 원본에 그 줄이 아예 없는 글이 있다.
+    assert _ke.kind_by_body(OUT, {"설비": None, "신청내용": None}) == OUT, \
+        "(5) 칸이 None 인 글에서 죽었다"
+    assert _ke.kind_by_body(OUT, {}) == OUT, "(5) 칸이 아예 없는 글에서 죽었다"
+
+    # (6) 부르는 자리의 **차례**가 계약이다 — 머리글 → 방 이름 → 본문 되돌림.
+    #     글자를 얼리지 않고 구조로 잰다([219] — 얼릴 것은 계약이지 그때 쓴 글자가 아니다).
+    _src = open(os.path.join(ROOT, "kakao_extract.py"), encoding="utf-8").read()
+    _calls = [n for n in _ast.walk(_ast.parse(_src))
+              if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "kind_by_body"]
+    assert len(_calls) == 1, \
+        "(6) kind_by_body 를 부르는 자리가 %d 곳이다 — 안 감싼 자리가 있으면 그 글은 안 되돌아온다" % len(_calls)
+    _first = _calls[0].args[0]
+    assert isinstance(_first, _ast.BoolOp) and isinstance(_first.op, _ast.Or) \
+        and len(_first.values) == 2, "(6) 첫 인자가 '머리글 or 방이름' 사다리가 아니다"
+    _ladder = [getattr(v.func, "id", "") if isinstance(v, _ast.Call) else ""
+               for v in _first.values]
+    assert _ladder == ["kind_of", "kind_by_room"], \
+        "(6) 사다리 차례가 %s 다 — 머리글이 방 이름보다 먼저다" % _ladder
+    assert getattr(_calls[0].args[1], "id", "") == "fields", \
+        "(6) 본문 되돌림에 파싱된 fields 를 안 넘긴다"
+
+    # ★ 계기 자기시험([272]) — 이 검사가 옛 고장을 정말 잡나.  두 방향을 다 잰다.
+    _caught = 0
+
+    def _gone(kind, fields):            # (a) kind_by_body 를 통째로 뺀 옛 모양
+        return kind
+    if _gone(OUT, {"설비": "돌발"}) != AS2:
+        _caught += 1
+
+    def _wide(kind, fields):            # (b) 갈래 문을 없애 넓힌 모양
+        for key in ("설비", "신청내용"):
+            if "돌발" in (fields.get(key) or ""):
+                return AS2
+        return kind
+    if _wide("(납품설치)", {"설비": "돌발"}) != "(납품설치)":
+        _caught += 1
+
+    assert _caught == 2, "계기 자기시험 %d/2 — 옛 고장을 못 잡는다" % _caught
+
+    print(chr(9989) + " [509] 카톡 (외근공유) 본문 되돌림은 그 갈래에만 건다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48429,6 +48509,7 @@ if __name__ == "__main__":
     t506_camp_rebuild_refreshes_stale_mark()
     t507_camp_manager_history_is_never_dropped()
     t508_zscan_default_scan_survives_a_kill()
+    t509_kakao_kind_by_body_only_narrows_outing_share()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
