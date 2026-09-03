@@ -619,16 +619,23 @@ def main():
         print("폴더에 닿지 못했습니다(네트워크 드라이브 확인):", args.root)
         return 1
 
-    recs = scan(args.root, args.folder)
-    kinds = Counter(r["분류"] for r in recs)
-    rel = [r for r in recs if r["분류"].startswith("관련")]
-    print("파일 %d개 — %s" % (len(recs), " · ".join("%s %d" % kv for kv in kinds.most_common())))
+    budget = child_budget.start(BUDGET_ENV)  # 안 주면 0 = 직접 실행은 종전처럼 무제한
+    agg, complete, _prog = scan_incremental(args.root, args.folder)
+    if not complete:
+        print("Z폴더 스캔 진행: 디렉터리 %d개 · 파일 %d개 · 프로젝트NO %d개 · 남은 디렉터리 %d개"
+              % (agg["scanned_dirs"], agg["files"], len(agg["codes"]),
+                 len(agg["pending_dirs"])), flush=True)
+        print("★ 시간 예산(%d초)이 다 되어 기존 완전한 리포트는 고치지 않고 다음 회차로 넘깁니다."
+              % budget, flush=True)
+        print("증분 수집 계속 필요 — 실패가 아니며 저장된 디렉터리부터 이어서 확인합니다.",
+              flush=True)
+        return INCREMENTAL_RETURN_CODE
+
+    by_code = agg["codes"]
+    kinds = Counter(agg["kinds"])
+    print("파일 %d개 — %s" % (agg["files"], " · ".join("%s %d" % kv for kv in kinds.most_common())))
 
     idx, ver = ledger_index()
-    by_code = defaultdict(list)
-    for r in rel:
-        for c in r.get("UJ", []):
-            by_code[c].append(r)
     codes = set(by_code)
     known = codes & set(idx)
     unknown = codes - set(idx)
@@ -639,20 +646,20 @@ def main():
     gaps = []
     for c in sorted(known):
         led = idx[c][1]
-        fam = [r["금액"] for r in by_code[c] if r.get("금액")]
+        fam = by_code[c]["m"]
         if led and fam and all(abs(led - x) > 1 for x in fam):
             gaps.append((c, idx[c][0], led, fam[0]))
 
-    po = {p for r in rel for p in r.get("PO", [])}
+    po = agg["po"]
     print("PO번호 %d개 · 금액 비교 가능 %d건 중 **불일치 %d건**"
-          % (len(po), sum(1 for c in known if idx[c][1] and any(r.get("금액") for r in by_code[c])), len(gaps)))
+          % (len(po), sum(1 for c in known if idx[c][1] and by_code[c]["m"]), len(gaps)))
 
     os.makedirs(REPORT_DIR, exist_ok=True)
     out = os.path.join(REPORT_DIR, "Z폴더_스캔.md")
     with open(out, "w", encoding="utf-8") as f:
         f.write("# 쿠팡 업무 폴더 전수 조사\n\n")
         f.write("- 대상: `%s`%s\n" % (args.root, (" / " + args.folder) if args.folder else ""))
-        f.write("- 파일 %d개 · 관리대장 v%d 기준\n" % (len(recs), ver))
+        f.write("- 파일 %d개 · 관리대장 v%d 기준\n" % (agg["files"], ver))
         f.write("- ★ 이 도구는 원장에 아무것도 쓰지 않는다(읽기 전용). 넣을 것은 사람이 고른다.\n\n")
         f.write("## 분류\n\n| 분류 | 건수 |\n|---|---:|\n")
         for k, v in kinds.most_common():
@@ -660,9 +667,9 @@ def main():
         f.write("\n## 원장에 없는 프로젝트NO (%d개)\n\n" % len(unknown))
         f.write("| 프로젝트NO | 금액(파일명) | 파일 |\n|---|---:|---|\n")
         for c in sorted(unknown):
-            r = by_code[c][0]
-            f.write("| %s | %s | %s |\n" % (c, format(r["금액"], ",") if r.get("금액") else "-",
-                                            r["파일"][:70]))
+            r = by_code[c]
+            f.write("| %s | %s | %s |\n" % (c, format(r["fm"], ",") if r.get("fm") else "-",
+                                            r["f"][:70]))
         f.write("\n## 금액 불일치 (%d건) — 파일명 vs 원장\n\n" % len(gaps))
         f.write("| 프로젝트NO | 시트 | 원장 | 파일명 | 차액 |\n|---|---|---:|---:|---:|\n")
         for c, sn, led, fam in gaps:
@@ -671,9 +678,10 @@ def main():
         f.write("\n## 무관으로 분류해 **적용하지 않은** 폴더\n\n")
         f.write("업무상 필요한 자료지만 관리대장 02·04·05·06 어느 열에도 들어갈 자리가 없다.\n\n")
         for k in IRRELEVANT_FOLDERS:
-            n = sum(1 for r in recs if k in r["폴더"])
+            n = agg["folders"].get(k, 0)
             if n:
                 f.write("- %s — %d개\n" % (k, n))
+    _clear_scan_progress()
     print("리포트:", out)
     return 0
 
