@@ -33524,6 +33524,177 @@ def t502_recollect_fix_is_a_runnable_command():
     print(chr(9989) + " [502] 밴드 재수집 조치는 붙여넣어 도는 명령이다")
 
 
+def t508_zscan_default_scan_survives_a_kill():
+    """[427] Z폴더 기본 스캔 — 죽어도 진도가 남고 이어받아 완주한다.
+
+    2026-09-03 실사고: 예산을 읽는 줄이 `--docs` 갈래 **안에만** 있어 기본 갈래는
+    한 번도 예산을 안 읽었다. 그래서 회차의 30분 제한에 SIGKILL 되고 그때까지
+    센 것을 통째로 잃어 **리포트가 5일째 08-29 에서 멈춰 있었다** — 오류도 안 나고
+    회차는 '완주'라 아무 화면에도 안 떴다([169]). 끝에 한 번만 저장하면 죽을 때
+    통째로 잃는다는 것을 이 저장소가 네 번째 배운 자리다([381]·[406]·[427]).
+
+    ★ 실데이터에 안 매인다([211]) — 임시 트리와 목으로만 잰다. 진짜 Z: 도 진짜
+      리포트도 진짜 진도 파일도 한 글자도 안 건드린다([247]).
+    """
+    import io as _io
+    import shutil as _sh
+    import zscan as Z
+    import child_budget as CB
+
+    _d = tempfile.mkdtemp(prefix="t508_")
+    _real = {"REPORT_DIR": Z.REPORT_DIR, "over": CB.over, "start": CB.start,
+             "ledger_index": Z.ledger_index, "argv": sys.argv[:]}
+    try:
+        root = os.path.join(_d, "z")
+        rep = os.path.join(_d, "reports")
+        os.makedirs(rep)
+
+        def mk(rel, names):
+            p = os.path.join(root, rel) if rel else root
+            os.makedirs(p, exist_ok=True)
+            for n in names:
+                with _io.open(os.path.join(p, n), "w", encoding="utf-8") as f:
+                    f.write("x")
+
+        # 루트 파일 · 두 층 아래 · 무관 폴더 · 걸러야 할 이름까지 섞는다.
+        mk("", ["UJ2601111 설치 1,000,000원.pdf", "thumbs.db"])
+        mk("a", ["UJ2601222 거래명세서 2,000,000원.pdf", "PO123456 발주.xlsx"])
+        mk(os.path.join("a", "b"), ["현장사진.jpg", "기본도면.dwg", "~$임시.xlsx"])
+        mk("쿠팡 보험", ["UJ2609999 보험증서.pdf"])
+
+        def fold_old(recs):
+            files = len(recs)
+            kinds, codes, po, folders = {}, set(), [], {}
+            for r in recs:
+                kinds[r["분류"]] = kinds.get(r["분류"], 0) + 1
+                for k in Z.IRRELEVANT_FOLDERS:
+                    if k in r["폴더"]:
+                        folders[k] = folders.get(k, 0) + 1
+                for c in r.get("UJ", []):
+                    codes.add(c)
+                for p in r.get("PO", []):
+                    if p not in po:
+                        po.append(p)
+            return files, kinds, sorted(codes), sorted(po), folders
+
+        def fold_new(agg):
+            return (agg["files"], dict(agg["kinds"]), sorted(agg["codes"]),
+                    sorted(agg["po"]), dict(agg["folders"]))
+
+        # (1) 완주하면 옛 scan() 과 **같은 답**이다. 좁아지는 것도 고장이다([172]).
+        old = fold_old(Z.scan(root))
+        assert old[0] == 6, "(1) 재료가 예상과 다르다 — 파일 %d개" % old[0]
+        sp1 = os.path.join(_d, "p1.json")
+        agg1, done1, _ = Z.scan_incremental(root, None, sp1, stop=lambda: False)
+        assert done1, "(1) 완주해야 하는데 안 했다"
+        assert fold_new(agg1) == old, ("(1) 증분 결과가 옛 scan() 과 다르다: %r != %r"
+                                      % (fold_new(agg1), old))
+
+        # (2) 멈추면 진도가 남는다 — 이번 사고의 본체다.
+        sp2 = os.path.join(_d, "p2.json")
+        cnt = [0]
+
+        def stop_after_two():
+            cnt[0] += 1
+            return cnt[0] > 2
+
+        agg2, done2, _ = Z.scan_incremental(root, None, sp2, stop=stop_after_two)
+        assert not done2, "(2) 멈췄는데 완주라고 한다 — 반쪽 숫자가 리포트로 나간다"
+        assert os.path.exists(sp2), "(2) 멈췄는데 진도가 안 남았다 — 다음 회차가 처음부터 다시 센다"
+        saved = json.loads(_io.open(sp2, encoding="utf-8").read())
+        assert saved["pending_dirs"], "(2) 진도에 남은 디렉터리가 없다"
+        assert 0 < saved["files"] < old[0], \
+            "(2) 재료가 사고를 재현 못 한다 — 멈췄는데 %r 개를 셌다([272])" % saved["files"]
+
+        # (3) 이어받아 완주하면 (1)과 **같다** — 중복도 빠짐도 없다.
+        agg3, done3, _ = Z.scan_incremental(root, None, sp2, stop=lambda: False)
+        assert done3, "(3) 이어받아 완주하지 못했다"
+        assert fold_new(agg3) == old, ("(3) 이어받은 결과가 다르다(중복이거나 빠졌다): %r != %r"
+                                      % (fold_new(agg3), old))
+
+        # (4) 루트가 다르면 옛 진도를 안 이어받는다.
+        root2 = os.path.join(_d, "z2")
+        os.makedirs(root2)
+        with _io.open(os.path.join(root2, "UJ2603333 설치.pdf"), "w", encoding="utf-8") as f:
+            f.write("x")
+        agg4, done4, _ = Z.scan_incremental(root2, None, sp2, stop=lambda: False)
+        assert done4 and agg4["files"] == 1, \
+            "(4) 루트가 다른데 옛 진도를 이어받았다: files=%r" % agg4["files"]
+
+        # (5) 예산이 다 되면 75 로 돌아가고 **옛 리포트를 안 건드린다**.
+        Z.REPORT_DIR = rep
+        out = os.path.join(rep, "Z폴더_스캔.md")
+        with _io.open(out, "w", encoding="utf-8", newline="") as f:
+            f.write("# 옛 리포트 — 이 바이트가 그대로여야 한다" + chr(10))
+        before = open(out, "rb").read()
+        seen = []
+        CB.start = lambda env: (seen.append(env) or 1800)
+        CB.over = lambda: True
+        Z.ledger_index = lambda: (_ for _ in ()).throw(
+            AssertionError("(5) 예산이 다 됐는데 원장을 읽었다([168])"))
+        sys.argv = ["zscan.py", "--root", root]
+        rc = Z.main()
+        assert rc == Z.INCREMENTAL_RETURN_CODE, \
+            "(5) 예산 소진인데 %r 로 돌아갔다 — 회차가 실패로 세고 매번 처음부터 다시 센다" % rc
+        assert open(out, "rb").read() == before, "(5) 반쪽 숫자로 옛 리포트를 덮었다"
+        assert seen == [Z.BUDGET_ENV], \
+            "(5) 기본 갈래가 예산을 안 읽었다 — 2026-09-03 사고의 본체다: %r" % seen
+
+        # (6) 완주하면 진도를 내리고 리포트를 쓴다.
+        CB.over = lambda: False
+        Z.ledger_index = lambda: ({"UJ2601111": ("06_거래서류청구수금", 1000000)}, 999)
+        rc2 = Z.main()
+        assert rc2 == 0, "(6) 완주인데 %r 로 돌아갔다" % rc2
+        assert not os.path.exists(Z._scan_progress_path()), \
+            "(6) 완주했는데 진도가 남았다 — 다음 회차가 옛 진도를 이어받는다"
+        body = _io.open(out, encoding="utf-8").read()
+        assert "쿠팡 업무 폴더 전수 조사" in body, "(6) 리포트를 안 썼다"
+        assert "UJ2601222" in body, "(6) 원장에 없는 프로젝트NO 표가 비었다"
+
+        # (7) 계기 자기시험([272]) — 옛 동작을 넣으면 정말 잡히나.
+        caught = 0
+        real_save = Z._save_scan_progress
+        try:
+            Z._save_scan_progress = lambda v, p=None: None   # 끝에 한 번도 안 저장하던 옛 모양
+            sp7 = os.path.join(_d, "p7.json")
+            cnt2 = [0]
+
+            def stop2():
+                cnt2[0] += 1
+                return cnt2[0] > 2
+
+            Z.scan_incremental(root, None, sp7, stop=stop2)
+            if not os.path.exists(sp7):
+                caught += 1
+        finally:
+            Z._save_scan_progress = real_save
+        # 이어받기 비교가 **중복**을 정말 잡는지 — 루트를 한 번 더 넣어 본다.
+        sp8 = os.path.join(_d, "p8.json")
+        cnt3 = [0]
+
+        def stop3():
+            cnt3[0] += 1
+            return cnt3[0] > 2
+
+        Z.scan_incremental(root, None, sp8, stop=stop3)
+        dup = json.loads(_io.open(sp8, encoding="utf-8").read())
+        dup["pending_dirs"] = list(dup["pending_dirs"]) + [""]
+        with _io.open(sp8, "w", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(dup, ensure_ascii=False))
+        aggD, doneD, _ = Z.scan_incremental(root, None, sp8, stop=lambda: False)
+        if doneD and fold_new(aggD) != old:
+            caught += 1
+        assert caught == 2, "(7) 계기가 옛 동작을 못 잡는다 — 이 검사는 아무것도 안 재고 있다: %d/2" % caught
+    finally:
+        Z.REPORT_DIR = _real["REPORT_DIR"]      # 모듈 속성은 프로세스 전체의 것([371])
+        CB.over = _real["over"]
+        CB.start = _real["start"]
+        Z.ledger_index = _real["ledger_index"]
+        sys.argv = _real["argv"]
+        _sh.rmtree(_d, ignore_errors=True)
+    print(chr(9989) + " [508] Z폴더 기본 스캔은 죽어도 진도가 남는다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48257,6 +48428,7 @@ if __name__ == "__main__":
     t505_camp_code_reaches_work_cards()
     t506_camp_rebuild_refreshes_stale_mark()
     t507_camp_manager_history_is_never_dropped()
+    t508_zscan_default_scan_survives_a_kill()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
