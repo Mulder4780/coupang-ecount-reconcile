@@ -7759,7 +7759,25 @@ def _completion_cutoff(row, idx):
     as_days = [day for name, day in per.items() if "쿠팡AS" in str(name) and day]
     if as_days:
         # 쿠팡AS 밴드가 둘 이상이면 하나라도 덜 수집된 쪽을 넘겨짚지 않는다.
-        return min(as_days)
+        base = min(as_days)
+        # ★ 2026-09-04 형님 지시("이제 밴드는 참고하지말고 카카오톡에서 완료되면
+        #   완료 처리로 바꾸고"). 밴드 수집은 2026-09-01 에 멈춰(collect_switch)
+        #   이 날짜가 **굳는다** — 실측 09-04: 쿠팡AS 09-02 고정 · 카톡 09-03.
+        #   그래서 09-03 접수 다섯 건이 `못봄`("곧 답이 나온다")으로 떨어졌는데
+        #   **그 답은 영영 안 온다**([169]).  아침에 0건이던 것이 그날 자료가
+        #   들어오면서 5건이 됐고, 안 고치면 날마다 는다.
+        # ★ **밴드 근거를 지우지 않는다**([172]) — 밴드에만 완료 글이 있는 건이
+        #   미처리로 되돌아가면 다녀온 현장이 목록에 선다([397] 이 막으려던 모양).
+        #   더하는 쪽이라 안전하다: 완료 글은 밴드·카톡 **어느 쪽에도** 오므로
+        #   둘 중 **더 늦게까지 본 쪽**이 곧 "어디까지 봤나"다.
+        # ★ 카톡 방이 여럿이면 그중 **가장 덜 본 것**까지만 봤다고 한다 — 위
+        #   `min(as_days)` 와 같은 결이다(같은 원천 안에서는 넘겨짚지 않는다).
+        # ★ 없던 완료를 만들지 않는다 — 갈래가 `못봄` 에서 `완료글없음` 으로
+        #   바뀔 뿐이고 둘 다 경보를 안 올린다([397] `_collect_behind`).
+        kakao_days = [day for name, day in per.items() if "카톡" in str(name) and day]
+        if kakao_days:
+            base = max(base, min(kakao_days))
+        return base
     pj = str((row or {}).get("프로젝트NO") or "").split(" · ")[0].strip()
     src = (idx.get("언급밴드") or {}).get(pj) or ""
     if src and per.get(src):
