@@ -282,6 +282,31 @@ def kind_by_room(room):
     return ""
 
 
+def kind_by_body(kind, fields):
+    """머리글이 (외근공유)라 했는데 **원본이 본문에 '돌발'이라 적어 둔** 글을 02 로 되돌린다.
+
+    2026-09-03 형님 지시 · 실측 UJ2601508 양주3캠프(호원동): 머리글은 ♣［외근 공유］인데
+    설비 칸이 '… 4R/T 03호기 04호기 **돌발**' 이고 신청내용이 '조작판넬 도어 손잡이 교체' 다
+    — 곧 돌발AS 인데 어느 시트에도 안 들어갔다.
+
+    ★ 외근을 통째로 02 로 바꾸지 않는다([172]). kind_of 주석이 경고한 그대로 진짜 외근
+      공유글까지 돌발AS 로 박힌다 — 그 현장은 아무도 안 가는데 원장에는 접수로 선다.
+      근거는 **원본이 직접 적은 낱말** 하나다(kind_by_room 이 방 이름을 보조 근거로
+      쓰는 것과 같은 결 · 지어낼 것이 없다).
+    ★ (외근공유)에만 건다. 철거·납품은 제 시트가 있고, 02·04 로 이미 간 글은 머리글이
+      더 센 근거다 — 좁히는 것도 고장이지만 넓히는 것은 되돌릴 수 없다.
+    ★ 실측 2026-09-03: 카톡 1,153건 중 (외근공유)는 **2건**이고 그중 '돌발'이 든 것은
+      UJ2601508 **하나**다. 나머지(UJ2501533 울산2캠프)는 안 딸려간다.
+    ⚠ 캐시는 저절로 폐기된다 — _extract_fingerprint 가 이 파일의 SHA-256 을 담는다.
+    """
+    if kind != "(외근공유)":
+        return kind
+    for key in ("설비", "신청내용"):
+        if "돌발" in (fields.get(key) or ""):
+            return "02_돌발AS접수"
+    return kind
+
+
 def status_of(head):
     """같은 프로젝트NO 로 '안내'와 '완료'가 따로 온다 — 완료 글이 곧 작업완료 근거다."""
     if "취소" in head:
@@ -338,7 +363,7 @@ def extract(paths=None):
             접수담당 = people_alias.resolve_text(text, when=msg_day)
             rec = {
                 "프로젝트NO": code,
-                "시트": kind_of(head) or kind_by_room(room),   # 머리글 우선, 없으면 방 이름
+                "시트": kind_by_body(kind_of(head) or kind_by_room(room), fields),   # 머리글 우선, 없으면 방 이름
                 "상태": state,
                 "캠프명": fields.get("캠프명", ""),
                 "설비": fields.get("설비", ""),
