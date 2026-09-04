@@ -33872,6 +33872,7 @@ def t512_band_read_switch_is_reversible():
 
     td = _tf.mkdtemp(prefix="t512_")
     _orig_dir, _orig_kakao = _BE.CACHE_DIR, _BE.load_kakao_records
+    _orig_parse = _BE.parse_post_all
     _orig_env = _os.environ.get("COUPANG_BAND_READ")
     try:
         # 밴드 캐시 두 글 (그 글이 실제로 읽히면 2건이 늘어난다)
@@ -33880,6 +33881,9 @@ def t512_band_read_switch_is_reversible():
                    _os.fdopen(_os.open(_os.path.join(td, "90610953.json"),
                                        _os.O_WRONLY | _os.O_CREAT, 0o600), "w", encoding="utf-8"))
         _BE.CACHE_DIR = td
+        _BE.parse_post_all = lambda no, p, band: [
+            {"밴드": band, "작업일": "2026-01-0" + str(no), "게시일": "2026-01-01",
+             "프로젝트NO": "UJ260000" + str(no)}]
         _BE.load_kakao_records = lambda *a, **k: [
             {"밴드": "카톡 시험", "작업일": "2026-01-01", "게시일": "2026-01-01",
              "프로젝트NO": "UJ2699999"}]
@@ -33924,10 +33928,12 @@ def t512_band_read_switch_is_reversible():
         _ns = {"__name__": "t512_mut", "__file__": _BE.__file__}
         exec(compile(_old, "<t512-mut>", "exec"), _ns)
         _ns["CACHE_DIR"], _ns["load_kakao_records"] = td, _BE.load_kakao_records
+        _ns["parse_post_all"] = _BE.parse_post_all
         _mut = _ns["load_records"]()
         assert _split(_mut)[0] > 0, "계기가 눈멀었다 — 옛 코드인데 (2)가 안 잡힌다"
     finally:
         _BE.CACHE_DIR, _BE.load_kakao_records = _orig_dir, _orig_kakao
+        _BE.parse_post_all = _orig_parse
         if _orig_env is None:
             _os.environ.pop("COUPANG_BAND_READ", None)
         else:
