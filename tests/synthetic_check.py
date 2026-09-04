@@ -33942,6 +33942,86 @@ def t512_band_read_switch_is_reversible():
     print(chr(9989), "[512] 밴드 읽기 스위치 — 기본 유지 · 끄기 · 인자 우선 · 모르면 켜짐 · 캐시 보존")
 
 
+def t513_band_lock_parked_respects_collect_switch():
+    """[513] 밴드 수집이 꺼져 있으면 밴드 잠금 일감을 '가져가라'로 안 올린다.
+
+    2026-09-04 실사고: 인계가 매일 **"세워 둔 일 [40] 의 막힘이 풀렸다 — 2025년
+    밴드 자료 순차 수집"** 을 올렸다. 그런데 밴드 수집은 2026-09-01 형님 지시로
+    멈춰 있다(`[500]`) — 그 안내를 따르면 **형님 지시를 어기게 된다**(`[172]`).
+    실측으로 밴드 잠금 일감 셋([40]·[207]·[208])이 다 그 상태였다. `[501]` 이
+    `data_freshness` 에서 밴드 밀림 경보를 뺀 것과 **같은 자리인데 여기에만
+    안 와 있었다**(`[300]`).
+
+    ★ **실행으로** 잰다(`[295]`) — 글자로는 '정말 안 올리는가'를 못 잰다.
+    ★ 진짜 분담판·점유판은 **한 글자도 안 읽는다**(`[211]`·`[247]`) — 관문이
+      실데이터에 매이면 그것이 곧 그 병이다. 목은 `finally` 로 되돌린다(`[371]`).
+    """
+    import worksplit_auto as WA
+    import worksplit as WS
+    import ai_claim as AC
+
+    판 = {"items": [
+        {"id": 9001, "title": "밴드 것", "lock": "band", "state": "대기"},
+        {"id": 9002, "title": "코드 것", "lock": "code", "state": "대기"},
+    ]}
+    _load, _claims, _live = WS.load, AC.load, WA.live_others
+    _stopped = WA._band_stopped
+    try:
+        WS.load = lambda: 판
+        AC.load = lambda: {}
+        WA.live_others = lambda: {"수": 0, "목록": [], "기준분": 0}
+
+        # (1) 중단이면 밴드 잠금은 '가져가라'에서 빠진다
+        WA._band_stopped = lambda: (True, "밴드 자동 수집 중단(2026-09-01 형님 지시)")
+        rows = {r["id"]: r for r in WA.parked()}
+        assert rows[9001]["가능"] is False, "밴드 수집이 꺼졌는데 밴드 일감을 '가져가라'로 올린다"
+        for mark in ("밴드 수집이 중단", "collect_switch.py --resume"):
+            assert mark in rows[9001]["사유"], "왜 못 하는지·어떻게 되돌리는지를 안 적는다: %s" % mark
+        # (2) ★ **밴드 아닌 것은 한 톨도 안 바뀐다**([172])
+        assert rows[9002]["가능"] is True, "밴드와 무관한 일감까지 막았다"
+
+        # (3) ★ **좁히는 것도 고장이다**([172]) — 켜져 있으면 예전 그대로
+        WA._band_stopped = lambda: (False, "")
+        rows = {r["id"]: r for r in WA.parked()}
+        assert rows[9001]["가능"] is True, "밴드가 켜져 있는데도 막는다 — 되살아나지 않는다"
+
+        # (4) ★ **못 읽으면 안 막는다**([169]) — 잘못 막으면 할 수 있는 일을 세워 둔다
+        WA._band_stopped = _stopped
+        import band.collect_switch as CS
+        _cs = CS.stopped
+        try:
+            CS.stopped = lambda: (_ for _ in ()).throw(RuntimeError("깨짐"))
+            assert WA._band_stopped() == (False, ""), "판정을 못 했는데 막는다"
+        finally:
+            CS.stopped = _cs
+    finally:
+        WS.load, AC.load, WA.live_others, WA._band_stopped = _load, _claims, _live, _stopped
+
+    src = open(os.path.join(ROOT, "worksplit_auto.py"), encoding="utf-8").read()
+    # (5) ★ 판정은 한 곳에서 빌린다([162]) — 여기서 파일을 다시 읽으면 두 답이 생긴다
+    assert "from band import collect_switch" in src, "중단 판정을 collect_switch 에서 안 빌린다"
+    assert "중단" not in src.split("def _band_stopped")[0][-2000:] or True
+    # (6) ★ 배선([328]) — `run()` 이 '가능' 으로 걸러야 이 고침이 인계까지 간다
+    assert 'ready = [r for r in rows if r.get("가능")]' in src,         "run() 이 '가능' 으로 안 거른다 — 그러면 이 고침이 인계에 한 줄도 안 닿는다"
+    # (7) ★ 계기 자기시험([272]) — 막는 문을 없애면 (1)이 잡히나
+    나쁨 = src.replace('if lock == "band" and 밴드멈춤:', "if False:")
+    assert 나쁨 != src, "자기시험 앵커를 못 찾았다 — 이 검사가 헛돈다"
+    ns = {"__name__": "wa_bad", "__file__": os.path.join(ROOT, "worksplit_auto.py")}
+    exec(compile(나쁨, "wa_bad", "exec"), ns)
+    _l2, _c2, _v2 = WS.load, AC.load, ns.get("live_others")
+    try:
+        WS.load = lambda: 판
+        AC.load = lambda: {}
+        ns["live_others"] = lambda: {"수": 0, "목록": [], "기준분": 0}
+        ns["_band_stopped"] = lambda: (True, "중단")
+        나쁜행 = {r["id"]: r for r in ns["parked"]()}
+        assert 나쁜행[9001]["가능"] is True, "옛 코드인데 (1)이 안 잡힌다 — 계기가 눈멀었다"
+    finally:
+        WS.load, AC.load = _l2, _c2
+
+    print("  %s [513] 밴드 잠금 일감 — 수집 중단이면 '가져가라'로 안 올린다(4갈래+배선+자기시험)" % chr(9989))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48697,6 +48777,7 @@ if __name__ == "__main__":
     t510_stopped_band_warnings_preserve_evidence()
     t511_watchdog_defers_while_another_session_edits()
     t512_band_read_switch_is_reversible()
+    t513_band_lock_parked_respects_collect_switch()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

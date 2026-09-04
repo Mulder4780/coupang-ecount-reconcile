@@ -112,6 +112,30 @@ def _lane_hint(lock):
     return "·".join(sorted(names))
 
 
+def _band_stopped():
+    """밴드 수집이 꺼져 있나 — 판정은 `collect_switch` 한 곳에서 빌린다(`[162]`).
+
+    2026-09-01 형님 지시("밴드는 이제 가져오지 말고 카톡데이터만 반영해")로 밴드
+    수집이 멈췄다(`[500]`). 그런데 분담판의 밴드 일감은 그 사실을 몰라 매일
+    **"막힘이 풀렸다 — 가져가라"** 로 인계 맨 위에 올라왔다. 그 안내를 따르면
+    형님 지시를 어기게 된다 — **틀린 지목은 못 잡는 것보다 나쁘다**(`[172]`).
+    `[501]` 이 `data_freshness` 에서 밴드 밀림 경보를 뺀 것과 **같은 자리인데
+    여기에만 안 와 있었다**(`[300]`).
+
+    ★ **못 읽으면 안 막는다**(`[169]`). 잘못 막으면 **할 수 있는 일을 세워 둔다** —
+      물러나는 값은 안내 한 줄이고, 잘못 막는 값은 그 일이 영영 안 되는 것이다.
+      ⚠ `data_freshness` 는 **반대로** 기운다(못 읽으면 그대로 밀림) — 거기서
+      잘못 조용해지면 **못 받은 것을 아무도 못 본다**. 같은 '모름'이라도
+      잃는 것이 다르면 방향도 다르다(`[501]`).
+    """
+    try:
+        from band import collect_switch as _CS
+        멈춤, 왜 = _CS.stopped()
+        return bool(멈춤), str(왜 or "")
+    except Exception:
+        return False, ""
+
+
 def parked():
     """대기·유기된 일마다 **지금 되나 / 왜 안 되나**를 근거와 함께 돌려준다.
 
@@ -133,6 +157,7 @@ def parked():
     me = ai_claim.session_id()
     if me:
         live_sids.add(me)
+    밴드멈춤, 밴드왜 = _band_stopped()   # 항목마다 다시 읽지 않는다(`[168]`)
     for it in d.get("items") or []:
         state = it.get("state")
         if state in (worksplit.DONE, worksplit.HOLD):
@@ -154,7 +179,17 @@ def parked():
         row = {"id": it.get("id"), "title": it.get("title") or "", "자원": lock,
                "차선": _lane_hint(lock), "detail": (it.get("detail") or "")[:400]}
         held = _claim_blocker(lock, claims)
-        if held:
+        if lock == "band" and 밴드멈춤:
+            # ★ **중단은 점유보다 센 사실이다** — 점유가 풀려도 그 일은 못 한다.
+            #   그래서 `held` 보다 먼저 본다(`[501]` 이 조용함보다 중단을 먼저 본 것과
+            #   같은 이유). ★ **조용히 빼지 않는다**(`[169]`) — 목록에는 그대로 두고
+            #   '가능' 만 거짓이라, 인계의 '가져가라' 줄에서만 빠진다. 다시 켜면
+            #   저절로 되살아난다 — 손댈 것이 없다.
+            row.update({"가능": False,
+                        "사유": "밴드 수집이 중단돼 있다%s — 다시 켜려면 "
+                                "`python band/collect_switch.py --resume`"
+                                % ((" · " + 밴드왜) if 밴드왜 else "")})
+        elif held:
             row.update({"가능": False, "사유": "자원 '%s' 을 %s[%s] 가 잡고 있다 — %s"
                                               % (worksplit.LOCK_LABEL.get(lock, lock),
                                                  held.get("who") or "?", held.get("sid") or "?",
