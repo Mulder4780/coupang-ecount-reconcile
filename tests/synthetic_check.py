@@ -34165,6 +34165,191 @@ def t514_takeover_marks_stopped_lock_work():
     print("  %s [514] 이어받기 카드 — 멈춘 자원의 일감은 그 사실을 같이 적는다(4갈래+빌림+자기시험)" % chr(9989))
 
 
+def t515_open_stats_export_says_it_before_the_numbers():
+    """[515] 미처리 통계를 **밖으로 내보낼 때도** 말이 표보다 먼저다.
+
+    화면에서는 [397] 대로 "기사 미처리라는 뜻이 아닙니다" 를 이미 적는다. 그런데
+    카톡으로 넘어가는 것은 화면이 아니라 **이 그림과 이 엑셀**이다 - 숫자만 나가면
+    "돌발AS 68건 미처리" 로 읽히고, 그것이 2026-08-23 사고의 모양 그대로다
+    (류지영 매니저: "완료했는 것도 안 됐다고 올려 놓으니까 일을 안 하는 줄 안다").
+
+    ★ 만든 것과 지켜지는 것은 다르다([76]) - 이 셋(osReportBlocks/osSaveImage/
+      osSaveXlsx)은 2026-09-04 에 화면에 들어갔는데 **검증에는 0곳**이었다.
+    ★ 글자로는 못 잰다([295]) - 순서도, 높이가 내용을 따라 커지는지도.
+      node 로 **실행해서** 잰다.
+    ★ 얼릴 것은 계약이지 구현이 아니다([39]/[219]) - 픽셀 좌표·열 x·줄 수는 안 얼린다.
+    ★ 실측 파일은 한 글자도 안 읽는다([247]/[211]) - 합성 통계로만 잰다.
+    """
+    import re as _re, io as _io, tempfile as _tf, json as _json
+    import proc_guard as _pg                # 창 없이 자식을 띄운다([270]/[272])
+
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    _NL = chr(10)
+    _Q = chr(34)
+
+    def _fn(name):
+        """`function name(` 부터 **중괄호 짝**까지 - 끝을 이름으로 찾지 않는다([39])."""
+        pat = "(?m)^(?:async" + chr(92) + "s+)?function" + chr(92) + "s+"
+        m = _re.search(pat + _re.escape(name), src)
+        assert m, "함수를 못 찾았다: " + name
+        i = src.index("{", m.end())
+        d, j, instr, esc = 0, i, None, False
+        while j < len(src):
+            c = src[j]
+            if instr:
+                if esc:
+                    esc = False
+                elif c == chr(92):
+                    esc = True
+                elif c == instr:
+                    instr = None
+            elif c == chr(34) or c == chr(39) or c == chr(96):
+                instr = c
+            elif c == "{":
+                d += 1
+            elif c == "}":
+                d -= 1
+                if d == 0:
+                    return src[m.start():j + 1]
+            j += 1
+        raise AssertionError("중괄호가 안 맞는다: " + name)
+
+    stats = {
+        "ok": True, "때": "2026-09-04 19:00",
+        "말": "이 표는 우리가 확인한 것만 셉니다 - 미처리 = 기사 미처리라는 뜻이 아닙니다.",
+        "합계": 85, "경보": 12, "사유적힘": 7,
+        "구분": [
+            {"이름": "돌발AS", "건수": 68, "경보": 10, "사유적힘": 5,
+             "중간값": 9, "가장오래": 41,
+             "경과일": [{"이름": "3일 이하", "건수": 20},
+                        {"이름": "30일 넘음", "건수": 8}],
+             "담당기사": [{"이름": "김필우", "건수": 12}],
+             "캠프": [{"이름": "일산2MB", "건수": 4}]},
+            {"이름": "정기점검", "건수": 17, "경보": 2, "사유적힘": 2,
+             "중간값": 5, "가장오래": 22,
+             "경과일": [], "담당기사": [], "캠프": []},
+        ],
+        "근거갈래": [{"이름": "완료글없음", "건수": 60,
+                      "뜻": "접수 기록은 있는데 완료 글이 없다 - 다녀왔을 수 있다"}],
+        "수집기준": "2026-08-31", "수집밀림": True, "밴드중단": True,
+        "원천별수집": {"쿠팡AS": "2026-08-31"},
+    }
+    SJ = _json.dumps(stats, ensure_ascii=False)
+
+    def _run(extra):
+        head = [
+            "let OPEN_STATS = " + SJ + ";",
+            "const notices=[], toasts=[], saved=[], xlsx=[];",
+            "const notice=m=>notices.push(m), toast=m=>toasts.push(m);",
+            "const uxEvent=()=>{};",
+            "const uiFont=()=>" + _Q + "sans-serif" + _Q + ";",
+            "const todayISO=()=>" + _Q + "2026-09-04" + _Q + ";",
+            "const saveOrOpen=(b,n)=>saved.push({n:n,h:b.h});",
+            "const exportRowsXlsx=(t,r,o)=>xlsx.push({t:t,r:r,o:o});",
+            "const ctx2d=()=>({font:0,fillStyle:0,strokeStyle:0,",
+            "  measureText:t=>({width:String(t).length*8}),",
+            "  fillText(){},fillRect(){},strokeRect(){},",
+            "  beginPath(){},moveTo(){},lineTo(){},stroke(){}});",
+            "const document={createElement:()=>({width:0,height:0,getContext:ctx2d,",
+            "  toBlob(cb){cb({h:this.height});}})};",
+            _fn("osReportBlocks"), _fn("osSaveImage"), _fn("osSaveXlsx"),
+        ]
+        tail = [
+            "(async()=>{",
+            "  const out={}, K=s=>s;",
+            "  const B=osReportBlocks()||[];",
+            "  out.iNote=B.findIndex(b=>b[0]===" + _Q + "note" + _Q + ");",
+            "  out.iHead=B.findIndex(b=>b[0]===" + _Q + "thead" + _Q + ");",
+            "  out.note=out.iNote>=0?String(B[out.iNote][1]):" + _Q + _Q + ";",
+            "  out.foot=B.filter(b=>b[0]===" + _Q + "foot" + _Q + ")",
+            "    .map(b=>String(b[1])).join(" + _Q + " | " + _Q + ");",
+            "  await osSaveImage(); out.h1=saved.length?saved[0].h:0;",
+            "  const many=JSON.parse(JSON.stringify(OPEN_STATS));",
+            "  many[" + _Q + "구분" + _Q + "][0][" + _Q + "담당기사" + _Q + "]=",
+            "    Array.from({length:40},(_,i)=>({이름:" + _Q + "기사" + _Q + "+i, 건수:1}));",
+            "  OPEN_STATS=many; saved.length=0; await osSaveImage();",
+            "  out.h2=saved.length?saved[0].h:0;",
+            "  OPEN_STATS={ok:false}; saved.length=0; notices.length=0;",
+            "  await osSaveImage();",
+            "  out.blindImg=saved.length;",
+            "  out.blindMsg=notices.join(" + _Q + " " + _Q + ");",
+            "  OPEN_STATS=" + SJ + "; xlsx.length=0; osSaveXlsx();",
+            "  out.xn=xlsx.length;",
+            "  out.sub=xlsx.length?String((xlsx[0].o.meta||{}).sub||" + _Q + _Q + "):" + _Q + _Q + ";",
+            "  out.cols=xlsx.length?xlsx[0].o.columns:null;",
+            "  out.rows=xlsx.length?xlsx[0].r.length:0;",
+            "  OPEN_STATS=null; xlsx.length=0; notices.length=0; osSaveXlsx();",
+            "  out.blindXlsx=xlsx.length; out.blindXlsxMsg=notices.length;",
+            "  console.log(JSON.stringify(out));",
+            "})();",
+        ]
+        tmp = _tf.mkdtemp()
+        f = os.path.join(tmp, "os_export.js")
+        _io.open(f, "w", encoding="utf-8", newline="").write(
+            _NL.join(head + extra + tail))
+        return _pg.run_tree(["node", f], timeout=180)
+
+    r = _run([])
+    if r.returncode is None or (r.stderr or "").find("not recognized") >= 0:
+        print("   [515] node 가 없어 내보내기 동작은 못 쟀다 - 통과라는 뜻이 아니다")
+        return
+    assert r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+    got = _json.loads((r.stdout or "").strip().splitlines()[-1])
+
+    # (1) ★ 말이 표보다 **먼저**다 - 이 기능의 요점이다
+    assert 0 <= got["iNote"] < got["iHead"], (
+        "이미지에서 말(%d)이 표(%d)보다 먼저가 아니다 - 숫자만 나가면 "
+        "기사 태만으로 읽힌다([397])" % (got["iNote"], got["iHead"]))
+    assert "기사 미처리라는 뜻이 아닙니다" in got["note"], got["note"]
+
+    # (2) 꼬리에 수집 기준·밴드 멈춤이 적힌다 - 없으면 숫자가 '다 본 것'으로 읽힌다([169])
+    assert "2026-08-31" in got["foot"], got["foot"]
+    assert "밴드 수집 멈춤" in got["foot"], got["foot"]
+    assert "기사 미방문이 아닙니다" in got["foot"], got["foot"]
+
+    # (3) 높이는 **내용을 따라** 커진다([273]) - 고정이면 뒤가 조용히 잘린다
+    assert got["h1"] > 0, "이미지를 안 만들었다"
+    assert got["h2"] > got["h1"] + 600, (
+        "40줄을 더했는데 높이가 %d -> %d 밖에 안 늘었다 - 고정 높이면 뒤가 "
+        "조용히 잘리는데 받아 본 사람은 그것이 전부인 줄 안다([273])"
+        % (got["h1"], got["h2"]))
+
+    # (4) 못 받으면 아무것도 안 만들고 **왜인지 말한다**([169])
+    assert got["blindImg"] == 0, (
+        "통계를 못 받았는데 이미지를 만들었다 - 빈 그림은 '미처리 0건'으로 읽힌다")
+    assert "없다는 뜻이 아닙니다" in got["blindMsg"], got["blindMsg"]
+    assert got["blindXlsx"] == 0 and got["blindXlsxMsg"] == 1, (
+        (got["blindXlsx"], got["blindXlsxMsg"]))
+
+    # (5) 엑셀도 **맨 위**에 그 말을 싣는다([327]) - 파일 이름은 카톡에서 잘린다
+    assert got["xn"] == 1, "엑셀을 안 만들었다"
+    assert "기사 미처리라는 뜻이 아닙니다" in got["sub"], got["sub"]
+    assert got["cols"] == ["구분", "항목", "값", "설명"], got["cols"]
+    assert got["rows"] > 10, got["rows"]
+
+    # (6) 단추가 [430] 바쁨 표시에 걸린다 - 인자 없는 호출
+    for nm in ("osSaveImage", "osSaveXlsx"):
+        assert ("onclick=" + _Q + nm + "()" + _Q) in src, (
+            "단추 onclick 에 " + nm + "() 가 없다 - 누른 티가 안 난다([430])")
+
+    # (7) ★ 계기 자기시험([272]) - 말을 표 뒤로 옮기면 (1)이 잡아야 한다
+    bad = _run([
+        "const _orig=osReportBlocks;",
+        "osReportBlocks=function(){const B=_orig(); if(!B) return B;",
+        "  const i=B.findIndex(b=>b[0]===" + _Q + "note" + _Q + ");",
+        "  if(i>=0){const n=B.splice(i,1)[0]; B.push(n);} return B;};",
+    ])
+    if bad.returncode == 0:
+        g2 = _json.loads((bad.stdout or "").strip().splitlines()[-1])
+        assert not (0 <= g2["iNote"] < g2["iHead"]), (
+            "말을 표 뒤로 옮겼는데 (1)이 안 잡는다 - 이 검사는 "
+            "아무것도 안 재고 있다([272])")
+
+    print("  [515] 미처리 통계 내보내기 - 말이 표보다 먼저 · 높이는 내용을 따라 · "
+          "못 받으면 안 만든다 " + chr(9989))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48931,6 +49116,7 @@ if __name__ == "__main__":
     t512_band_read_switch_is_reversible()
     t513_band_lock_parked_respects_collect_switch()
     t514_takeover_marks_stopped_lock_work()
+    t515_open_stats_export_says_it_before_the_numbers()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
