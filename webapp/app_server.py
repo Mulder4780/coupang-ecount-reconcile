@@ -11285,6 +11285,10 @@ self.addEventListener('fetch', e => {
                     "근거": "", "클로드문구": q})
         if p == "/api/calendar":
             return self._send(200, get_calendar())
+        if p == "/api/open-stats":
+            # 미처리 통계. ★ 문턱은 `/api/calendar` 와 **같다** — 같은 원장 행을
+            #   세어 보여 줄 뿐이라 여기만 더 열거나 더 잠그면 화면마다 말이 달라진다.
+            return self._send(200, _open_work_stats())
         if p == "/api/report-prepare":
             qs = parse_qs(urlsplit(self.path).query)
             g = lambda k: (qs.get(k, [""])[0] or "").strip()
