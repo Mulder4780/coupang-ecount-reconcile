@@ -589,9 +589,40 @@ def parse_post(no, p, band):
             "담당자": _person(RE_OLD_MGR.search(c))}
 
 
-def load_records():
+BAND_READ_ENV = "COUPANG_BAND_READ"
+
+
+def band_read_on():
+    """밴드 글을 읽을 것인가 (형님 2026-09-04 지시: 카톡만 반영).
+
+    ★ 끄는 것은 **읽기**뿐이다 — 밴드 캐시는 한 글자도 안 지운다([500] 과 같은
+      자리: 거기서는 긁는 길만 껐고 여기서는 읽는 길이다). 되돌리려면 이 환경변수를
+      지우거나 `include_band=True` 로 부른다.
+    ★ 못 읽으면 **켜짐**이다([169] 를 이 자리에 맞게 정한 것). 잘못 끄면 캠프
+      연락처를 잃는데(2026-09-04 실측 전화 695 → 308곳) 그것은 다시 만들 수 없고,
+      잘못 켜는 값은 옛 근거를 한 번 더 읽는 것뿐이다.
+    """
+    v = str(os.environ.get(BAND_READ_ENV, "")).strip().lower()
+    return v not in ("0", "off", "false", "no")
+
+
+def load_records(include_band=None):
+    """밴드 글 + 카톡 내보내기를 **같은 양식**으로 읽는 한 곳([162]).
+
+    include_band=None 이면 환경변수(`COUPANG_BAND_READ`)가 정한다. 부르는 쪽이
+    명시로 주면 그것이 이긴다 — 검증이 목 없이 갈래를 재려고 쓴다([295]).
+
+    ⚠ 밴드를 빼면 무엇을 잃는지 잰 값(2026-09-04 · 관리대장 v630):
+      캠프 751 → 360곳 · 캠프 전화 695 → 308곳 · 밴드 사진 4,986 → 0장 ·
+      프로젝트NO 1,902 → 1,120개 · 완료 근거 1,636 → 911개.
+      그런데 **캘린더 갈래는 한 건도 안 바뀐다**(as_open 68 · as_done 523 ·
+      pm_overdue 17 · pm_done 389 그대로) — 밴드 근거는 원장이 빈 것을 닫을 때만
+      쓰이는데([244]) 지금 열린 건은 밴드에도 완료 글이 없기 때문이다.
+    """
+    if include_band is None:
+        include_band = band_read_on()
     out = []
-    for f in glob.glob(os.path.join(CACHE_DIR, "*.json")):
+    for f in (glob.glob(os.path.join(CACHE_DIR, "*.json")) if include_band else []):
         b = os.path.basename(f)
         if b.startswith(("raw_", "dump_")):
             continue

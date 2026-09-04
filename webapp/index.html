@@ -9968,6 +9968,12 @@ function osRender(host){
   }).join('');
   el.innerHTML='<h3>미처리 통계 <span class="sub">기준 '+esc2(s['때']||'')+'</span></h3>'
     +'<p class="sub" style="font-size:14px;line-height:1.6">'+esc2(s['말']||'')+'</p>'
+    /* 라벨에 '이미지 저장'·'엑셀 저장' 이 들어가야 [430] 이 스피너를 붙인다.
+       그리고 인자 없는 onclick 이어야 잡힌다 - 화면 둘이 같은 OPEN_STATS 를 본다. */
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px">'
+    +'<button class="btn" onclick="osSaveImage()" title="카톡으로 보낼 이미지 저장">이미지 저장</button>'
+    +'<button class="btn" onclick="osSaveXlsx()" title="엑셀 저장">엑셀 저장</button>'
+    +'</div>'
     +'<div class="gridwrap"><table class="grid"><thead><tr><th>구분</th><th>미처리</th>'
     +'<th>즉시조치</th><th>사유적힘</th><th>중간 경과일</th><th>최장</th></tr></thead>'
     +'<tbody>'+rows+'</tbody></table></div>'
@@ -9975,6 +9981,124 @@ function osRender(host){
     +per
     +'<p class="sub" style="margin-top:8px">수집 '+esc2(s['수집기준']||'모름')
     +(s['수집밀림']?' 까지 (밀림)':' 까지')+(s['밴드중단']?' · 밴드 수집 멈춤':'')+'</p>';
+}
+/* 미처리 통계를 밖으로 내보낸다 - 카톡용 이미지 · 엑셀.
+   ★★ `말`(기사 미처리라는 뜻이 아니다)을 **표보다 먼저** 싣는다. 숫자만 나가면
+      '돌발AS 68건 미처리'로 읽히고, 그것이 2026-08-23 사고([397])의 모양 그대로다 -
+      화면에서 지키는 순서를 파일에서도 지켜야 뜻이 있다. 카톡으로 넘어가는 것은
+      화면이 아니라 이 그림이다.
+   ★ 판정은 서버 것을 그대로 쓴다([162]) - 여기서 다시 세지 않는다.
+   ★ 못 받았으면 아무것도 안 만든다([169]) - 빈 그림이 '미처리 없음'으로 읽힌다. */
+function osReportBlocks(){
+  const s=OPEN_STATS;
+  if(!s || s.ok===false || !String(s['말']||'').trim()) return null;
+  const B=[], day=v=>(v===null||v===undefined)?'—':(v+'일');
+  B.push(['h1','돌발AS · 정기점검 미처리 통계']);
+  B.push(['sub','기준 '+(s['때']||'')]);
+  B.push(['note',s['말']]);
+  B.push(['gap',4]);
+  B.push(['thead',['구분','미처리','즉시조치','사유적힘','중간 경과일','가장 오래']]);
+  (s['구분']||[]).forEach(d=>B.push(['trow',[d['이름'],d['건수']+'건',d['경보']+'건',
+    d['사유적힘']+'건',day(d['중간값']),day(d['가장오래'])]]));
+  B.push(['trow',['합계',(s['합계']||0)+'건',(s['경보']||0)+'건',(s['사유적힘']||0)+'건','','']]);
+  B.push(['gap',10]); B.push(['h2','왜 미처리로 남아 있나']);
+  (s['근거갈래']||[]).forEach(x=>B.push(['bullet','· '+x['이름']+' '+x['건수']+'건'
+    +(x['뜻']?' — '+x['뜻']:'')]));
+  (s['구분']||[]).forEach(d=>{
+    if((d['경과일']||[]).length){ B.push(['gap',8]); B.push(['h2',d['이름']+' 경과일']);
+      (d['경과일']||[]).forEach(x=>B.push(['bullet','· '+x['이름']+' '+x['건수']+'건'])); }
+    if((d['담당기사']||[]).length){ B.push(['gap',6]); B.push(['h2',d['이름']+' 담당기사']);
+      (d['담당기사']||[]).forEach(x=>B.push(['bullet','· '+x['이름']+' '+x['건수']+'건'])); }
+  });
+  B.push(['gap',10]);
+  B.push(['foot','수집 '+(s['수집기준']||'모름')+(s['수집밀림']?' 까지 (밀림)':' 까지')
+    +(s['밴드중단']?' · 밴드 수집 멈춤 — 앱에서 완료 처리를 해야 줄어듭니다':'')]);
+  B.push(['foot','이 표는 우리가 확인한 것만 셉니다 - 미처리 = 기사 미방문이 아닙니다.']);
+  return B;
+}
+/* ★ 높이를 먼저 잰다([273]) - 갈래·기사가 늘면 그림이 커진다. 고정 높이로 두면
+     뒤가 조용히 잘리는데 받아 본 사람은 그것이 전부인 줄 안다.
+   ★ 색은 테마 토큰을 안 쓴다([375]) - 흰 종이에 그리는 그림이라 어두운 화면에서
+     토큰을 쓰면 보고서가 깨진다. 글꼴만 uiFont() 로 화면과 맞춘다([126]). */
+async function osSaveImage(){
+  const B=osReportBlocks();
+  if(!B){ notice('통계를 못 받아 이미지를 만들지 않았습니다 — 미처리가 없다는 뜻이 아닙니다.'); return; }
+  const W=920, PAD=28, FONT=uiFont(), CX=[28,330,430,540,660,790];
+  const m=document.createElement('canvas').getContext('2d');
+  const F=(px,w)=>(w?w+' ':'')+px+'px '+FONT;
+  const wrap=(t,max,font)=>{ m.font=font; t=String(t==null?'':t); const out=[]; let cur='';
+    for(let i=0;i<t.length;i++){ const c=t[i];
+      if(cur && m.measureText(cur+c).width>max){ out.push(cur); cur=c; } else cur+=c; }
+    if(cur) out.push(cur); return out.length?out:['']; };
+  const MAXW=W-PAD*2;
+  const plan=B.map(b=>{ const k=b[0];
+    if(k==='gap')    return {k,h:b[1]};
+    if(k==='h1')     return {k,t:b[1],h:34};
+    if(k==='sub')    return {k,t:b[1],h:22};
+    if(k==='note')   { const L=wrap(b[1],MAXW-24,F(14,600)); return {k,L,h:L.length*23+20}; }
+    if(k==='thead')  return {k,c:b[1],h:30};
+    if(k==='trow')   return {k,c:b[1],h:27};
+    if(k==='h2')     return {k,t:b[1],h:26};
+    if(k==='bullet') { const L=wrap(b[1],MAXW-10,F(12.5)); return {k,L,h:L.length*20}; }
+    const L=wrap(b[1],MAXW,F(11.5)); return {k,L,h:L.length*18}; });
+  const H=Math.ceil(PAD*2+plan.reduce((a,b)=>a+b.h,0)+10);
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const x=cv.getContext('2d');
+  x.fillStyle='#FFFFFF'; x.fillRect(0,0,W,H);
+  let y=PAD;
+  plan.forEach(pn=>{
+    if(pn.k==='gap'){ y+=pn.h; return; }
+    if(pn.k==='h1'){ y+=24; x.font=F(20,700); x.fillStyle='#101828'; x.fillText(pn.t,PAD,y); y+=10; return; }
+    if(pn.k==='sub'){ y+=15; x.font=F(12); x.fillStyle='#6B7280'; x.fillText(pn.t,PAD,y); y+=7; return; }
+    if(pn.k==='note'){ const bh=pn.L.length*23+12;
+      x.fillStyle='#FDF3F2'; x.fillRect(PAD,y,MAXW,bh);
+      x.fillStyle='#C7362B'; x.fillRect(PAD,y,4,bh);
+      x.font=F(14,600); x.fillStyle='#8A2B22'; let ly=y+22;
+      pn.L.forEach(t=>{ x.fillText(t,PAD+14,ly); ly+=23; });
+      y+=pn.h; return; }
+    if(pn.k==='thead'){ y+=20; x.font=F(12.5,700); x.fillStyle='#475467';
+      pn.c.forEach((t,i)=>x.fillText(t,CX[i],y));
+      x.strokeStyle='#C9D2DE'; x.beginPath(); x.moveTo(PAD,y+7); x.lineTo(W-PAD,y+7); x.stroke();
+      y+=10; return; }
+    if(pn.k==='trow'){ y+=19; x.font=F(13, pn.c[0]==='합계'?700:null); x.fillStyle='#101828';
+      pn.c.forEach((t,i)=>{ if(t==='') return; x.fillText(String(t),CX[i],y); });
+      x.strokeStyle='#EEF2F7'; x.beginPath(); x.moveTo(PAD,y+7); x.lineTo(W-PAD,y+7); x.stroke();
+      y+=8; return; }
+    if(pn.k==='h2'){ y+=19; x.font=F(13,700); x.fillStyle='#475467'; x.fillText(pn.t,PAD,y); y+=7; return; }
+    if(pn.k==='bullet'){ x.font=F(12.5); x.fillStyle='#344054';
+      pn.L.forEach(t=>{ y+=20; x.fillText(t,PAD+6,y); }); return; }
+    x.font=F(11.5); x.fillStyle='#6B7280';
+    pn.L.forEach(t=>{ y+=18; x.fillText(t,PAD,y); });
+  });
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  if(!blob){ notice('이미지 생성 실패'); return; }
+  saveOrOpen(blob,'미처리통계_'+todayISO()+'.png');
+  toast('미처리 통계 이미지를 저장했습니다'); uxEvent('tap','open-stats-capture');
+}
+/* 엑셀도 같은 순서다 - `meta.sub` 에 그 말을 실어 파일 **맨 위**에 적는다([327]).
+   파일 이름은 카톡으로 넘어가며 잘리므로 이름만으로는 근거가 못 된다. */
+function osSaveXlsx(){
+  const s=OPEN_STATS, B=osReportBlocks();
+  if(!B){ notice('통계를 못 받아 엑셀을 만들지 않았습니다 — 미처리가 없다는 뜻이 아닙니다.'); return; }
+  const rows=[], add=(g,n,v,d)=>rows.push({구분:g,항목:n,값:v,설명:d||''});
+  const day=v=>(v===null||v===undefined)?'—':(v+'일');
+  (s['구분']||[]).forEach(d=>{
+    add(d['이름'],'미처리',d['건수']+'건');
+    add(d['이름'],'즉시조치(★)',d['경보']+'건','지금 손이 필요한 것');
+    add(d['이름'],'담당자 사유 적힘',d['사유적힘']+'건');
+    add(d['이름'],'중간 경과일',day(d['중간값']));
+    add(d['이름'],'가장 오래',day(d['가장오래']));
+    (d['경과일']||[]).forEach(v=>add(d['이름'],'경과일 '+v['이름'],v['건수']+'건'));
+    (d['담당기사']||[]).forEach(v=>add(d['이름'],'담당기사 '+v['이름'],v['건수']+'건'));
+    (d['캠프']||[]).forEach(v=>add(d['이름'],'캠프 '+v['이름'],v['건수']+'건'));
+  });
+  (s['근거갈래']||[]).forEach(v=>add('왜 미처리로 남아 있나',v['이름'],v['건수']+'건',v['뜻']||''));
+  add('수집','기준일',s['수집기준']||'모름',
+    (s['수집밀림']?'밀림':'')+(s['밴드중단']?' · 밴드 수집 멈춤':''));
+  Object.keys(s['원천별수집']||{}).forEach(k=>add('수집',k,String(s['원천별수집'][k]||'모름')));
+  exportRowsXlsx('미처리통계',rows,{columns:['구분','항목','값','설명'],
+    meta:{title:'돌발AS · 정기점검 미처리 통계 (기준 '+(s['때']||'')+')', sub:s['말']}});
+  uxEvent('tap','open-stats-xlsx');
 }
 async function loadOpenStats(host, force){
   try{
