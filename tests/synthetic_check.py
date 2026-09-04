@@ -33775,6 +33775,87 @@ def t509_kakao_kind_by_body_only_narrows_outing_share():
 
     print(chr(9989) + " [509] 카톡 (외근공유) 본문 되돌림은 그 갈래에만 건다")
 
+def t511_watchdog_defers_while_another_session_edits():
+    """[368] 워치독 자가치유가 '옆 세션이 지금 고치는 중'을 가른다.
+
+    ★ 왜 — `heal_stale_server` 의 60초 mtime 문은 **'편집 끝'과 '저장 사이의 침묵'을
+      못 가른다**. 실측 2026-09-04: 옆 창 저장 간격이 08:55 → 08:58 → 09:00 곧 3분이라
+      60초 창으로 깨끗이 지나간다. 그러면 **반쯤 저장된 코드가 류지영·오종현 앱 서버로
+      올라간다** — 그 함수 독스트링이 스스로 "그게 더 나쁘다" 라고 적어 둔 자리다.
+    ★ 점유는 짐작이 아니라 **선언**이다 — mtime 보다 센 근거라 같이 본다.
+
+    진짜 점유판·진짜 앱 서버는 **한 글자도 안 건드린다**([247]) — 점유판은 임시 경로로,
+    `stale()`·`getmtime` 은 목으로 갈아 끼우고 `finally` 로 되돌린다([371]).
+    """
+    import io as _io, os as _os, sys as _sys, time as _time, socket as _socket
+    import tempfile as _tf, json as _json
+    _sys.path.insert(0, ROOT)
+    _sys.path.insert(0, _os.path.join(ROOT, "webapp"))
+    import watchdog as W, ai_claim as A, restart_server as R
+
+    H = _socket.gethostname()
+    me = _os.getpid()
+    tmp = _tf.mkdtemp(prefix="t511_")
+    board = _os.path.join(tmp, "ai_claims.json")
+
+    def put(rec):
+        with _io.open(board, "w", encoding="utf-8") as f:
+            _json.dump({} if rec is None else {"code": rec}, f)
+
+    live = dict(who="codex", why="[361]", at=_time.time(), sid="05be34b1",
+                agent_pid=0, pid=me, pid_started_at=None, host=H)
+
+    old_claims, old_stale, old_mt = A.CLAIMS, R.stale, _os.path.getmtime
+    try:
+        A.CLAIMS = board
+        R.stale = lambda: (111, 0, ["band/recollect.py", "schedule_watch.py"])
+        _os.path.getmtime = lambda _p: 0.0          # mtime 은 조용하다(60초 문 통과)
+
+        # (1) 남의 살아 있는 세션이 code 를 잡고 있으면 미룬다
+        put(live)
+        got = W._code_claim_holder()
+        assert got and got[0] == "codex" and got[1] == "05be34b1",             "[368] 남의 살아 있는 code 점유를 못 본다: %r" % (got,)
+
+        # (2) ★ 배선 — heal_stale_server 가 실제로 그 문을 거친다([328])
+        say = W.heal_stale_server(True)
+        assert "고치는 중이라 미룸" in say and "codex" in say,             "[368] 문이 회차에 안 걸렸다: %s" % say
+
+        # (3) ★ 내 세션 것은 안 센다([172] — 좁히는 것도 고장이다).
+        #     code 를 잡은 창에서 사람이 워치독을 돌리면 제 점유에 막혀 영영 못 고친다.
+        mine = dict(live); mine["sid"] = A.session_id()
+        put(mine)
+        assert W._code_claim_holder() is None, "[368] 내 세션 점유로 미루면 안 된다"
+
+        # (4) 죽은 세션 것도 안 센다 — 크레딧이 소진돼 멈춘 창은 편집 중이 아니다
+        dead = dict(live); dead["pid"] = 999999
+        put(dead)
+        assert W._code_claim_holder() is None, "[368] 죽은 세션 점유로 미루면 안 된다"
+
+        # (5) 점유가 아예 없으면 예전 그대로 간다(좁히는 것도 고장이다)
+        put(None)
+        say = W.heal_stale_server(True)
+        assert "dry" in say and "고치는 중" not in say,             "[368] 점유가 없는데도 미룬다: %s" % say
+
+        # (6) ★ 못 읽으면 None — 60초 문 하나로 물러난다([169]).
+        #     점유판 하나가 깨졌다고 자가치유가 통째로 멈추면 옛 코드가 며칠을 산다.
+        A.CLAIMS = _os.path.join(tmp, "없는폴더", "ai_claims.json")
+        assert W._code_claim_holder() is None, "[368] 판을 못 읽으면 None 이어야 한다"
+
+        # (7) ★ 판정을 새로 만들지 않는다([162]) — ai_claim 것을 빌린다
+        src = _io.open(_os.path.join(ROOT, "watchdog.py"), encoding="utf-8").read()
+        body = src[src.index("def _code_claim_holder("):src.index("def heal_stale_server(")]
+        code_only = _t370_code_only(body)
+        for name in ("_is_dead", "_is_mine"):
+            assert ("ai_claim." + name) in code_only,                 "[368] 생사·주인 판정을 ai_claim 에서 안 빌린다: %s" % name
+        assert "pid_alive" not in code_only and "getmtime" not in code_only,             "[368] 여기서 생사·시각을 다시 판정하면 --take 와 답이 갈린다([162])"
+    finally:
+        A.CLAIMS, R.stale, _os.path.getmtime = old_claims, old_stale, old_mt
+        import shutil as _sh
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print(chr(9989) + " [368] 워치독은 옆 세션이 고치는 중이면 서버를 안 올린다")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48528,6 +48609,7 @@ if __name__ == "__main__":
     t508_zscan_default_scan_survives_a_kill()
     t509_kakao_kind_by_body_only_narrows_outing_share()
     t510_stopped_band_warnings_preserve_evidence()
+    t511_watchdog_defers_while_another_session_edits()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

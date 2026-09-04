@@ -332,6 +332,50 @@ def watch_sync_contract(dry):
     return "★ 화면동기화 계약 깨짐: " + ", ".join(report["문제"][:3])
 
 
+def _code_claim_holder():
+    """다른 **살아 있는** 세션이 지금 '코드·설정 변경'(code) 을 잡고 있나 (2026-09-04, [368]).
+
+    ★ 왜 mtime 만으로는 모자란가 — 아래 60초 문은 '편집이 끝났다' 와 '저장 사이라
+      잠깐 조용하다' 를 **못 가른다**. 실측 2026-09-04: 옆 창(codex)의 저장 시각이
+      08:55:06 → 08:58:12 → 09:00:18 곧 **약 3분 간격**이라, 60초 창은 그 사이로
+      깨끗이 지나간다. 그러면 **반쯤 저장된 코드가 류지영·오종현 앱 서버로 올라간다**
+      — 이 함수 독스트링이 스스로 "그게 더 나쁘다" 라고 적어 둔 바로 그 자리다.
+
+    ★ 점유는 짐작이 아니라 **선언**이다. mtime 은 "방금 파일이 바뀌었다" 까지이고,
+      점유판은 그 세션이 **제 손으로** "나는 지금 코드를 고치는 중" 이라고 적은 것이다.
+      근거의 세기가 다르므로 이쪽을 같이 본다.
+
+    ⚠ 파일별이 아니다 — `LOCKS` 의 `code` 는 자원 이름 **하나**이고 어느 파일인지는
+      안 적힌다(실측: 이 저장소에 `code:<파일>` 형태 점유는 없다). 그래도 이 판단에는
+      족하다 — 묻는 것이 "누가 지금 코드를 고치나" 하나이기 때문이다.
+
+    ★ 판정을 새로 만들지 않는다([162]) — 생사는 `ai_claim._is_dead`, 주인은
+      `ai_claim._is_mine` 을 그대로 빌린다. 여기서 다시 판정하면 `--take` 와
+      이 자리가 같은 점유를 두고 서로 다른 답을 한다.
+    ★ **내 세션 것은 안 센다**([172]) — 사람이 `code` 를 잡은 창에서 워치독을 손으로
+      돌리면 제 점유에 막혀 **영영 못 고친다**. 좁히는 것도 고장이다.
+    ★ **죽은 세션 것도 안 센다** — 크레딧이 소진돼 멈춘 창의 점유는 편집 중이 아니다.
+    ★ **못 읽으면 `None`**([169]) — 그때는 예전처럼 60초 문 하나로 간다. 점유판 하나가
+      깨졌다고 자가치유가 통째로 멈추면 옛 코드가 며칠을 사는 쪽이 더 나쁘다.
+
+    돌려주는 것: (누가, sid, 몇분째) 또는 None.
+    """
+    try:
+        sys.path.insert(0, ROOT)
+        import ai_claim
+        cur = ai_claim.load().get("code")
+        if not isinstance(cur, dict):
+            return None
+        if ai_claim._is_mine(cur, cur.get("who") or ""):
+            return None
+        if ai_claim._is_dead(cur):
+            return None
+        mins = int((time.time() - cur.get("at", 0)) / 60)
+        return (cur.get("who") or "?", cur.get("sid") or "옛형식", mins)
+    except Exception:
+        return None
+
+
 def heal_stale_server(dry):
     """살아 있지만 **옛 코드로 도는** 서버를 스스로 새 코드로 올린다 (2026-08-08).
 
@@ -361,6 +405,12 @@ def heal_stale_server(dry):
                      default=0)
         if time.time() - newest < 60:
             return "서버 옛코드 — 방금 편집 중이라 미룸(%s)" % ", ".join(newer[:2])
+        # ★ [368] mtime 이 조용해도 **점유판이 편집 중이라 말하면** 미룬다.
+        #   60초 문은 저장 사이의 침묵과 편집 끝을 못 가른다(실측 저장 간격 3분).
+        holder = _code_claim_holder()
+        if holder:
+            return ("서버 옛코드 — %s 세션[%s]이 코드를 고치는 중이라 미룸(%d분째): %s"
+                    % (holder[0], holder[1], holder[2], ", ".join(newer[:2])))
         if dry:
             return "서버 옛코드(dry — 재시작 생략): %s" % ", ".join(newer[:3])
         # ★ 사람이 쓰고 있으면 restart_server 가 **스스로 미룬다**(exit 3, 2026-08-13).
