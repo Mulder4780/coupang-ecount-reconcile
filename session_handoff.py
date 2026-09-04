@@ -2261,13 +2261,60 @@ def to_md(st, for_sol=False):
     return "\n".join(L)
 
 
+def _swap_in(tmp, dst):
+    """tmp 를 dst 로 **원자적으로** 갈아끼운다 — 새로 만들지 않고 [171] 의 그 도구를 빌린다([162]).
+
+    ★ 2026-09-04 실사고: 09:50 회차가 0단계 관문에서 죽었다 —
+      `json.decoder.JSONDecodeError: Expecting , delimiter: line 386 column 301`.
+      범인은 이 스냅샷을 **쓰는 도중에 읽은 것**이다. `open(...,"w")` 는 먼저 통째로
+      비우고 쓰므로 그 사이에 읽는 쪽은 반쯤 쓰인 파일을 본다. 그때 오류가 가리킨
+      char 18881 은 그 순간 파일의 line 386 col 301 에 **글자까지 맞아떨어졌다**.
+
+      값이 관문 하나가 아니다 — 관문은 `daily_run` 의 **0단계**라 여기서 죽으면
+      그날 대조가 통째로 안 돈다(접수취소·객관완료·청구상태·오기입·사실대조·캠프 담당자).
+      관문은 이 파일을 **열여섯 곳**에서 실측 증거로 읽고([247]) 워치독은 30분마다
+      다시 쓰므로 25분 도는 관문과 **반드시 겹친다.** 그런데 겹친다고 늘 죽는 것이
+      아니라 **읽는 그 순간**과 겹쳐야 죽는다 — 그래서 더 조용하고 더 나쁘다([169]).
+
+    ⚠ **맨몸 `os.replace` 로는 모자란다.** 임시폴더 재현(진짜 파일은 한 글자도 안
+      건드렸다 · [247])에서 옛 방식은 1분에 **토막 읽기 186회**였고, 그것을 그냥
+      `os.replace` 로 바꾸자 이번에는 **`PermissionError [WinError 5]`** 가 났다 —
+      윈도우는 읽는 쪽이 물고 있는 파일을 갈아끼우지 못한다([171] 이 밴드 캐시에서
+      겪은 그 자리다). 그래서 물러서며 다시 거는 `swap_in` 을 빌린다.
+
+    ★ 못 갈아끼우면 **옛 스냅샷을 그대로 둔다** — 낡았어도 온전한 것이 반쯤 쓰인
+      것보다 낫다. 대신 조용히 넘어가지 않고 말한다([169]). `.tmp` 도 안 지운다
+      ([171]) — 애써 만든 새 내용을 버리는 것보다 사람이 그것을 보게 두는 편이 낫다.
+    """
+    try:
+        sys.path.insert(0, os.path.join(BASE, "band"))
+        from convert_dump import swap_in
+    except Exception:
+        swap_in = None
+    try:
+        if swap_in:
+            swap_in(tmp, dst)
+        else:
+            os.replace(tmp, dst)
+        return True
+    except Exception as e:
+        print("  ! 인계 스냅샷을 갈아끼우지 못했습니다(%s: %s) — 옛 것을 그대로 둡니다. "
+              "새 내용은 %s 에 있습니다" % (type(e).__name__, str(e)[:80], os.path.basename(tmp)))
+        return False
+
 def write_snapshot(st, for_sol=False):
     """reports/세션인계.md|json 갱신 — 워치독(--snapshot)과 --adopt 가 같은 것을 남긴다."""
     os.makedirs(REPORT_DIR, exist_ok=True)
-    open(os.path.join(REPORT_DIR, "세션인계.md"), "w", encoding="utf-8").write(
-        to_md(st, for_sol=for_sol))
-    json.dump(st, open(os.path.join(REPORT_DIR, "세션인계.json"), "w", encoding="utf-8"),
-              ensure_ascii=False, indent=1, default=str)
+    # ★ 비우고 쓰지 않는다 — tmp 에 다 쓴 뒤 한 번에 갈아끼운다(위 _swap_in 참조).
+    #   .md 도 같이 한다: 반쯤 쓰인 인계 문서는 사람이 "인계가 사라졌다"로 읽는다.
+    md = os.path.join(REPORT_DIR, "세션인계.md")
+    with open(md + ".tmp", "w", encoding="utf-8") as f:
+        f.write(to_md(st, for_sol=for_sol))
+    _swap_in(md + ".tmp", md)
+    js = os.path.join(REPORT_DIR, "세션인계.json")
+    with open(js + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False, indent=1, default=str)
+    _swap_in(js + ".tmp", js)
     return blockers(st, for_sol=for_sol)
 
 
