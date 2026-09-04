@@ -198,6 +198,26 @@ def trace_missed(d):
         pass                                    # 자국 하나 때문에 회차를 세우지 않는다
 
 
+def visible_missed_trace(trace):
+    """옛 자국까지 현재 정책으로 읽되 원본은 보존한다. ERP·모름은 숨기지 않는다."""
+    from band.collect_switch import warning_status
+    collection = warning_status()
+    if (not collection["수집중단"] or trace.get("갈래") != "기회놓침"
+            or trace.get("작업") != "CSOS_BrowserChain"):
+        return trace
+    late = trace.get("늦은것")
+    if not isinstance(late, list) or not late or not all(isinstance(x, str) for x in late):
+        return trace                         # 분리할 근거가 없으면 기존 경보 유지
+    remaining = [x for x in late if not x.startswith("밴드 ")]
+    if len(remaining) == len(late):
+        return trace
+    if not remaining:
+        return None
+    return {**trace, "늦은것": remaining, "수집정책": collection,
+            "무엇": "브라우저 수집이 %d일 넘게 기회를 못 잡았다 — %s"
+                     % (MISS_DAYS, " · ".join(remaining[:4]))}
+
+
 def lock_take():
     """앞 tick 이 아직 돌고 있으면 겹치지 않는다. 죽은 잠금은 즉시 회수한다."""
     try:

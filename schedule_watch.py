@@ -1182,9 +1182,18 @@ def traces():
     out = []
     for path in sorted(_glob.glob(os.path.join(ROOT, "reports", "*_오류.json"))):
         try:
-            d = json.load(open(path, encoding="utf-8"))
+            with open(path, encoding="utf-8") as trace_file:
+                d = json.load(trace_file)
         except Exception:
             continue
+        if os.path.basename(path) == "브라우저수집_오류.json":
+            try:
+                from band.browser_chain import visible_missed_trace
+                d = visible_missed_trace(d)
+            except Exception:
+                pass                         # 정책을 못 읽으면 경보를 없애지 않는다
+            if d is None:
+                continue
         out.append({"파일": os.path.basename(path), "시각": d.get("시각", ""),
                     "무엇": str(d.get("무엇") or "")[:120],
                     # ★ 자국이 제 작업 이름을 적어 두면 위(`notices`)에서 두 목소리를

@@ -891,11 +891,17 @@ def build() -> dict[str, Any]:
     recollect = _read_json(recollect_path)
     sources["band_recollect"] = {"age_minutes": _age_minutes(recollect_path),
                                   "read": recollect is not None}
+    try:
+        from band.collect_switch import warning_status
+        collection = warning_status()
+    except Exception:
+        collection = {"수집중단": False, "왜": "중단 설정 확인 못 함"}
+    sources["band_recollect"]["collection"] = collection
     if recollect:
         pending = recollect.get("손볼것") or []
         changed = (recollect.get("최근변경") or {}).get("바뀐글") or recollect.get("바뀐글") or []
         acknowledged = bool(recollect.get("확인함"))
-        if pending:
+        if pending and not collection["수집중단"]:
             add("band-recollect-pending", "P1", "최근 밴드 글 재수집이 덜 끝남",
                 f"로그인된 탭에서 다시 받아야 할 묶음 {len(pending)}개가 남았습니다. "
                 + " · ".join(str(x)[:120] for x in pending[:2]),

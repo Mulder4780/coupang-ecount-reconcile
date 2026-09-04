@@ -865,11 +865,21 @@ def fix_for(kind: str, side: Optional[Dict[str, Any]] = None) -> str:
             "없으면 스크립트 본문이 죽은 것이다(콘솔 오류를 본다)" % tag)
 
 
+def current_state() -> Dict[str, Any]:
+    """현 정책을 먼저 읽는다. judge는 합성 입력만 판정하는 순수 함수로 유지한다."""
+    from band.collect_switch import warning_status
+    collection = warning_status()
+    if collection["수집중단"]:
+        return {"갈래": "수집중단", "왜": collection["왜"],
+                "재개": collection["재개"], "밴드": {}, "계획": {}}
+    return judge(*load_reports())
+
+
 def lines(state: Optional[Dict[str, Any]] = None) -> List[str]:
     """인계 문서 '먼저 처리할 것' 에 올릴 줄.  정상이면 빈 목록이다."""
-    st = state or judge(*load_reports())
+    st = state if state is not None else current_state()
     kind = st.get("갈래")
-    if kind == "정상":
+    if kind in ("정상", "수집중단"):
         return []
     out = ["크롬 전용 수집 — %s · %s" % (kind, st.get("왜") or "")]
     fix = fix_for(kind or "", st.get("크롬쪽"))
@@ -883,6 +893,10 @@ def render(st: Dict[str, Any]) -> str:
     plan = st.get("계획") or {}
     buf = ["# 크롬 전용 수집 상태 (%s)" % now, ""]
     buf.append("- 판정: **%s** — %s" % (st.get("갈래"), st.get("왜") or ""))
+    if st.get("갈래") == "수집중단":
+        buf += ["", "자동 수집만 중단했습니다. 이미 받은 자료의 흡수·대조는 계속합니다.",
+                "다시 켜기: `%s`" % st.get("재개", "")]
+        return "\n".join(buf) + "\n"
     fix = fix_for(st.get("갈래") or "", st.get("크롬쪽"))
     if fix:
         buf.append("- 할 일: %s" % fix)
@@ -968,10 +982,11 @@ def render(st: Dict[str, Any]) -> str:
 
 
 def check(write: bool = True) -> Dict[str, Any]:
-    st = judge(*load_reports())
+    st = current_state()
     # 크롬 쪽은 **한 번만** 잰다 — 안내와 리포트가 서로 다른 측정을 보면 두 답이 생긴다.
     try:
-        st["크롬쪽"] = chrome_side()
+        if st.get("갈래") != "수집중단":
+            st["크롬쪽"] = chrome_side()
     except Exception as e:                       # 못 재도 회차를 세우지 않는다
         st["크롬쪽"] = {"확장": "모름", "스크립트": "모름", "판": None,
                         "프로필": None, "왜": "측정 실패: %s" % e, "지문": None}

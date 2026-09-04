@@ -75,6 +75,16 @@ def note():
     return why if off else ""
 
 
+def warning_status():
+    """경보도 수집과 같은 스위치를 본다. 못 읽으면 기존 경보를 유지한다([361])."""
+    try:
+        off, why = stopped()
+    except Exception:
+        off, why = False, "중단 설정 확인 못 함"
+    return {"수집중단": bool(off), "왜": why,
+            "재개": "python band/collect_switch.py --resume (또는 COUPANG_BAND_COLLECT=1)"}
+
+
 def stop(why="", when="", write=True):
     """중단으로 적는다.  **사람이 명령할 때만** 부른다."""
     d = {"중단": True, "왜": why, "언제": when}

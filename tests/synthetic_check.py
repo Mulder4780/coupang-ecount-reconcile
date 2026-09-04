@@ -47831,6 +47831,23 @@ def t491_resource_failures_are_not_called_code_bugs():
           + chr(9989))
 
 
+def t510_stopped_band_warnings_preserve_evidence():
+    """[361] 밴드 중단/재개 경보와 ERP·변경 근거 보존을 격리 실행한다."""
+    import importlib.util
+    import io
+    import unittest
+    path = os.path.join(ROOT, "tests", "test_band_collection_stop.py")
+    spec = importlib.util.spec_from_file_location("_band_stop_regression", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(mod.BandCollectionStopTests)
+    output = io.StringIO()
+    result = unittest.TextTestRunner(stream=output).run(suite)
+    assert result.wasSuccessful(), output.getvalue()
+    assert result.testsRun >= 10, "밴드 중단 검증이 빠졌다"
+    print("✅ [510] 수집 중단 경보 억제·재개 복원·ERP/변경 근거 보존 10개 통과")
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
     _gate_lock_or_yield()
@@ -48510,6 +48527,7 @@ if __name__ == "__main__":
     t507_camp_manager_history_is_never_dropped()
     t508_zscan_default_scan_survives_a_kill()
     t509_kakao_kind_by_body_only_narrows_outing_share()
+    t510_stopped_band_warnings_preserve_evidence()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

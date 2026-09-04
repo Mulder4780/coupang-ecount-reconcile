@@ -195,6 +195,9 @@ def ingest(floor_day, started):
 def run(days=DAYS, limit=LIMIT, today=None, do_absorb=True):
     started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     st = {"회차": started, "창일수": int(days), "손볼것": []}
+    from band.collect_switch import warning_status
+    collection = warning_status()
+    st["수집정책"] = collection
 
     steps = absorb() if do_absorb else []
     st["흡수단계"] = steps
@@ -215,7 +218,7 @@ def run(days=DAYS, limit=LIMIT, today=None, do_absorb=True):
         nos = info["번호"]
         need = _not_recollected(band, nos, fresh_cut)
         rec = {"창안글": info["수"], "다시받을것": len(need), "넘침": info["넘침"]}
-        if need:
+        if need and not collection["수집중단"]:
             path, note = make_paste(band, need, days)
             rec["붙여넣기"] = path
             rec["안내"] = note
@@ -397,13 +400,19 @@ def banner():
 
 
 def show(st):
+    from band.collect_switch import warning_status
+    collection = warning_status()
+    if collection["수집중단"]:
+        print("  수집 중단: " + collection["왜"])
+        print("  이미 받은 자료의 흡수·변경 확인은 계속합니다. 재개: " + collection["재개"])
     print(f"밴드 재수집 회차 {st.get('회차','')} · 최근 {st.get('창일수')}일"
           f"(기준일 {st.get('기준일','?')} 이후)")
     for band, r in sorted((st.get("대상") or {}).items()):
         print(f"  밴드 {band}: 창 안 {r['창안글']}건 · 다시 받을 것 {r['다시받을것']}"
               + (f" · 상한 넘침 {r['넘침']}" if r.get("넘침") else "")
+              + (" (자동 수집 중단으로 보류)" if collection["수집중단"] else "")
               + (f"\n      → {os.path.relpath(r['붙여넣기'], ROOT)}"
-                 if r.get("붙여넣기") else ""))
+                 if r.get("붙여넣기") and not collection["수집중단"] else ""))
     g = st.get("흡수") or {}
     print(f"  흡수: 새 글 {g.get('신규',0)} · **바뀐 글 {g.get('변경',0)}**"
           f" · 그대로 {g.get('그대로',0)}")
@@ -422,7 +431,7 @@ def show(st):
         if len(_how) > 150:
             _how = _how[:150] + "…(%d자)" % len(_how)
         print(f"    · {c['글']} ({c['작성일']}) {_how}")
-    for h in st.get("손볼것") or []:
+    for h in ([] if collection["수집중단"] else st.get("손볼것") or []):
         print(f"  ※ {h}")
 
 
