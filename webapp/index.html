@@ -4011,6 +4011,7 @@ button[aria-busy="true"]::after{
       <label class="wt-basis" for="pmBaseDate"><span>조회 기준일</span>
         <input id="pmBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('pm',this.value)">
         <b id="pmBaseLabel">기준일 불러오는 중</b></label></div>
+    <div class="card" id="osHostPm" hidden></div>
     <datalist id="wtTechList"></datalist>
     <!-- 예측 설명(2026-08-06 지시). 화면에 '예측'이라고만 떠 있으면 사람은 그 숫자를
          믿을지 말지 못 정한다. 무엇을 근거로 만든 값인지, 무엇이 아닌지를 밝힌다.
@@ -4046,6 +4047,7 @@ button[aria-busy="true"]::after{
       <label class="wt-basis" for="asBaseDate"><span>조회 기준일</span>
         <input id="asBaseDate" type="date" min="2026-01-01" max="2026-12-31" onchange="wtSetBase('as',this.value)">
         <b id="asBaseLabel">기준일 불러오는 중</b></label></div>
+    <div class="card" id="osHostAs" hidden></div>
     <div class="wt-kpis" id="asKpis"></div>
     <div class="card"><div class="wt-toolbar" id="asToolbar"></div>
       <div class="wt-meta" id="asMeta" role="status" aria-live="polite"></div><div id="asBody"></div></div>
@@ -9929,6 +9931,65 @@ function navCounts(){
     b.setAttribute('title', why ? (why + ' ' + el.textContent + '건') : '');
   });
 }
+// 미처리 통계 — 세는 것은 서버 한 곳(_open_work_stats)이고 화면은 **그리기만** 한다([162]).
+// ★ `말` 을 숫자보다 **먼저** 그린다. 실측 85건이 전부 "우리가 완료를 확인 못한 것"
+//   인데 숫자만 보이면 기사 미처리로 읽힌다 — 2026-08-23 지시가 막은 그 사고다([397]).
+let OPEN_STATS=null, OPEN_STATS_AT=0;
+function osNum(v){ return (v===null||v===undefined)?'—':v; }
+function osBars(list){
+  if(!list||!list.length) return '';
+  return '<div class="rst-list">'+list.map(function(x){
+    return '<span class="rst-row"><b>'+esc2(x['이름'])+'</b> '+x['건수']+'건</span>';
+  }).join('')+'</div>';
+}
+function osRender(host){
+  const el=document.getElementById(host); if(!el) return;
+  const s=OPEN_STATS;
+  if(!s){ el.hidden=true; return; }
+  el.hidden=false;
+  if(s.ok===false){
+    // 못 세면 0 이 아니라 '못 셈'이다([169]).
+    el.innerHTML='<h3>미처리 통계</h3><p class="sub">'+esc2(s['말']||'세지 못했습니다')+'</p>';
+    return;
+  }
+  const rows=(s['구분']||[]).map(function(d){
+    return '<tr><td class="campname"><b>'+esc2(d['이름'])+'</b></td>'
+      +'<td class="num">'+d['건수']+'</td><td class="num">'+d['경보']+'</td>'
+      +'<td class="num">'+d['사유적힘']+'</td><td class="num">'+osNum(d['중간값'])+'</td>'
+      +'<td class="num">'+osNum(d['가장오래'])+'</td></tr>';
+  }).join('');
+  const ev=(s['근거갈래']||[]).map(function(x){
+    return '<li><b>'+esc2(x['이름'])+'</b> '+x['건수']+'건'
+      +(x['뜻']?' <span class="sub">— '+esc2(x['뜻'])+'</span>':'')+'</li>';
+  }).join('');
+  const per=(s['구분']||[]).map(function(d){
+    return '<div style="margin-top:8px"><b>'+esc2(d['이름'])+'</b> · 경과일'
+      +osBars(d['경과일'])+'담당기사'+osBars(d['담당기사'])+'</div>';
+  }).join('');
+  el.innerHTML='<h3>미처리 통계 <span class="sub">기준 '+esc2(s['때']||'')+'</span></h3>'
+    +'<p class="sub" style="font-size:14px;line-height:1.6">'+esc2(s['말']||'')+'</p>'
+    +'<div class="gridwrap"><table class="grid"><thead><tr><th>구분</th><th>미처리</th>'
+    +'<th>즉시조치</th><th>사유적힘</th><th>중간 경과일</th><th>최장</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table></div>'
+    +'<div style="margin-top:10px"><b>왜 미처리로 남아 있나</b><ul class="sub">'+ev+'</ul></div>'
+    +per
+    +'<p class="sub" style="margin-top:8px">수집 '+esc2(s['수집기준']||'모름')
+    +(s['수집밀림']?' 까지 (밀림)':' 까지')+(s['밴드중단']?' · 밴드 수집 멈춤':'')+'</p>';
+}
+async function loadOpenStats(host, force){
+  try{
+    if(force || !OPEN_STATS || Date.now()-OPEN_STATS_AT>120000){
+      const r=await fetch('/api/open-stats',{credentials:'same-origin'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      OPEN_STATS=await r.json(); OPEN_STATS_AT=Date.now();
+    }
+  }catch(e){
+    // 못 받으면 '미처리 0건'이라 하지 않는다([169]).
+    OPEN_STATS={ok:false,'말':'통계를 못 받았습니다 — 미처리가 없다는 뜻이 아닙니다.'};
+  }
+  osRender(host);
+}
+
 function applyView(v){
   /* 저장류 단추 감싸기 — 화면을 열 때 만들어지는 단추까지 잡는다([430]).
      이미 감싼 이름은 건너뛰므로 값이 거의 안 든다. */
@@ -9991,7 +10052,9 @@ function applyView(v){
   // ★ **`renderDataHealth()` 뒤**에 둔다 — 검증 [207] 은 `window.__view = v;`
   //   바로 다음이 그 줄이기를 요구한다(계약: 카테고리를 바꾼 직후 상태 전환이
   //   늦지 않는다). 남의 계약을 밀어내지 않는다([172]).
-  navCounts();                           // 메뉴 건수 — 눌러 보기 전에 안다
+  navCounts();
+  if(v==='as') loadOpenStats('osHostAs');
+  if(v==='pm') loadOpenStats('osHostPm');                           // 메뉴 건수 — 눌러 보기 전에 안다
   // ⚠ 이 줄은 2026-08-26 커밋 9be6f98([432])에서 줄바꿈이 빠져 **위 주석에 먹혔다.**
   //   그동안 화면을 옮겨도 자료 보충이 안 돌았다([377] 계약) — 오류도 안 나고
   //   화면도 멀쩡해서 아무도 몰랐다([169]). 검증 [451] 이 이제 그 자리를 지킨다.
