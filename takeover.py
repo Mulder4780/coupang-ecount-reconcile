@@ -81,6 +81,31 @@ def repo_state():
     return out
 
 
+def _stopped_locks():
+    """지금 **멈춰 있는 자원**과 그 이유 — 판정은 이미 있는 자리에서 빌린다(`[162]`).
+
+    2026-09-05 실사고: 이어받기 카드가 매일 *"창 99148c0e 이 8790분째 조용하다 …
+    맡은 일 **[40] 2025년 밴드 자료 순차 수집** … 다른 계정에서 이어받을 수 있다"*
+    를 올렸다. 그런데 그 일은 **2026-09-01 형님 지시로 멈춘 일**이다(`[500]`) —
+    그 카드를 보고 이어받으면 **형님 지시를 어기게 된다**(`[172]` 틀린 지목).
+    `[513]` 이 하루 전 `worksplit_auto.parked()` 에서 고친 것과 **같은 병인데
+    여기에만 안 와 있었다**(`[300]` — 한 곳에서 배운 것을 다른 곳이 모른다).
+
+    ★ **조용히 빼지 않는다**(`[169]`). 그 창이 그 일을 맡고 있다는 것은 **참**이고,
+      빼 버리면 `남김` 이 거짓이 되어 갈래가 `끊긴듯` → `닫힘` 으로 바뀌어 **카드에서
+      통째로 사라진다.** 여기서 하는 것은 **한 줄 덧붙이는 것**까지다.
+    ★ **못 읽으면 아무 말도 안 한다**(`[169]`) — 모르는 것을 '멈췄다'고 하면
+      **할 수 있는 일을 세워 둔다.** 물러나는 값은 안내 한 줄이고, 잘못 막는 값은
+      그 일이 영영 안 되는 것이다(`[513]` 과 같은 방향).
+    """
+    try:
+        from worksplit_auto import _band_stopped
+        멈춤, _왜 = _band_stopped()
+    except Exception:
+        return {}
+    return {"band": "밴드 수집 중단 — 지금은 이어받지 않는다"} if 멈춤 else {}
+
+
 def sessions(now=None):
     """창마다 `(sid, 조용한분, 갈래, 잡은자원[], 맡은일[])`. 못 읽으면 `(None, 이유)`."""
     now = now or time.time()
@@ -103,10 +128,14 @@ def sessions(now=None):
     맡은일 = {}
     try:
         import worksplit
+        멈춘잠금 = _stopped_locks()   # 항목마다 다시 읽지 않는다(`[168]`)
         for it in (worksplit.load().get("items") or []):
             if str(it.get("state") or "") in ("진행", "대기") and it.get("who"):
-                맡은일.setdefault(str(it.get("sid") or it.get("who") or ""), []).append(
-                    "[%s] %s" % (it.get("id"), str(it.get("title") or "")[:48]))
+                줄 = "[%s] %s" % (it.get("id"), str(it.get("title") or "")[:48])
+                꼬리 = 멈춘잠금.get(str(it.get("lock") or ""))
+                if 꼬리:
+                    줄 += " ← " + 꼬리
+                맡은일.setdefault(str(it.get("sid") or it.get("who") or ""), []).append(줄)
     except Exception:
         맡은일 = {}
 
