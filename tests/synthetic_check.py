@@ -30543,6 +30543,74 @@ def t465_gate_trace_says_why_not_just_how_long():
         finally:
             H.gate_share_note = _real       # 모듈 속성은 프로세스 전체다([371])
         assert H.gate_share_note is _real
+    # (8) [372] **`끝` 은 초록의 증거가 아니다** - `atexit` 이라 검사가 실패해도
+    #     True 다(2026-09-04 실측: 그 값을 '통과'로 읽을 뻔했다). 통과는
+    #     `ALL GREEN` 줄을 지나야만 참이고, 그것이 `초록` 칸이다.
+    #     ★ 글자로는 못 잰다 - **불러서** 잰다([295]). 진짜 자국에는 한 글자도
+    #       안 쓴다([247] - 임시 ROOT 로만).
+    # 이 이름들은 이 함수에 없다([324]·[406]) - 떼어 돌리면 통과하고
+    # **관문에서만 죽는다**([339]).
+    import time as _tm, tempfile as _tf, shutil as _sh, sys as _sys
+    _w = src[src.rindex('def _gate_write_times('):]      # 제 코드를 먼저 집는다([465])
+    _w = _w[:_w.index('_atexit.register')]
+    _w = chr(10).join(l[4:] if l.startswith('    ') else l for l in _w.split(_NL))
+
+    def _trace(green):
+        d = _tf.mkdtemp(prefix='t465g_')
+        try:
+            os.makedirs(os.path.join(d, 'reports'), exist_ok=True)
+            ns = {'os': os, 'json': json, 'time': _tm, 'sys': _sys, 'ROOT': d,
+                  '_GATE_T0': _tm.time(), '_GATE_STEPS': [], '_GATE_SHARE': None,
+                  '_GATE_GREEN': [green]}
+            exec(_w, ns)
+            ns['_gate_write_times']()
+            return json.load(_io.open(os.path.join(
+                d, 'reports', '합성검증_시간.json'), encoding='utf-8'))
+        finally:
+            _sh.rmtree(d, ignore_errors=True)
+
+    assert _trace(False).get('초록') is False, (
+        '[372] 실패한 관문인데 자국이 초록이라 말한다 - 사람이 빨간 관문을 '
+        "'통과'로 읽고 실데이터 작업으로 넘어간다")
+    assert _trace(True).get('초록') is True, '[372] 통과했는데 초록이 아니다'
+    assert _trace(False).get('끝') is True, (
+        "[372] `끝` 계약을 바꿨다 - 그것은 '정상 종료'이지 통과가 아니다([172])")
+    # 둘 다 **끝에서** 찾는다 - 이 검사의 코드도 그 소스 안에 있다([465]).
+    assert src.rindex('_GATE_GREEN[0] = True') > src.rindex('print("ALL GREEN'), (
+        '[372] 깃발이 ALL GREEN 보다 먼저 선다 - 그러면 실패해도 초록이다')
+
+    # (9) 인계가 그 값을 실어 넘긴다([328]) - 옛 자국은 '모름'이지 실패가 아니다([247])
+    _d = _tf.mkdtemp(prefix='t465b_')
+    try:
+        os.makedirs(os.path.join(_d, 'reports'), exist_ok=True)
+        _bp = os.path.join(_d, 'reports', '합성검증_시간.json')
+        _b0 = {'여유율': 0.9, '총초': 100, '한도초': 1500,
+               '오래걸린것': [{'초': 1, '무엇': 't1'}]}
+        _was, H.BASE = H.BASE, _d
+        try:
+            def _gb(extra):
+                _io.open(_bp, 'w', encoding='utf-8').write(
+                    json.dumps(dict(_b0, **extra), ensure_ascii=False))
+                return H.gate_budget().get('초록')
+            assert _gb({'초록': False}) is False, '[372] 인계가 초록 False 를 버린다'
+            assert _gb({'초록': True}) is True, '[372] 인계가 초록 True 를 버린다'
+            assert _gb({}) is None, (
+                "[372] 옛 자국(칸 없음)을 '실패'로 읽는다 - 안 물어본 것이다([247])")
+        finally:
+            H.BASE = _was               # 모듈 속성은 프로세스 전체다([371])
+    finally:
+        _sh.rmtree(_d, ignore_errors=True)
+
+    # (10) 계기 자기시험([272]) - 초록 칸을 없애면 (8)이 잡히는가
+    _old = _w.replace("'초록': bool(_GATE_GREEN[0]),", '')
+    _old = _old.replace('"초록": bool(_GATE_GREEN[0]),', '')
+    assert _old != _w, '[372] 자기시험 재료를 못 만들었다 - 칸 이름이 바뀌었나'
+    _keep, _w = _w, _old
+    try:
+        _caught = _trace(False).get('초록') is not False
+    finally:
+        _w = _keep
+    assert _caught, '[372] 계기가 옛 동작을 못 잡는다([272])'
     print("  [465] 관문 자국이 '왜'까지 적는다(공유폴더 붐빔·못닿음·멀쩡·모름 갈림) \u2705")
 
 
@@ -34020,6 +34088,81 @@ def t513_band_lock_parked_respects_collect_switch():
         WS.load, AC.load = _l2, _c2
 
     print("  %s [513] 밴드 잠금 일감 — 수집 중단이면 '가져가라'로 안 올린다(4갈래+배선+자기시험)" % chr(9989))
+
+
+def t514_takeover_marks_stopped_lock_work():
+    """[514] 멈춘 자원의 일감은 이어받기 카드가 '멈췄다'고 같이 적는다.
+
+    2026-09-05 실사고: 카드가 매일 *"창 99148c0e … 맡은 일 **[40] 2025년 밴드 자료
+    순차 수집** … 다른 계정에서 이어받을 수 있다"* 를 올렸다. 그 일은 2026-09-01
+    형님 지시로 멈춘 일이다(`[500]`) — 이어받으면 **형님 지시를 어기게 된다**
+    (`[172]`). `[513]` 이 하루 전 `worksplit_auto.parked()` 에서 고친 것과 **같은
+    병인데 여기에만 안 와 있었다**(`[300]`).
+
+    ★ **실행으로** 잰다(`[295]`) — 글자로는 '정말 적는가'를 못 잰다.
+    ★ 진짜 분담판은 **한 글자도 안 읽는다**(`[211]`·`[247]`). 목은 `finally` 로
+      되돌린다(`[371]` — 모듈 속성은 프로세스 전체의 것이다).
+    """
+    import takeover as T
+    import worksplit as WS
+    import worksplit_auto as WA
+
+    판 = {"items": [
+        {"id": 40, "title": "밴드 것", "lock": "band",
+         "state": "진행", "who": "claude", "sid": "99148c0e"},
+        {"id": 104, "title": "코드 것", "lock": "code",
+         "state": "진행", "who": "claude", "sid": "99148c0e"},
+    ]}
+    _load, _stopped = WS.load, WA._band_stopped
+    try:
+        WS.load = lambda: 판
+
+        # (1) 중단이면 밴드 일감에 그 사실이 붙는다
+        WA._band_stopped = lambda: (True, "밴드 자동 수집 중단(2026-09-01 형님 지시)")
+        rows, why = T.sessions()
+        일 = [r["맡은일"] for r in (rows or []) if r["sid"] == "99148c0e"]
+        assert 일, "합성 창을 못 만들었다 — 이 검사가 헛돈다(%s)" % why
+        밴드줄 = [x for x in 일[0] if x.startswith("[40]")]
+        assert 밴드줄 and "중단" in 밴드줄[0], \
+            "밴드 수집이 꺼졌는데 카드가 '이어받으라'고만 한다: %s" % 밴드줄
+        # (2) ★ **밴드 아닌 일감은 한 톨도 안 바뀐다**(`[172]`)
+        코드줄 = [x for x in 일[0] if x.startswith("[104]")]
+        assert 코드줄 and "중단" not in 코드줄[0], "밴드와 무관한 일감에까지 붙였다"
+
+        # (3) ★ **좁히는 것도 고장이다**(`[172]`) — 켜지면 예전 그대로
+        WA._band_stopped = lambda: (False, "")
+        rows, _ = T.sessions()
+        일2 = [r["맡은일"] for r in (rows or []) if r["sid"] == "99148c0e"][0]
+        assert all("중단" not in x for x in 일2), \
+            "밴드가 켜져 있는데도 붙는다 — 다시 켜도 안 되살아난다"
+
+        # (4) ★ **못 읽으면 아무 말도 안 한다**(`[169]`)
+        WA._band_stopped = lambda: (_ for _ in ()).throw(RuntimeError("깨짐"))
+        assert T._stopped_locks() == {}, "판정을 못 했는데 '멈췄다'고 말한다"
+    finally:
+        WS.load, WA._band_stopped = _load, _stopped
+
+    src = open(os.path.join(ROOT, "takeover.py"), encoding="utf-8").read()
+    # (5) ★ 판정은 한 곳에서 빌린다(`[162]`) — 여기서 새로 판정하면 두 답이 생긴다
+    assert "from worksplit_auto import _band_stopped" in src, \
+        "중단 판정을 빌리지 않고 여기서 새로 만든다"
+    # (6) ★ 계기 자기시험(`[272]`) — 붙이는 문을 없애면 (1)이 잡히나
+    나쁨 = src.replace("                if 꼬리:", "                if False:")
+    assert 나쁨 != src, "자기시험 앵커를 못 찾았다 — 이 검사가 헛돈다"
+    ns = {"__name__": "tk_bad", "__file__": os.path.join(ROOT, "takeover.py")}
+    exec(compile(나쁨, "tk_bad", "exec"), ns)
+    _l2 = WS.load
+    try:
+        WS.load = lambda: 판
+        ns["_stopped_locks"] = lambda: {"band": "밴드 수집 중단"}
+        rows3, _ = ns["sessions"]()
+        일3 = [r["맡은일"] for r in (rows3 or []) if r["sid"] == "99148c0e"]
+        assert 일3 and all("중단" not in x for x in 일3[0]), \
+            "옛 코드인데 (1)이 안 잡힌다 — 계기가 눈멀었다"
+    finally:
+        WS.load = _l2
+
+    print("  %s [514] 이어받기 카드 — 멈춘 자원의 일감은 그 사실을 같이 적는다(4갈래+빌림+자기시험)" % chr(9989))
 
 
 def t192_synthetic_check_is_harmless():
@@ -48114,6 +48257,11 @@ if __name__ == "__main__":
     import atexit as _atexit
     _GATE_T0 = time.time()
     _GATE_STEPS = []
+    # 통과했나 - `끝` 과 **다른 사실이다**([372] 2026-09-04).
+    # `끝` 은 `atexit` 이라 **검사가 실패해도 True** 이고, 이 깃발은
+    # `ALL GREEN` 줄을 **지나야만** 참이 된다. 그 구별이 없으면 사람이
+    # 빨간 관문을 '통과'로 읽고 실데이터 작업으로 넘어간다.
+    _GATE_GREEN = [False]
     # ★★ **`atexit` 은 시간초과로 죽을 때 안 돈다** (2026-08-31 실측:
     #   `run_tree(timeout=)` 가 taskkill /F 로 끊으면 코드 **-9** 이고
     #   `atexit` 자국이 **안 남는다**). 그러니 위에 적은 *"죽어도 남는다"* 가
@@ -48192,8 +48340,12 @@ if __name__ == "__main__":
             _slow = sorted(_GATE_STEPS, key=lambda x: -x[0])[:12]
             _doc = {
                 "잰때": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                # ★ 끝까지 갔나 — `False` 면 다음 관문이 이것을 치운다
+                # ★ **프로세스가 정상 종료했나** - 통과가 아니다.
+                #   `False` 면 다음 관문이 이것을 치운다.
                 "끝": bool(_done),
+                # ★★ **초록이 곧 통과다**([372]) - 옛 자국에는 이 칸이
+                #    없다. 그때는 '모름'이지 '실패'가 아니다([247]).
+                "초록": bool(_GATE_GREEN[0]),
                 "총초": _total,
                 "한도초": _limit,
                 "여유율": (round(1 - _total / _limit, 3) if _limit else None),
@@ -48778,6 +48930,11 @@ if __name__ == "__main__":
     t511_watchdog_defers_while_another_session_edits()
     t512_band_read_switch_is_reversible()
     t513_band_lock_parked_respects_collect_switch()
+    t514_takeover_marks_stopped_lock_work()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
+    # ★ 여기까지 와야 초록이다 - `atexit` 이 이 값을 자국에 적는다.
+    #   print 가 죽으면(cp949 콘솔) 깃발은 False 로 남는다 - 그때는
+    #   회차도 실패로 보므로 **자국과 회차가 같은 말을 한다**([169]).
+    _GATE_GREEN[0] = True
