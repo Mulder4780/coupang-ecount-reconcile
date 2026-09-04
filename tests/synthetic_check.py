@@ -33858,6 +33858,84 @@ def t511_watchdog_defers_while_another_session_edits():
     print(chr(9989) + " [511] 워치독은 옆 세션이 고치는 중이면 서버를 안 올린다")
 
 
+def t512_band_read_switch_is_reversible():
+    """밴드 읽기 스위치 — 형님 2026-09-04 지시 "밴드는 이제 가져오지 말고 카톡데이터만 반영해".
+
+    ★ 끄는 것은 **읽기**뿐이다 — 밴드 캐시는 한 글자도 안 지운다([500] 은 긁는 길,
+      여기는 읽는 길). 그래서 언제든 되돌릴 수 있다.
+    ★ 재는 것은 **되돌아가면 안 되는 계약**이다([39]): 기본은 지금 그대로 · 끄면
+      카톡만 · 인자가 이긴다 · 모르는 값은 켜짐([169]) · 캐시를 안 지운다.
+    ★ 진짜 밴드 캐시를 안 읽는다([211]) — 임시 폴더와 목으로만 잰다([247]).
+    """
+    import band_extract as _BE
+    import os as _os, json as _json, tempfile as _tf, shutil as _sh, io as _io
+
+    td = _tf.mkdtemp(prefix="t512_")
+    _orig_dir, _orig_kakao = _BE.CACHE_DIR, _BE.load_kakao_records
+    _orig_env = _os.environ.get("COUPANG_BAND_READ")
+    try:
+        # 밴드 캐시 두 글 (그 글이 실제로 읽히면 2건이 늘어난다)
+        _json.dump({"posts": {"1": {"content": "PJ UJ2600001", "time": "2026-01-02 10:00"},
+                              "2": {"content": "PJ UJ2600002", "time": "2026-01-03 10:00"}}},
+                   _os.fdopen(_os.open(_os.path.join(td, "90610953.json"),
+                                       _os.O_WRONLY | _os.O_CREAT, 0o600), "w", encoding="utf-8"))
+        _BE.CACHE_DIR = td
+        _BE.load_kakao_records = lambda *a, **k: [
+            {"밴드": "카톡 시험", "작업일": "2026-01-01", "게시일": "2026-01-01",
+             "프로젝트NO": "UJ2699999"}]
+
+        def _split(recs):
+            k = sum(1 for r in recs if str(r.get("밴드", "")).startswith("카톡"))
+            return (len(recs) - k, k)   # (밴드, 카톡)
+
+        # (1) 기본은 지금 그대로 — 켜면 밴드가 들어온다([172] 좁히는 것도 고장이다)
+        _os.environ.pop("COUPANG_BAND_READ", None)
+        band, kakao = _split(_BE.load_records())
+        assert kakao == 1, "카톡이 안 들어왔다: %d" % kakao
+        assert band > 0, "기본인데 밴드가 통째로 빠졌다 — 아무것도 안 바뀌어야 한다"
+
+        # (2) 끄면 카톡만
+        _os.environ["COUPANG_BAND_READ"] = "0"
+        band, kakao = _split(_BE.load_records())
+        assert (band, kakao) == (0, 1), "끄지 못했다: 밴드 %d · 카톡 %d" % (band, kakao)
+
+        # (3) 인자가 환경변수를 이긴다 (검증이 목 없이 갈래를 재려고 쓴다)
+        assert _split(_BE.load_records(include_band=True))[0] > 0, "인자가 안 이겼다"
+        _os.environ.pop("COUPANG_BAND_READ", None)
+        assert _split(_BE.load_records(include_band=False))[0] == 0, "인자로 못 껐다"
+
+        # (4) 모르는 값은 **켜짐**이다([169]) — 잘못 끄면 캠프 연락처를 잃는데
+        #     그것은 다시 만들 수 없고, 잘못 켜는 값은 옛 근거 한 번이다.
+        for bad in ("xyz", "", "  ", "1", "on"):
+            _os.environ["COUPANG_BAND_READ"] = bad
+            assert _BE.band_read_on() is True, "모르는 값 %r 을 꺼짐으로 읽었다" % bad
+        for good in ("0", "off", "false", "no", "OFF", " No "):
+            _os.environ["COUPANG_BAND_READ"] = good
+            assert _BE.band_read_on() is False, "%r 로 못 껐다" % good
+
+        # (5) 끈 뒤에도 **캐시 파일은 그대로**다 — 읽기만 끈 것이지 지운 것이 아니다
+        assert _os.path.exists(_os.path.join(td, "90610953.json")), "캐시가 사라졌다"
+
+        # (6) 계기 자기시험([272]) — 스위치를 없앤 옛 코드면 (2)가 잡혀야 한다
+        _os.environ["COUPANG_BAND_READ"] = "0"
+        _src = _io.open(_BE.__file__, encoding="utf-8").read()
+        _old = _src.replace("if include_band is None:", "if False:").replace(
+            "if include_band else []", "if True else []")
+        _ns = {"__name__": "t512_mut", "__file__": _BE.__file__}
+        exec(compile(_old, "<t512-mut>", "exec"), _ns)
+        _ns["CACHE_DIR"], _ns["load_kakao_records"] = td, _BE.load_kakao_records
+        _mut = _ns["load_records"]()
+        assert _split(_mut)[0] > 0, "계기가 눈멀었다 — 옛 코드인데 (2)가 안 잡힌다"
+    finally:
+        _BE.CACHE_DIR, _BE.load_kakao_records = _orig_dir, _orig_kakao
+        if _orig_env is None:
+            _os.environ.pop("COUPANG_BAND_READ", None)
+        else:
+            _os.environ["COUPANG_BAND_READ"] = _orig_env
+        _sh.rmtree(td, ignore_errors=True)
+    print(chr(9989), "[512] 밴드 읽기 스위치 — 기본 유지 · 끄기 · 인자 우선 · 모르면 켜짐 · 캐시 보존")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -48612,6 +48690,7 @@ if __name__ == "__main__":
     t509_kakao_kind_by_body_only_narrows_outing_share()
     t510_stopped_band_warnings_preserve_evidence()
     t511_watchdog_defers_while_another_session_edits()
+    t512_band_read_switch_is_reversible()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
