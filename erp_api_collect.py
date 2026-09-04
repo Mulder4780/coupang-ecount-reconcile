@@ -46,6 +46,16 @@ _SIGNS = (
     ("요청 본문 형식", r"exp00001|데이터 입력에 오류|입력 데이터 확인",
      "config/ecount_config.json 의 endpoints.<갈래> 요청 칸 이름을 이카운트 API 문서와 맞춘다"
      " (짐작으로 바꿔 가며 반복 호출하지 않는다 — 트래픽 제한이 ERP 전체 차단으로 번진다)"),
+    # 2026-09-05 실측: 66회를 `code`(코드가 깨졌다)로 재시도했는데 진짜 원인은
+    # **저쪽 서버가 503 을 준 것**이었다.  우리가 고칠 코드가 없다 —
+    # ★ 그런데 조치가 `--force` 였다.  503 에 다시 두드리는 것은 절대규칙
+    #   (이카운트 무차별 API 탐침 금지)이 막는 방향이다.
+    # ★ 표시는 **우리 클라이언트가 만드는 한 줄**(`HTTP {code} {url}`)만 본다 —
+    #   남의 HTML 본문까지 훑으면 'login' 같은 낱말에 걸려 옆 갈래를 삼킨다([172]).
+    ("저쪽 서버가 안 받음", r"http 5[0-9][0-9][^0-9]|service unavailable|bad gateway",
+     "이카운트 서버가 지금 안 받는다 — 코드에는 고칠 것이 없다. 돌아올 때까지 기다린다"
+     " (다시 두드리지 않는다 — 트래픽 제한이 ERP 전체 차단으로 번진다)."
+     " 급하면 ERP 화면 XLSX → download_intake 경로가 정본이다"),
 )
 
 
@@ -323,9 +333,21 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         fields = getattr(exc, "fields", {})
         # 클라이언트가 못 만든 실패(설정·로그인)도 밖으로 나가기 전에 지운다.
+        msg = f"{type(exc).__name__}: {exc}"
+        kind, how = fields.get("갈래"), fields.get("조치")
+        # ★ 진단기는 같은 파일에 있는데 이 길에서만 안 불렸다 — 그래서 갈래가
+        #   늘 '모름' 이고 읽는 쪽은 'code'(코드가 깨졌다)라 적었다([289]).
+        # ★ **첫 줄만** 본다: 그 줄은 우리 클라이언트가 만든 말이고, 뒤에 붙는
+        #   남의 HTML 본문을 같이 훑으면 옆 갈래를 삼킨다([172]).
+        if not kind or kind == "모름":
+            head_line = (msg.splitlines() or [msg])[0]
+            kind, how = _diagnose(head_line)
+        # ★ 갈래를 **맨 앞**에 둔다 — 이 값은 300자에서 잘리는데(읽는 쪽은 220자)
+        #   뒤에 두면 정작 필요한 한 마디가 남의 HTML 에 밀려 사라진다([292]·[325]).
+        tag = f"[{kind}] " if kind and kind != "모름" else ""
         failed = {"ok": False, "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-                  "error": mask_secrets(f"{type(exc).__name__}: {exc}")[:300],
-                  "갈래": fields.get("갈래", "모름"), "조치": fields.get("조치", ""),
+                  "error": (tag + mask_secrets(msg))[:300],
+                  "갈래": kind or "모름", "조치": how or "",
                   "원문": fields.get("원문", "")}
         _atomic_json(STATUS, failed)
         print("ERP API 수집 실패:", failed["error"])
