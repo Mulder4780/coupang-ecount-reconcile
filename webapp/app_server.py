@@ -8393,6 +8393,149 @@ def _apply_safe_pending_presentation(event):
     return event
 
 
+_OPEN_KINDS = (("as_open", "돌발AS"), ("pm_overdue", "정기점검"))
+
+_AGE_BINS = ((3, "3일 이내"), (7, "4~7일"), (30, "8~30일"),
+             (90, "31~90일"), (10 ** 9, "91일 넘음"))
+
+_EVIDENCE_MEAN = {
+    "완료글없음": "접수 글은 있는데 완료 글이 없다 — 다녀왔는데 안 적었을 수 있다",
+    "못봄": "수집이 그 날짜까지 안 와서 확인하지 못했다",
+    "근거없음": "밴드·카톡 어디에도 이 프로젝트 글이 없다",
+}
+
+
+def _stat_rows(rows, key, top=0, empty=None):
+    """한 축을 센다. 빈 칸은 `empty` 로 이름을 준다 — 빈 칸을
+    그대로 내보내면 받는 쪽이 '없는 것'으로 읽는다([169])."""
+    c = {}
+    for r in rows:
+        v = r.get(key)
+        v = str(v).strip() if v not in (None, "") else (empty or "(빈칸)")
+        c[v] = c.get(v, 0) + 1
+    out = [{"이름": k, "건수": n} for k, n in
+           sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))]
+    if top and len(out) > top:
+        rest = sum(x["건수"] for x in out[top:])
+        out = out[:top] + [{"이름": "나머지 %d개" % (len(out) - top),
+                            "건수": rest, "묶음": True}]
+    return out
+
+
+def _open_work_stats():
+    """돌발AS·정기점검 미처리를 **세기만** 한다 — 판정은 캘린더 것을 빌린다([162]).
+
+    ★ 여기서 미처리를 **다시 판정하지 않는다.** `_calendar_work_events()` 가 이미
+      취소([243])·밴드 완료([244])·수집 밀림([397])을 다 걸러 낸 결과를 세므로
+      화면 목록과 이 숫자가 **구조적으로** 같다. 여기서 새로 판정하면 같은 물음에
+      두 답이 생기고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+
+    ★★ **숫자만 내면 2026-08-23 사고가 되살아난다.** 그날 지시가
+      *"ERP 밴드 못 긁어와서 AS 담당자 일처리가 안된걸로 나오는데 이 문제
+      절대 안생기게 해"* 였다([397]). 실측 2026-09-04: 미처리 85건의
+      **근거갈래가 전부 `완료글없음`** 이다 — 그것은 "기사가 안 갔다"가
+      아니라 **"완료 글이 안 올라와 우리가 모른다"** 다. 그래서 `말` 칸이 그
+      사실을 **숫자와 함께** 나간다. 뗼면 본부장·대표가 이 숫자를 기사
+      태만으로 읽는다([169]·[172]).
+
+    비싸지 않다 — 실측 콜드 1.0초 · 웜 0.03초(`get_works` 디스크 캐시 뒤 · [367]).
+    """
+    try:
+        events = _calendar_work_events()
+    except Exception as exc:
+        return {"ok": False, "합계": None,
+                "못셈": "%s: %s" % (type(exc).__name__, str(exc)[:120]),
+                "말": "미처리를 세지 못했습니다 — 0건이라는 뜻이 아닙니다."}
+
+    names = dict(_OPEN_KINDS)
+    rows = [e for e in events if e.get("분류") in names]
+
+    def age_bin(v):
+        if not isinstance(v, int):
+            return "모름"
+        for limit, label in _AGE_BINS:
+            if v <= limit:
+                return label
+        return _AGE_BINS[-1][1]
+
+    per = []
+    for key, label in _OPEN_KINDS:
+        sub = [r for r in rows if r.get("분류") == key]
+        ages = [r.get("경과일") for r in sub if isinstance(r.get("경과일"), int)]
+        ages.sort()
+        per.append({
+            "키": key, "이름": label, "건수": len(sub),
+            "경보": sum(1 for r in sub if r.get("경보")),
+            "사유적힘": sum(1 for r in sub if str(r.get("사람사유") or "").strip()),
+            "가장오래": (ages[-1] if ages else None),
+            "중간값": (ages[len(ages) // 2] if ages else None),
+            "경과일": _stat_rows([{"b": age_bin(r.get("경과일"))} for r in sub], "b"),
+            "근거갈래": _stat_rows(sub, "근거갈래", empty="모름"),
+            "지연구분": _stat_rows(sub, "지연구분", empty="구분 없음"),
+            "담당기사": _stat_rows(sub, "담당기사", top=6, empty="미배정"),
+            "캠프": _stat_rows(sub, "캠프명", top=6, empty="(빈칸)"),
+        })
+
+    ev_all = _stat_rows(rows, "근거갈래", empty="모름")
+    for x in ev_all:
+        x["뜻"] = _EVIDENCE_MEAN.get(x["이름"], "")
+
+    # ★ 이 함수는 **사전**을 돌려준다 — 날짜 문자열이 아니다([165]).
+    #   짐작으로 str() 비교를 했다가 `수집밀림` 이 **거짓으로 False** 가 됐다.
+    try:
+        cut = band_collect_cutoff() or {}
+    except Exception as exc:
+        cut = {"읽음": False, "왜": str(exc)[:80]}
+    read_ok = bool(cut.get("읽음"))
+    cut_day = str(cut.get("최신") or "") or None
+    behind = bool(cut.get("밀림"))
+    band_off = bool(cut.get("밴드중단"))
+
+    alarm = sum(1 for r in rows if r.get("경보"))
+    unknown = sum(x["건수"] for x in ev_all if x["이름"] in _EVIDENCE_MEAN)
+    said = sum(1 for r in rows if str(r.get("사람사유") or "").strip())
+
+    talk = []
+    if not rows:
+        talk.append("미처리로 남은 건이 없습니다.")
+    else:
+        if unknown:
+            talk.append("%d건 중 %d건은 우리가 완료를 확인 못한 것입니다 — "
+                        "기사 미처리라는 뜻이 아닙니다." % (len(rows), unknown))
+        talk.append("지금 손이 필요한 것(★ 즉시조치)은 %d건입니다." % alarm)
+        if not read_ok:
+            talk.append("수집이 어디까지 왔는지는 확인하지 못했습니다 — "
+                        "이 숫자가 오늘까지를 다 본 것이라는 뜻이 아닙니다.")
+        elif behind and cut_day:
+            talk.append("수집이 %s 까지만 와 있어 그 뒤 올라온 완료 글은 "
+                        "아직 못 봤습니다." % cut_day)
+        # ★ 밴드 수집은 2026-09-01 지시로 멈췄다([501]). 그러면 '완료글없음' 은
+        #   기다린다고 저절로 안 풀린다 — 그 사실을 안 적으면 사람이 오지 않을
+        #   자료를 계속 기다린다([169]).
+        if band_off:
+            talk.append("밴드 수집은 멈춰 있어 밴드 완료 글로는 앞으로도 "
+                        "안 풀립니다 — 앱에서 완료 처리를 하셔야 줄어듭니다.")
+        if said == 0:
+            talk.append("담당자 사유가 적힌 건은 아직 없습니다.")
+
+    return {
+        "ok": True,
+        "때": datetime.now().isoformat(timespec="seconds"),
+        "합계": len(rows),
+        "구분": per,
+        "근거갈래": ev_all,
+        "경보": alarm,
+        "사유적힘": said,
+        "확인못함": unknown,
+        "수집기준": cut_day,
+        "수집읽음": read_ok,
+        "수집밀림": behind,
+        "밴드중단": band_off,
+        "원천별수집": dict(cut.get("밴드별") or {}),
+        "말": " ".join(talk),
+    }
+
+
 def get_calendar():
     """구글 캘린더(COUPANG 설치+납품+AS) 대조 캐시.
 
