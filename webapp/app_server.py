@@ -7383,7 +7383,7 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 8   # 2026-08-23: 완료 색인을 프로젝트+업무종류로 가름
+_BAND_EV_VER = 9   # 2026-09-04: 밴드 수집 중단 여부를 색인에 담는다
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
 #:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
@@ -7431,6 +7431,32 @@ def _kakao_gist(body):
     if len(gist) > _KAKAO_GIST_MAX:
         gist = gist[:_KAKAO_GIST_MAX] + f"…(원문 {len(gist)}자)"
     return gist
+
+
+def _band_collect_stopped():
+    """밴드 자동 수집이 멈춰 있나 — 판정은 `collect_switch` 것을 빌린다([162]).
+
+    ★ 2026-09-01 형님 지시로 밴드 수집이 멈췄다. 그러면 밴드 게시일이 그 자리에
+      **굳으므로**, 그 날짜를 완료 판정 기준으로 쓰면 그 뒤 접수건이 전부
+      `못봄`("곧 답이 나온다")으로 떨어지는데 **그 답은 영영 안 온다**([169]).
+      그리고 화면이 "밴드에 완료 글이 없다"고 말하면 대표는 그것을 "기사가 안
+      올렸다"로 읽는다 — 밴드는 이제 아무도 안 쓰는데도([172] 틀린 지목).
+    ★ **못 읽으면 '중단 아님'이다**([169]). 모름을 근거로 카톡만 보면 밴드가 실제로
+      도는 날 기준이 앞당겨져 없는 `못봄` 이 는다 — 물러나는 값은 예전 동작
+      그대로이고 기우는 값은 없는 경보다([172] 좁히는 것도 고장이다).
+    ★ 부르는 곳은 색인을 만들 때 **한 번**이다([168]) — 그 답이 `밴드중단` 으로
+      실려 판정 자리들이 그것을 읽는다. 행마다 파일을 다시 읽지 않는다.
+    """
+    for _p in (None, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "band")):
+        try:
+            if _p and _p not in sys.path:
+                sys.path.insert(0, _p)
+            import collect_switch as _cs
+            return bool(_cs.stopped()[0])
+        except Exception:
+            continue
+    return False
 
 
 def _band_completion_index():
@@ -7499,6 +7525,7 @@ def _band_completion_index():
     out = {"완료": {}, "완료종류": {"as": {}, "pm": {}},
            "언급": set(), "카톡": {}, "최신": "", "읽음": False,
            "밴드수집": {}, "수집최신": "", "언급밴드": {},
+           "밴드중단": _band_collect_stopped(),
            "지문": fp, "판": _BAND_EV_VER}
     try:
         import band_extract
@@ -7776,7 +7803,17 @@ def _completion_cutoff(row, idx):
         #   바뀔 뿐이고 둘 다 경보를 안 올린다([397] `_collect_behind`).
         kakao_days = [day for name, day in per.items() if "카톡" in str(name) and day]
         if kakao_days:
-            base = max(base, min(kakao_days))
+            if idx.get("밴드중단"):
+                # ★ 2026-09-04 형님 지시("밴드는 빼버려"). 밴드가 멈추면 그 날짜는
+                #   **굳는다** — 굳은 날짜를 섞으면 카톡이 그보다 이른 날 기준이
+                #   밴드 쪽으로 밀려 "아직 못 봤다"를 확언한다([169]).
+                # ★ 그 칸이 **없으면**(옛 색인·합성 자료) 예전 그대로다([247]) —
+                #   판정이 실데이터에 매이면 안 된다([211]).
+                base = min(kakao_days)
+            else:
+                # 밴드가 살아 있으면 예전 그대로 **더 늦게까지 본 쪽**이다 —
+                # 완료 글은 어느 쪽에도 오므로(2026-08-21 회귀 감시 · t376).
+                base = max(base, min(kakao_days))
         return base
     pj = str((row or {}).get("프로젝트NO") or "").split(" · ")[0].strip()
     src = (idx.get("언급밴드") or {}).get(pj) or ""
@@ -7869,15 +7906,25 @@ def _machine_why(row, idx, got):
     def _with(base):
         return base + " · " + note if note else base
 
+    # ★ 2026-09-04 형님 지시("밴드는 빼버려"). 밴드 수집이 멈춘 뒤로 "밴드에 완료
+    #   글이 없다"는 **뜻이 없는 말**이다 — 아무도 안 올리니까. 그런데 대표는 그것을
+    #   "기사가 안 올렸다"로 읽는다([172]). 그래서 주어를 카톡으로 바꾼다.
+    #   ★ 밴드 완료 **근거는 그대로 쓴다**([172]) — 실측 63건(as 50 · pm 13)이
+    #     밴드 근거로만 닫혀 있어, 지우면 다녀온 현장이 미처리로 되돌아간다([397]).
+    _src = "카톡" if idx.get("밴드중단") else "밴드"
     if pj and pj in idx.get("완료", {}):
-        return _with("밴드는 완료라 하는데 같은 프로젝트에 열린 건이 여럿 — 사람이 가른다")
+        return _with("완료 보고가 있는데 같은 프로젝트에 열린 건이 여럿 — 사람이 가른다")
     if last and got and got > last:
-        return _with(f"밴드 수집이 {last} 까지만 왔다 — 아직 못 본 것일 수 있다")
+        return _with(f"{_src} 수집이 {last} 까지만 왔다 — 아직 못 본 것일 수 있다")
     if pj and pj not in idx.get("언급", ()):
         # 여기는 근거가 애초에 없는 갈래다 — `note` 도 반드시 비어 있다.
         return "밴드·카톡에 이 프로젝트 글이 없다"
     # ★ 뭉쳐 말하지 않는다: 카톡에 뭔가 적혀 있으면 '밴드에만 없다'고 정확히 말한다.
     #   예전 문구는 카톡에 완료 보고가 와 있어도 그냥 '완료 글이 없다'였다.
+    if _src == "카톡":
+        # 밴드는 멈췄다 — 카톡이 정본이므로 카톡을 주어로 말한다.
+        return _with("카톡에 접수 글은 있으나 완료 보고가 없다" if k
+                     else "카톡에 완료 보고가 없다")
     return _with("밴드에 접수 글은 있으나 완료 글이 없다" if not k
                  else "밴드에는 완료 글이 없다(카톡에는 글이 있다)")
 
