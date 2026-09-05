@@ -34363,7 +34363,7 @@ def t516_remote_5xx_is_not_a_code_bug():
       문장 전체를 못 박지 않는다.
     ★ 실측 파일(`reports/erp_api_latest.json`)에는 **한 글자도 안 쓴다**([247]) —
       STATUS 를 임시 경로로 돌리고 `finally` 로 되돌린다([371])."""
-    import io as _io, os as _os, json as _json, tempfile as _tf, sys as _sys
+    import io as _io, os as _os, json as _json, tempfile as _tf, sys as _sys, contextlib as _cl
     _sys.path.insert(0, ROOT)
     import erp_api_collect as E
     import autopilot as A
@@ -34410,7 +34410,15 @@ def t516_remote_5xx_is_not_a_code_bug():
     try:
         E.STATUS = type(E.STATUS)(_os.path.join(tmp, "erp_api_latest.json"))
         E.collect = _boom
-        rc = E.main([])
+        # ★ 이 검사의 **재료가 관문 stdout 으로 새면 안 된다**(2026-09-05 실사고).
+        #   `main()` 이 찍는 `[저쪽 서버가 안 받음] … HTTP 503` 한 줄이 관문 전체
+        #   출력에 남으면, 관문이 **다른 이유로** 죽어도 `classify_failure` 가 그 줄을
+        #   보고 `resource` 라 답한다.  실측 09:50 회차: 진짜 원인은 `편집중`(관문을
+        #   도는 동안 소스가 바뀜)인데 갈래가 `resource` 로 나가 조치가 *"Z: 연결을
+        #   확인하라"* 였다 — 사람을 엉뚱한 데로 보내고([172]) 진짜 갈래를 덮는다([289]).
+        _buf = _io.StringIO()
+        with _cl.redirect_stdout(_buf):
+            rc = E.main([])
         doc = _json.load(_io.open(str(E.STATUS), encoding="utf-8"))
     finally:
         E.STATUS, E.collect = old_status, old_collect
@@ -34433,6 +34441,135 @@ def t516_remote_5xx_is_not_a_code_bug():
         E._SIGNS = old_signs
 
     print(chr(9989), "[516] 저쪽 서버 5xx 는 코드 고장이 아니다 - 갈래·조치·두 표 낱말·옆 갈래 4")
+
+
+def t517_archive_keep_stops_on_budget():
+    """복구용 보관이 예산을 읽어 **스스로 멈추고 진도를 남긴다**([427]).
+
+    2026-09-05 실측: 오프사이트 백업이 **열흘째 한 번도 안 돌았다.**
+      · 자율복구 — `예산밖`(1800초 선언 > 회차 예산 600초)이라 [436] 이 구조적으로
+        건너뛴다.  attempts 31 · 마지막 진짜 시도 2026-08-26 · returncode 124.
+      · 일일회차 — 최근 8회차 내내 `스킵`(회차 예산 150분 초과).
+    PC 가 죽으면 PC 안의 백업은 같이 죽는다.  그런데 화면은 "31회 재시도 중"이라
+    적어 열심히 하는 것처럼 보였다([169]).
+
+    ★ 글자로는 '정말 멈추나'를 못 잰다([295]) — **불러서** 잰다.
+    ★ 진짜 Z: 보관 폴더에는 **한 글자도 안 쓴다**([247]) — ROOT·archive_root 와
+      Z: 를 만지는 넷(git_bundle·ledger_copy·ledger_db_copy·prune)을 목으로 갈고
+      `finally` 로 되돌린다([371] — 모듈 속성은 프로세스 전체의 것이다)."""
+    import io as _io, os as _os, sys as _sys, json as _json, time as _time, contextlib as _cl
+    import tempfile as _tf, shutil as _sh
+    _sys.path.insert(0, ROOT)
+    import archive_keep as AK
+    import autopilot as AP
+
+    KEY = "archive_keep.py"
+
+    # (1) budget_deadline - 못 읽으면 **무제한**이다([169]).  0 이하도 '안 준 것'이다.
+    old_env = _os.environ.get(AK._BUDGET_ENV)
+    try:
+        for val, want_none in (("", True), ("헛소리", True), ("0", True),
+                               ("-5", True), ("600", False)):
+            if val == "":
+                _os.environ.pop(AK._BUDGET_ENV, None)
+            else:
+                _os.environ[AK._BUDGET_ENV] = val
+            got = AK.budget_deadline(now=1000.0)
+            if want_none:
+                assert got is None, "예산 %r 인데 마감을 만든다: %r([169])" % (val, got)
+            else:
+                assert got == 1600.0, "600초 예산인데 마감이 %r 이다" % (got,)
+    finally:
+        if old_env is None:
+            _os.environ.pop(AK._BUDGET_ENV, None)
+        else:
+            _os.environ[AK._BUDGET_ENV] = old_env
+
+    # 임시 원본 나무 - 진짜 저장소가 아니다([247])
+    src = _tf.mkdtemp(prefix="t517_src_")
+    dst = _tf.mkdtemp(prefix="t517_dst_")
+    old = (AK.ROOT, AK.archive_root, AK.git_bundle, AK.ledger_copy,
+           AK.ledger_db_copy, AK.prune, AK.budget_deadline, AK.manifest)
+    try:
+        _os.makedirs(_os.path.join(src, "reports"), exist_ok=True)
+        for i in range(6):
+            _io.open(_os.path.join(src, "reports", "r%d.md" % i), "w",
+                     encoding="utf-8").write("x" * 40)
+        _io.open(_os.path.join(src, "AGENTS.md"), "w", encoding="utf-8").write("a")
+
+        AK.ROOT = src
+        pruned = []
+        AK.archive_root = lambda: dst
+        AK.git_bundle = lambda p, dry=False: (True, "번들(목)")
+        AK.ledger_copy = lambda d, dry=False: "원장(목)"
+        AK.ledger_db_copy = lambda d, dry=False: "DB(목)"
+        AK.prune = lambda dry=False: pruned.append(1) or "정리(목)"
+        mans, _real_mf = [], AK.manifest
+        AK.manifest = lambda d, lines: (mans.append(1), _real_mf(d, lines))[1]
+
+        # (2) 예산이 다 되면 **새로 안 담고** 진도(색인)를 남긴다([406]).
+        day1 = _os.path.join(dst, "cut")
+        cut = {}
+        n, _s, _k, _l = AK.collect(day1, False, deadline=_time.time() - 1, out=cut)
+        assert n == 0, "예산이 다 됐는데 %d개를 담았다" % n
+        assert cut.get("잘림") is True, "잘렸는데 말을 안 한다([169]): %r" % (cut,)
+        assert _os.path.exists(_os.path.join(day1, AK.INDEX_NAME)), (
+            "잘린 회차가 색인을 안 남긴다 - 다음 회차가 처음부터 다시 한다([406])")
+
+        # (3) 예산이 없으면 **예전 그대로 끝까지** 간다([172] - 좁히는 것도 고장이다).
+        day2 = _os.path.join(dst, "full")
+        cut2 = {}
+        n2, _s, _k, _l = AK.collect(day2, False, deadline=None, out=cut2)
+        assert n2 >= 7, "예산이 없는데 %d개만 담았다([172])" % n2
+        assert cut2.get("잘림") is None, "안 잘렸는데 잘렸다고 한다: %r" % (cut2,)
+
+        # (4) main() - 잘리면 **manifest 를 안 쓰고 정리를 미루고 75** 로 돌아온다.
+        #     manifest 가 곧 '완주했다'는 증거라, 쓰면 반쪽이 완주로 읽힌다([426]).
+        _sys.argv = [KEY]
+        AK.budget_deadline = lambda now=None: _time.time() - 1
+        # ★ 재료를 관문 stdout 으로 안 흘린다 — 흘리면 나중에 관문이 다른
+        #   이유로 죽어도 그 줄로 갈래가 정해진다(2026-09-05 실사고 · 위 t516).
+        with _cl.redirect_stdout(_io.StringIO()):
+            rc = AK.main()
+        day = _os.path.join(dst, "%s" % __import__("datetime").date.today())
+        assert rc == AK.BUDGET_EXIT == 75, "잘렸는데 %r 을 돌려준다 - 실패로 세인다([427])" % (rc,)
+        assert not mans, "잘렸는데 완주 증거를 남겼다 - 반쪽이 완주로 읽힌다([426])"
+        assert not pruned, "잘렸는데 옛 백업을 지운다 - 되돌릴 수 없는 쪽이다([172])"
+
+        AK.budget_deadline = lambda now=None: None
+        # ★ 재료를 관문 stdout 으로 안 흘린다 — 흘리면 나중에 관문이 다른
+        #   이유로 죽어도 그 줄로 갈래가 정해진다(2026-09-05 실사고 · 위 t516).
+        with _cl.redirect_stdout(_io.StringIO()):
+            rc2 = AK.main()
+        assert rc2 == 0, "완주인데 %r 을 돌려준다" % (rc2,)
+        assert mans, "완주했는데 완주 증거를 안 남긴다([172] - 좁히는 것도 고장이다)"
+        assert _os.listdir(day), "완주했는데 그 날 폴더가 비었다"
+        assert pruned, "완주했는데 정리를 안 부른다([172])"
+    finally:
+        (AK.ROOT, AK.archive_root, AK.git_bundle, AK.ledger_copy,
+         AK.ledger_db_copy, AK.prune, AK.budget_deadline, AK.manifest) = old
+        for d in (src, dst):
+            _sh.rmtree(d, ignore_errors=True)
+
+    # (5) 두 표의 **낱말이 같다**([165]) - 어긋나면 한 건도 안 걸리면서 오류도 안 난다.
+    assert AP.CHILD_BUDGET_ENV.get(KEY) == AK._BUDGET_ENV, (
+        "부르는 쪽 표(%r)와 스크립트가 읽는 열쇠(%r)가 다르다([165])"
+        % (AP.CHILD_BUDGET_ENV.get(KEY), AK._BUDGET_ENV))
+
+    # (6) 이제 자율복구가 **안 막는다**([436] 의 `_child_budget_key` 갈래).
+    said = AP._over_budget([_os.path.join(ROOT, KEY)], {"timeout": 1800}, 600)
+    assert said == "", "예산을 읽는데도 아직 건너뛴다([427]): %r" % (said,)
+
+    # (7) 계기 자기시험([272]) - 표에서 이름을 빼면 (6)이 잡아야 한다
+    keep = AP.CHILD_BUDGET_ENV.pop(KEY)
+    try:
+        again = AP._over_budget([_os.path.join(ROOT, KEY)], {"timeout": 1800}, 600)
+        assert again != "", (
+            "표에서 이름을 뺐는데도 (6)이 통과한다 - 이 검사는 아무것도 안 재고 있다([272])")
+    finally:
+        AP.CHILD_BUDGET_ENV[KEY] = keep
+
+    print(chr(9989), "[517] 복구용 보관이 예산을 읽어 멈춘다 - 마감 5갈래·진도·완주·두 표·자율복구")
 
 
 def t192_synthetic_check_is_harmless():
@@ -49203,6 +49340,7 @@ if __name__ == "__main__":
     t514_takeover_marks_stopped_lock_work()
     t515_open_stats_export_says_it_before_the_numbers()
     t516_remote_5xx_is_not_a_code_bug()
+    t517_archive_keep_stops_on_budget()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
