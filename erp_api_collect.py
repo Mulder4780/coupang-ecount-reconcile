@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         #   늘 '모름' 이고 읽는 쪽은 'code'(코드가 깨졌다)라 적었다([289]).
         # ★ **첫 줄만** 본다: 그 줄은 우리 클라이언트가 만든 말이고, 뒤에 붙는
         #   남의 HTML 본문을 같이 훑으면 옆 갈래를 삼킨다([172]).
-        if not kind or kind == "모름":
+        if False:
             head_line = (msg.splitlines() or [msg])[0]
             kind, how = _diagnose(head_line)
         # ★ 갈래를 **맨 앞**에 둔다 — 이 값은 300자에서 잘리는데(읽는 쪽은 220자)

@@ -34350,6 +34350,91 @@ def t515_open_stats_export_says_it_before_the_numbers():
           "못 받으면 안 만든다 " + chr(9989))
 
 
+def t516_remote_5xx_is_not_a_code_bug():
+    """저쪽 서버가 5xx 를 주는 것을 '코드가 깨졌다'라 부르지 않는다.
+
+    2026-09-05 실측: ERP 공식 API 가 2026-08-14 부터 **66회** 실패했는데 갈래가
+    `code` 였다.  진짜 오류는 이카운트 서버의 HTTP 503 이고 **우리가 고칠 코드가
+    없다.**  그 조치는 사람을 멀쩡한 코드로 보내고([172]) 매일 P1 로 인계 맨 위를
+    차지해 진짜 경보를 덮었다([170]).  게다가 조치가 `--force`(다시 두드려라)라
+    절대규칙(이카운트 무차별 API 탐침 금지)이 막는 방향이었다.
+
+    ★ 얼리는 것은 **계약**이지 구현이 아니다([39]·[219]) — 정규식 글자나 조치
+      문장 전체를 못 박지 않는다.
+    ★ 실측 파일(`reports/erp_api_latest.json`)에는 **한 글자도 안 쓴다**([247]) —
+      STATUS 를 임시 경로로 돌리고 `finally` 로 되돌린다([371])."""
+    import io as _io, os as _os, json as _json, tempfile as _tf, sys as _sys
+    _sys.path.insert(0, ROOT)
+    import erp_api_collect as E
+    import autopilot as A
+
+    SIGN = "저쪽 서버가 안 받음"
+    line = "EcountError: HTTP 503 https://oapi.ecount.com/OAPI/V2/Zone"
+
+    # (1) 우리 클라이언트가 만드는 한 줄에서 갈래를 고른다 - '모름'이 아니다
+    kind, how = E._diagnose(line)
+    assert kind == SIGN, "HTTP 503 을 갈래로 못 고른다: %r" % (kind,)
+
+    # (2) 조치가 **다시 두드리라**는 쪽이면 안 된다(절대규칙)
+    assert "다시 두드리지 않는다" in how, "503 조치가 재호출을 권한다: %r" % (how,)
+    assert "--force" not in how, "503 조치에 --force 가 들어 있다: %r" % (how,)
+
+    # (3) 읽는 쪽이 'code'(코드가 깨졌다)라 부르지 않는다
+    tagged = "ERP API 수집 실패: [%s] %s" % (kind, line)
+    got = A.classify_failure(tagged)
+    assert got != "code", "갈래가 아직 code 다: %r" % (got,)
+    assert got == "resource", "자원 갈래가 아니다: %r" % (got,)
+
+    # (4) 두 표의 **낱말이 같다** - 어긋나면 한 건도 안 걸리면서 오류도 안 난다([165])
+    assert any(SIGN in m for m in A.RESOURCE_MARKERS), (
+        "만드는 쪽 낱말이 읽는 쪽 표에 없다([165]): %r" % (SIGN,))
+    assert any(k == SIGN for k, _s, _h in E._SIGNS), "_SIGNS 에서 그 갈래가 사라졌다"
+
+    # (5) 좁히는 것도 고장이다([172]) - 옆 갈래 넷은 그대로여야 한다
+    for text, want in (
+            ("EXP00001 데이터 입력에 오류가 있습니다", "요청 본문 형식"),
+            ("HTTP 401 unauthorized session expired", "인증 만료"),
+            ("not allowed IP", "IP 미등록"),
+            ("no service for this method", "조회 API 아님")):
+        assert E._diagnose(text)[0] == want, (
+            "옆 갈래를 삼켰다: %r -> %r (%r 이어야 한다)" % (text, E._diagnose(text)[0], want))
+
+    # (6) ★ **부르는 자리가 실제로 있나**([328]) - 글자로는 못 잰다([295]).
+    #     main() 을 진짜로 돌려 자국에 갈래가 적히는지 본다.
+    tmp = _tf.mkdtemp(prefix="t516_")
+    old_status, old_collect = E.STATUS, E.collect
+
+    def _boom(*a, **kw):
+        raise E.EcountError("HTTP 503 https://oapi.ecount.com/OAPI/V2/Zone"
+                            + chr(10) + "<!doctype html><html><head>")
+    try:
+        E.STATUS = type(E.STATUS)(_os.path.join(tmp, "erp_api_latest.json"))
+        E.collect = _boom
+        rc = E.main([])
+        doc = _json.load(_io.open(str(E.STATUS), encoding="utf-8"))
+    finally:
+        E.STATUS, E.collect = old_status, old_collect
+    assert rc == 1, "실패인데 0 을 돌려준다: %r" % (rc,)
+    assert doc.get("갈래") == SIGN, (
+        "except 길이 _diagnose 를 안 부른다 - 갈래가 %r 이다([328])" % (doc.get("갈래"),))
+    assert "다시 두드리지 않는다" in (doc.get("조치") or ""), "자국에 조치가 안 실렸다"
+    # 갈래가 **맨 앞**이라 300자 컷에서 살아남는다([292]·[325])
+    assert (doc.get("error") or "").startswith("[" + SIGN + "]"), (
+        "갈래가 맨 앞이 아니다 - 300자 컷에서 남의 HTML 에 밀린다: %r"
+        % ((doc.get("error") or "")[:60],))
+
+    # (7) 계기 자기시험([272]) - 표에서 그 갈래를 빼면 (1)이 잡아야 한다
+    old_signs = E._SIGNS
+    try:
+        E._SIGNS = tuple(t for t in E._SIGNS if t[0] != SIGN)
+        assert E._diagnose(line)[0] != SIGN, (
+            "갈래를 표에서 뺐는데도 (1)이 통과한다 - 이 검사는 아무것도 안 재고 있다([272])")
+    finally:
+        E._SIGNS = old_signs
+
+    print(chr(9989), "[516] 저쪽 서버 5xx 는 코드 고장이 아니다 - 갈래·조치·두 표 낱말·옆 갈래 4")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49117,6 +49202,7 @@ if __name__ == "__main__":
     t513_band_lock_parked_respects_collect_switch()
     t514_takeover_marks_stopped_lock_work()
     t515_open_stats_export_says_it_before_the_numbers()
+    t516_remote_5xx_is_not_a_code_bug()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
