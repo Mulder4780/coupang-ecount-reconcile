@@ -50,6 +50,10 @@ CHILD_BUDGET_ENV = {
     "archive_posts.py": "ARCHIVE_POSTS_BUDGET_SEC",
     "stmt_archive.py": "STMT_ARCHIVE_BUDGET_SEC",
     "zscan.py": "ZSCAN_BUDGET_SEC",
+    # 2026-09-05 실측: 자율복구는 `예산밖`(1800>600)으로 31회를 건너뛰고, 일일회차는
+    #   최근 8회차 내내 `⏭ 스킵`(회차 예산 150분 초과)이었다 — 곧 **오프사이트
+    #   백업이 열흘째 한 번도 안 돌았다.**  이제 스스로 멈추고 진도를 남긴다([427]).
+    "archive_keep.py": "ARCHIVE_KEEP_BUDGET_SEC",
     # ⚠ 여기 이름을 더하려면 **그 스크립트가 그 열쇠를 실제로 읽어야** 한다.
     #    안 읽는 자식에게 넣어 봐야 아무 일도 안 일어난다([169] 없는 손잡이).
     # ⚠ 실측 2026-08-25 로 **일부러 안 넣은 것** — 재 보고 안 맞아서다([172]):

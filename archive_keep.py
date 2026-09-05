@@ -319,7 +319,28 @@ def unchanged(src_st, prev_path, prev_index=None, rel=None):
     return ps.st_size == src_st.st_size and abs(ps.st_mtime - src_st.st_mtime) < 2
 
 
-def collect(day_dir, dry=False):
+_BUDGET_ENV = "ARCHIVE_KEEP_BUDGET_SEC"
+BUDGET_EXIT = 75                          # 이어감 — 실패가 아니다([427])
+
+
+def budget_deadline(now=None):
+    """예산이 있으면 마감 시각을, 없으면 None(예전 그대로 끝까지 간다).
+
+    ★ 못 읽으면 **무제한**이다([169]) — 모르는 값으로 좁히면 멀쩡한 회차가
+      매번 반쪽이 된다.  0 이하도 '안 준 것'으로 본다.
+    ★ 값은 부르는 쪽(`autopilot.CHILD_BUDGET_ENV`)이 정한다 — 여기 숫자를
+      적어 두면 사본이 되어 갈린다([162]).
+    """
+    try:
+        sec = int(str(os.environ.get(_BUDGET_ENV, '')).strip())
+    except (TypeError, ValueError):
+        return None
+    if sec <= 0:
+        return None
+    return (time.time() if now is None else now) + sec
+
+
+def collect(day_dir, dry=False, deadline=None, out=None):
     """★ 증분으로 바꿨다 (2026-08-07).
 
     예전에는 회차마다 **프로젝트 전체를 다시 복사**했다 — 실측 완주 ~1,475초(25분).
@@ -368,6 +389,12 @@ def collect(day_dir, dry=False):
         except OSError:
             pass                              # 못 남겨도 다음 회차는 stat 으로 돈다
     for path in glob.glob(os.path.join(ROOT, "**", "*"), recursive=True):
+        # ★ 예산이 다 되면 **새로 안 담는다** — 담던 것은 끝내고 색인을 남긴다.
+        #   반환 모양은 그대로 넷이다([172]) — 읽는 쪽이 여럿이라 늘리면 같이 깨진다.
+        if deadline is not None and time.time() >= deadline:
+            if out is not None:
+                out["잘림"] = True
+            break
         if not os.path.isfile(path) or not wanted(path, ROOT):
             continue
         rel = os.path.relpath(path, ROOT)
@@ -521,21 +548,35 @@ def main():
     dry = "--dry" in sys.argv
     day_dir = os.path.join(archive_root(), f"{date.today():%Y-%m-%d}")
     lines = []
+    deadline = budget_deadline()
     b, msg = git_bundle(os.path.join(day_dir, "coupang_repo.bundle"), dry)
     lines.append(msg)
-    n, size, skipped, linked = collect(day_dir, dry)
+    cut = {}
+    n, size, skipped, linked = collect(day_dir, dry, deadline=deadline, out=cut)
     lines.append(f"기록 파일 {n}개 {size // 1024}KB"
                  + (f" · 앞 회차와 같아 링크 {linked}개(복사 {n - linked}개)" if linked else "")
                  + (f" · 비밀키 의심 {skipped}개 제외" if skipped else ""))
     lines.append(ledger_copy(day_dir, dry))
     lines.append(ledger_db_copy(day_dir, dry))
-    if not dry:
-        manifest(day_dir, lines)
-    lines.append(prune(dry))
+    truncated = bool(cut.get("잘림"))
+    # ★ 잘린 회차는 **manifest 를 안 쓴다** — 그 파일이 곧 '완주했다'는 증거다([426]).
+    #   쓰면 다음 사람이 반쪽을 완주로 읽는다([169]).
+    # ★ prune 도 미룬다 — 오늘 것이 반쪽인데 옛 날짜를 지우는 것은 되돌릴 수 없는
+    #   쪽이다([172]).  다음 회차가 완주하면 그때 지운다.
+    if truncated:
+        lines.append("예산이 다 되어 여기까지만 담았다 — manifest·정리를 미룬다"
+                     " (완주 아님 · 색인은 남겼으니 다음 회차가 이어서 한다)")
+    else:
+        if not dry:
+            manifest(day_dir, lines)
+        lines.append(prune(dry))
     print(f"보관 위치: {day_dir}{' (dry — 실제 복사 없음)' if dry else ''}")
     for ln in lines:
         print("  ·", ln)
+    return BUDGET_EXIT if truncated else 0
 
 
 if __name__ == "__main__":
-    main()
+    # ★ 종료코드를 돌려준다 — 안 돌려주면 75(이어감)가 어디에도 안 닿고
+    #   부르는 쪽은 늘 '완주'로 읽는다([169]).
+    sys.exit(main() or 0)
