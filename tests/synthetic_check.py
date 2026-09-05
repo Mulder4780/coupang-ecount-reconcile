@@ -49055,6 +49055,68 @@ def t521_credit_wait_is_not_stuck():
     print('\u2705 [521] 크레딧 소진은 굳음이 아니다 - 9갈래(충전/NO_AI/보낸표/문턱/한도/모름/인계/조용)')
 
 
+
+def t522_timeout_says_share_state():
+    """[522] 시간초과가 **코드 탓인지 공유폴더 탓인지** 말한다.
+
+    실측 2026-09-06: `ERP·거래명세서·현장검증 확정분 큐` 가 09-05 에 600초를
+    넘겼는데 **09-01·09-03 은 통과했다**.  그런데 자국 문구는 *다시 해도 또
+    넘깁니다* 라고 **확언**했다 - 근거가 없는 말이고, 그 말을 믿으면 사람은
+    '이 단계는 원래 안 되는구나' 하고 **고칠 자리를 안 찾는다**([172]·[169]).
+    그날은 회차 자체가 150.8분(예산 초과)이었다 - 뿌리는 **붐빔**이다.
+
+    `[465]`(관문)·`[469]`(증분)가 배운 것이 여기만 안 와 있었다([300]).
+    ★ **동작은 한 톨도 안 바꾼다**([172]) - 시간초과를 재시도하지 않는 것은
+      옳다(2026-08-09 실측: 회차 예산을 그 하나가 두 번 먹는다).
+
+    진짜 공유폴더는 **한 글자도 안 건드린다**([247]) - 목으로만([371]).
+    """
+    import importlib, io          # io 는 이 파일 모듈 수준에 없다([324])
+    D = importlib.import_module('daily_run')
+    SD = importlib.import_module('source_dirs')
+
+    src = _t370_code_only(io.open(D.__file__, encoding='utf-8').read())
+    # (1) 확언이 돌아오면 안 된다 - 얼릴 것은 **되돌아가면 안 되는 것**이다([39])
+    assert '다시 해도 또 넘깁니다' not in src, \
+        '[522] 근거 없는 확언이 돌아왔다 - 09-01·09-03 은 통과했다([172])'
+    # (2) 재시도를 안 하는 **동작**은 그대로다([172] 좁히는 것도 고장이다)
+    assert '재시도하지 않는다' in src or '다시 안 합니다' in src, \
+        '[522] 시간초과 재시도 금지가 사라졌다 - 회차 예산을 두 번 먹는다'
+
+    real = SD.probe_share
+    try:
+        # (3) 멀쩡하면 아무 말도 안 한다([170] 정상까지 말하면 아무도 안 읽는다)
+        D._SHARE_PROBES[0] = 0
+        SD.probe_share = lambda: (0.3, True)
+        assert D._timeout_share_note() == '', '[522] 멀쩡한데 말한다([170])'
+        # (4) 붐볐으면 초를 적는다
+        D._SHARE_PROBES[0] = 0
+        SD.probe_share = lambda: (68.4, True)
+        got = D._timeout_share_note()
+        assert '68.4' in got, '[522] 붐빈 초를 안 적는다: %r' % got
+        assert '코드가 느린 것이 아닐 수 있다' in got, \
+            '[522] 코드 탓이 아닐 수 있다는 말을 안 한다([172]): %r' % got
+        # (5) 못 닿았으면 그렇게 말한다 - '붐빔' 과 다른 사실이다([289])
+        D._SHARE_PROBES[0] = 0
+        SD.probe_share = lambda: (120.0, False)
+        got = D._timeout_share_note()
+        assert '닿지 못했다' in got, '[522] 못 닿음을 안 가른다: %r' % got
+        # (6) 회차당 상한 - 죽은 Z: 는 한 번이 40~156초다([443])
+        D._SHARE_PROBES[0] = 0
+        SD.probe_share = lambda: (68.4, True)
+        n = sum(1 for _ in range(6) if D._timeout_share_note())
+        assert n == D._SHARE_PROBE_MAX, '[522] 상한을 안 지킨다: %d' % n
+        # (7) 못 재면 **아무 말도 안 한다**([169]) - 모름을 '멀쩡했다'로 안 친다
+        D._SHARE_PROBES[0] = 0
+        SD.probe_share = lambda: (_ for _ in ()).throw(RuntimeError('못 잼'))
+        assert D._timeout_share_note() == '', '[522] 못 쟀는데 말한다([169])'
+    finally:
+        SD.probe_share = real     # 모듈 속성은 프로세스 전체의 것이다([371])
+    # (8) 재는 자리는 하나다([162]) - 여기서 새로 판정하지 않는다
+    assert 'probe_share' in src, '[522] 재는 자리를 빌리지 않는다([162])'
+    print('\u2705 [522] 시간초과가 공유폴더 상태를 말한다 - 확언제거·멀쩡/붐빔/못닿음·상한·모름')
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
     _gate_lock_or_yield()
@@ -49755,6 +49817,7 @@ if __name__ == "__main__":
     t519_source_index_keeps_progress()
     t520_ai_handoff_not_sent_when_instructions_too_long()
     t521_credit_wait_is_not_stuck()
+    t522_timeout_says_share_state()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
