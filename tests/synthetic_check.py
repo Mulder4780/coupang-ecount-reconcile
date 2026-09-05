@@ -34861,20 +34861,28 @@ def t520_ai_handoff_not_sent_when_instructions_too_long():
     send = src.index("command = _agent_command(agent, executable, prompt")
     assert gate < send, "[520] 관문이 명령을 만든 뒤에 있다 - 그러면 이미 보낸 것이다"
 
-    # (6) 자국이 traces() 가 읽는 칸을 갖는다([304]) - 진짜 reports 는 안 건드린다([247])
+    # (6) 자국이 traces() 가 읽는 칸을 갖는다([304]) - 진짜 reports 는 안 건드린다([247]).
+    #     * 있고 없고가 아니라 **안 바뀌었나**로 잰다 - 진짜 회차가 남긴 자국이
+    #       있어도 이 검사는 통과해야 한다([211] 관문이 실데이터에 매인다).
+    #       2026-09-05 실측: t83 이 남긴 찌꺼기 하나에 이 검사가 죽었다.
+    _real = os.path.join(str(AD.ROOT), 'reports', 'AI인계_오류.json')
+    def _snap():
+        try:
+            return open(_real, 'rb').read()
+        except OSError:
+            return None
+    _before = _snap()
     old = AD.ROOT
     try:
         AD.ROOT = type(old)(tmp)
-        AD._too_long_trace("시험 표", "claude", 1008631)
+        AD._too_long_trace('시험 표', 'claude', 1008631)
     finally:
         AD.ROOT = old
-    d = json.load(open(os.path.join(tmp, "reports", "AI인계_오류.json"),
-                       encoding="utf-8"))
-    for k in ("작업", "갈래", "무엇", "조치"):
-        assert d.get(k), "[520] 자국에 %s 칸이 없다 - 인계에 안 실린다" % k
-    assert not os.path.exists(os.path.join(str(AD.ROOT), "reports",
-                                           "AI인계_오류.json")), \
-        "[520] 검증이 진짜 자국 파일을 만들었다([247])"
+    d = json.load(open(os.path.join(tmp, 'reports', 'AI인계_오류.json'),
+                       encoding='utf-8'))
+    for k in ('작업', '갈래', '무엇', '조치'):
+        assert d.get(k), '[520] 자국에 %s 칸이 없다 - 인계에 안 실린다' % k
+    assert _snap() == _before, '[520] 검증이 진짜 자국 파일을 건드렸다([247])'
 
     # 계기 자기시험([272]): 관문을 빼면 (5)가 잡히나
     broken = src.replace("_est = instruction_tokens(agent, ROOT)",
