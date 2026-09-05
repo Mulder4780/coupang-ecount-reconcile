@@ -1669,9 +1669,32 @@ def blockers(st, for_sol=False):
             #   넷 중 어느 건의 이유인지 몰라 엉뚱한 것을 고치러 간다([172]).
             _hit = next((r for r in _g if r.get("왜")), None)
             _why = ("%s — %s" % (_hit.get("이름"), _hit.get("왜"))) if _hit else ""
-            out.append(("[자율복구] **%d건이 %s회 넘게 재시도해도 안 풀린다** — AI 인계까지 "
-                        "실패했다는 뜻이다(회차가 고장 난 것은 아니다): %s%s"
-                        % (len(_g), _st.get("한도") or "여러", _head,
+            # ★ **"AI 인계까지 실패했다"는 갈래를 봐야 참이 된다**(2026-09-05 실사고).
+            #   실측: `ERP 공식 API 자료 수집` 67회 · 갈래 `resource` 가 매일 그
+            #   문구로 인계 맨 위에 떴는데, `autopilot._escalate` 는 그 갈래를
+            #   **애초에 AI 인계에서 뺀다** — 곧 시도조차 안 했다. 틀린 지목은
+            #   못 잡는 것보다 나쁘고([172]) 가짜가 맨 위를 차지하면 진짜 경보가
+            #   묻힌다([170]).
+            # ★ 목록은 `autopilot.NO_AI_KINDS` **한 곳**에서 빌린다([162]) —
+            #   여기 손으로 적으면 갈래가 늘어난 날 이 문구만 옛 표를 본다([165]).
+            # ★ **못 읽으면 예전 문구 그대로**다([169]) — 모름을 근거로
+            #   "AI 를 안 불렀다"고 확언하지 않는다.
+            try:
+                from autopilot import NO_AI_KINDS as _NOAI
+            except Exception:
+                _NOAI = None
+            _kinds = [str(r.get("갈래") or "") for r in _g]
+            if _NOAI and _kinds and all(k in _NOAI for k in _kinds):
+                _tail = ("**코드로는 못 푼다** — 자원·인증·차선·설정이 풀려야 하는 "
+                         "갈래라 AI 인계를 **애초에 안 만든다**(시도조차 안 했다는 "
+                         "뜻이지 AI 가 실패한 것이 아니다)")
+            elif _NOAI and any(k in _NOAI for k in _kinds):
+                _tail = ("일부는 **코드로 못 푸는 갈래**(자원·인증·차선·설정)라 AI "
+                         "인계를 안 만든다 — 아래 갈래를 보고 갈라 본다")
+            else:
+                _tail = "AI 인계까지 실패했다는 뜻이다(회차가 고장 난 것은 아니다)"
+            out.append(("[자율복구] **%d건이 %s회 넘게 재시도해도 안 풀린다** — %s: %s%s"
+                        % (len(_g), _st.get("한도") or "여러", _tail, _head,
                            (" · 마지막 오류: " + _why) if _why else ""),
                         "python autopilot.py --status"))
         # ★ **지나간 자원 실패는 경보가 아니라 알림이다**([424]) — 그러나

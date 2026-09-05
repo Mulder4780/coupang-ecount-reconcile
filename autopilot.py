@@ -33,6 +33,13 @@ REPORT_PATH = REPORTS / "자율자동화_상태.md"
 PY = sys.executable
 MAX_ATTEMPTS_BEFORE_AI = 3
 BASE_BACKOFF_MINUTES = 30
+# ★ **AI 에게 넘기지 않는 갈래** — 코드로 못 푸는 것들이다.
+#   `resource` 자원(공유폴더·저쪽 서버)이 돌아와야 · `auth` 사람이 로그인해야 ·
+#   `lane` 차선이 풀려야 · `config` 사람이 설정을 고쳐야 풀린다.
+#   ★ 여기 한 곳에서만 적는다([162]) — 인계 문구도 이 표를 읽는다.
+#   손으로 두 곳에 적으면 갈래가 늘어난 날 인계만 옛 표를 보면서
+#   **오류도 안 난다**([165]).
+NO_AI_KINDS = ("resource", "auth", "lane", "config")
 # 멱등 작업이 한 회차 몫을 정상 저장한 뒤 "아직 남음"을 알리는 반환값.
 # 실패 횟수로 세지 않고 waiting으로 유지한다.
 INCREMENTAL_RETURN_CODE = 75
@@ -261,7 +268,7 @@ def _escalate(item: dict[str, Any]) -> str:
     """같은 안전 작업이 세 번 실패한 경우에만 AI 한 장을 만든다(중복 금지)."""
     # `config` 도 코드로 못 푼다 — 사람이 설정을 고쳐야 한다([172]).
     if (item.get("ai_ticket") or
-            item.get("kind") in ("resource", "auth", "lane", "config") or
+            item.get("kind") in NO_AI_KINDS or
             int(item.get("attempts") or 0) < MAX_ATTEMPTS_BEFORE_AI):
         return ""
     # ★ 크레딧 5시간 창이 막혔으면 **표를 만들지 않는다**(2026-08-22 형님 지시).
