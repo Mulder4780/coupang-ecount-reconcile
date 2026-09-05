@@ -48971,6 +48971,90 @@ def t510_stopped_band_warnings_preserve_evidence():
     print("✅ [510] 수집 중단 경보 억제·재개 복원·ERP/변경 근거 보존 10개 통과")
 
 
+
+def t521_credit_wait_is_not_stuck():
+    """[521] 크레딧 5시간 창이 차서 **안 보낸 것**은 굳은 것이 아니다.
+
+    2026-09-06 형님 지시("크래딧 소진되면 기다렸다가 알아서 시작").  `_escalate` 는
+    크레딧이 막히면 티켓을 **안 만든다**([389] · 만들면 `ai_ticket` 이 채워져 충전이
+    돼도 영영 안 돈다).  그런데 `stuck()` 이 그것을 `굳음` 으로 세어 인계가
+    'AI 인계까지 실패했다'고 말했다 - 사람을 **멀쩡한 코드로 보내고**([172]) 매일
+    P0 로 진짜 경보를 덮는다([170]).  `[424]`(자원 회복)·`[436]`(예산 밖)와 같은
+    모양이고 자리가 크레딧이다([300]).
+
+    글자로는 '정말 갈리나'를 못 잰다 - **불러서** 잰다([295]).
+    """
+    import importlib
+    A = importlib.import_module('autopilot')
+    CW = importlib.import_module('credit_window')
+
+    def doc(kind='code', tries=12, ticket=None):
+        it = {'key': 'k1', 'name': '시험 일감', 'status': 'retry',
+              'attempts': tries, 'kind': kind, 'last_error': 'Boom: 터졌다'}
+        if ticket:
+            it['ai_ticket'] = ticket
+        return {'items': [it]}
+
+    def run(blocked, **kw):
+        old = CW.blocked
+        CW.blocked = lambda: blocked
+        try:
+            return A.stuck(doc(**kw))
+        finally:
+            CW.blocked = old          # 모듈 속성은 프로세스 전체의 것이다([371])
+
+    # (1) 막혔고 표가 없고 인계 문턱을 넘었으면 크레딧대기다
+    d = run(True)
+    assert len(d['크레딧대기']) == 1 and not d['굳음'], '[521] 크레딧 갈래가 안 갈린다: %r' % d
+    # (2) 충전됐으면 **예전 그대로 굳음**이다 - 좁히는 것도 고장이다([172])
+    d = run(False)
+    assert not d['크레딧대기'] and len(d['굳음']) == 1, '[521] 충전 상태를 완화했다: %r' % d
+    # (3) NO_AI_KINDS 는 애초에 AI 인계를 안 하므로 크레딧 탓이 아니다([172])
+    for k in A.NO_AI_KINDS:
+        d = run(True, kind=k)
+        assert not d['크레딧대기'], '[521] %s 갈래를 크레딧 탓으로 돌렸다' % k
+    # (4) 표가 이미 있으면 **보내고 실패한** 것이라 다른 사실이다
+    d = run(True, ticket='t-1')
+    assert not d['크레딧대기'] and len(d['굳음']) == 1, '[521] 보낸 표까지 완화했다: %r' % d
+    # (5) 인계 문턱 아래면 아직 그 단계가 아니다
+    d = run(True, tries=A.MAX_ATTEMPTS_BEFORE_AI - 1)
+    assert not d['크레딧대기'], '[521] 인계 단계도 아닌 것을 실었다: %r' % d
+    # (6) 시도 한도(STUCK_TRIES) 아래여도 싣는다 - 그 횟수는 실패가 아니다([169])
+    d = run(True, tries=A.MAX_ATTEMPTS_BEFORE_AI + 1)
+    assert len(d['크레딧대기']) == 1, '[521] 한도로 걸러 조용해졌다: %r' % d
+    # (7) 못 읽으면 예전 그대로 굳음이다([169]) - 모름을 크레딧 탓으로 치면
+    #     진짜 굳음이 조용해진다
+    old = CW.blocked
+    CW.blocked = lambda: (_ for _ in ()).throw(RuntimeError('못 읽음'))
+    try:
+        d = A.stuck(doc())
+    finally:
+        CW.blocked = old
+    assert not d['크레딧대기'] and len(d['굳음']) == 1, '[521] 모름을 크레딧 탓으로 쳤다: %r' % d
+    # (8) 인계가 그것을 **실어 말하나**([328] 자국만 있고 읽는 코드가 없으면 없는 것과 같다)
+    SH = importlib.import_module('session_handoff')
+    base = {'자율복구굳음': {'굳음': [], '자원회복': [], '예산밖': [], '설정대기': [],
+                            '크레딧대기': [{'이름': '시험 일감', '시도': 12}], '못읽음': ''}}
+    import json as _json, io as _io, os as _os
+    _snap = _os.path.join(str(SH.BASE), 'reports', '세션인계.json')
+    try:
+        real = _json.load(_io.open(_snap, encoding='utf-8'))   # 실측 스냅샷은 **읽기만**([247])
+    except Exception:
+        real = {}
+    real = dict(real)
+    real['자율복구굳음'] = base['자율복구굳음']
+    hit = [t for t in SH.blockers(real) if '크레딧 5시간 창이 차서' in str(t[0])]
+    assert hit, '[521] 인계가 크레딧대기를 안 싣는다([328])'
+    assert 'credit_window' in str(hit[0][1]), '[521] 조치가 실재하는 명령이 아니다([448]): %r' % (hit[0],)
+    assert 'AI 인계까지 실패' not in str(hit[0][0]), '[521] 안 보낸 것을 실패라 말한다([172])'
+    # (9) 크레딧대기가 없으면 조용하다([170])
+    real['자율복구굳음'] = {'굳음': [], '자원회복': [], '예산밖': [], '설정대기': [],
+                            '크레딧대기': [], '못읽음': ''}
+    assert not [t for t in SH.blockers(real) if '크레딧 5시간 창이 차서' in str(t[0])], \
+        '[521] 걸린 것이 없는데 말한다([170])'
+    print('\u2705 [521] 크레딧 소진은 굳음이 아니다 - 9갈래(충전/NO_AI/보낸표/문턱/한도/모름/인계/조용)')
+
+
 if __name__ == "__main__":
     _yield_to_running_round()
     _gate_lock_or_yield()
@@ -49670,6 +49754,7 @@ if __name__ == "__main__":
     t518_gate_retries_once_when_sources_changed()
     t519_source_index_keeps_progress()
     t520_ai_handoff_not_sent_when_instructions_too_long()
+    t521_credit_wait_is_not_stuck()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
