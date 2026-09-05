@@ -34676,6 +34676,142 @@ def t518_gate_retries_once_when_sources_changed():
     print(chr(9989), "[518] 관문이 소스가 바뀌면 새 판으로 한 번 더 잰다 - 한 번만·시간·앞에안붙임")
 
 
+def t519_source_index_keeps_progress():
+    """원본 색인이 **중간에 죽어도 진도를 남긴다**([377]/[379]).
+
+    2026-09-05 실사고: 회차가 늦으면 예산 맞춤이 이 단계의 제한시간을 30분 -> **2분**
+    으로 줄이고, 그 문구가 *"못 끝낸 몫은 **다음 회차가 이어서 합니다**"* 라고 적었다.
+    그런데 색인에는 **이어할 진도가 한 톨도 없었다** - 캐시를 맨 끝에서 한 번만 쓰므로
+    SIGKILL 이 나면 그 회차가 센 것이 통째로 사라진다.  약속만 하고 안 지킨 자리([169])
+    이고, [518] 이 관문에서 고친 그 모양이다.
+
+    ★ **통째로 자주 저장하는 [381] 방식을 못 베낀다** - 실측 캐시가 204.2MB /
+      20만 5천 항목이라 한 번 쓰는 데 **7.5초**다.  120초짜리 회차에서 30초마다면
+      저장에만 25% 가 든다.  그래서 **새로 센 것만 한 줄씩 덧붙인다**.
+    ★ 진짜 Z:·진짜 캐시는 한 글자도 안 만진다([247]) - 임시 폴더와 목으로만 재고
+      `finally` 로 되돌린다([371] · 모듈 속성은 프로세스 전체의 것이다)."""
+    import sys as _sys, os as _os, io as _io, json as _json, tempfile as _tf, shutil as _sh
+    _sys.path.insert(0, ROOT)
+    import source_index as SI
+    import source_dirs as S
+
+    tmp = _tf.mkdtemp(prefix="t519_")
+    erp = _os.path.join(tmp, "1. ERP자료")
+    _os.makedirs(erp)
+    for i in range(6):
+        _io.open(_os.path.join(erp, "UJ260%04d_판매조회.xlsx" % i), "w").write("x")
+
+    oldC, oldJ, oldG = SI.CACHE, SI.JOURNAL, SI.guess_date
+    keys = ("ERP_DIR", "BAND_DIR", "COUPANG_DIR", "KAKAO_DIR", "RECEIPT_DIR",
+            "DOC_DIR", "ORIGIN_ROOT")
+    olddirs = {a: getattr(S, a, None) for a in keys}
+    try:
+        SI.CACHE = _os.path.join(tmp, "db", "c.json")
+        SI.JOURNAL = SI.CACHE + "l"
+        for a in keys:
+            setattr(S, a, None)
+        S.ERP_DIR = erp
+
+        # (1) 완주하면 수첩을 비운다 - 본 캐시가 그것을 다 담았다는 뜻이다
+        rows = SI.scan()
+        assert len(rows) == 6, "완주 행수가 %d 다" % len(rows)
+        assert not _os.path.exists(SI.JOURNAL), "완주했는데 수첩이 남았다 - 영영 안 비워진다"
+
+        # (2) ★ 중간에 죽어도 진도가 남는다 - 이 고침의 요점이다
+        _os.remove(SI.CACHE)                 # 아직 한 번도 완주 못 한 상태
+        seen = []
+
+        def _boom(name, mtime):
+            seen.append(name)
+            if len(seen) > 3:
+                raise KeyboardInterrupt("여기서 죽는다")
+            return oldG(name, mtime)
+        SI.guess_date = _boom
+        SI._JF[1] = -1e9                     # flush 를 곧바로(시험이라 20초를 못 기다린다)
+        try:
+            SI.scan()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            SI.guess_date = oldG
+        SI._JF[0].flush()
+        assert len(SI._journal_load()) == 3, (
+            "죽었는데 진도가 %d건이다 - 이 회차가 센 것이 통째로 사라진다([379])"
+            % len(SI._journal_load()))
+
+        # (3) ★ 본 캐시가 **없을 때**가 수첩이 유일한 진도인 그 상황이다.
+        #     load_cache 의 이른 return 이 여기서 빈손으로 돌아가면 이 고침이
+        #     가장 필요한 자리에서만 조용히 뜻을 잃는다([169]).
+        assert len(SI.load_cache()) == 3, "본 캐시가 없을 때 수첩을 안 읽는다([169])"
+        SI._jclose()
+        rows = SI.scan()
+        assert len(rows) == 6 and not _os.path.exists(SI.JOURNAL), "이어서 완주를 못 한다"
+
+        # (4) 깨진 줄은 **그 줄만** 버린다 - 죽을 때 마지막 줄이 반쯤 써진다
+        good = _json.dumps({"r": SI.rules_version(), "k": "a|1|2",
+                            "v": {"kind": "기타", "ext": "txt"}}, ensure_ascii=False)
+        _io.open(SI.JOURNAL, "w", encoding="utf-8").write(good + chr(10) + "{반쯤" + chr(10))
+        assert len(SI._journal_load()) == 1, "깨진 한 줄 때문에 앞의 것까지 버린다([169])"
+
+        # (5) 규칙이 바뀌면 **본 캐시와 같은 기준**으로 거른다([162])
+        _io.open(SI.JOURNAL, "w", encoding="utf-8").write(
+            _json.dumps({"r": "옛규칙", "k": "a|1|2",
+                         "v": {"kind": "ERP:sales", "ext": "xlsx"}}) + chr(10)
+            + _json.dumps({"r": "옛규칙", "k": "b|1|2",
+                           "v": {"kind": "카톡", "ext": "txt"}}) + chr(10))
+        got = SI._journal_load()
+        assert "a|1|2" not in got and "b|1|2" in got, (
+            "규칙 바뀜 거르기가 본 캐시와 다르다([162]): %r" % (sorted(got),))
+
+        # (6) ★ 좁히는 것도 고장이다([172]) - rescan 은 옛 진도를 안 이어받는다
+        _io.open(SI.JOURNAL, "w", encoding="utf-8").write(
+            _json.dumps({"r": SI.rules_version(), "k": "없는키|9|9",
+                         "v": {"kind": "기타", "ext": "txt"}}) + chr(10))
+        SI.scan(rescan=True)
+        assert not _os.path.exists(SI.JOURNAL), "rescan 이 옛 진도를 이어받는다"
+
+        # (7) 자국 하나로 색인을 안 죽인다 - 못 읽어도/못 써도 끝까지 간다
+        _os.remove(SI.CACHE)
+        SI.JOURNAL = _os.path.join(tmp, "못쓰는" + chr(0) + "이름", "j.jsonl")
+        rows = SI.scan()
+        assert len(rows) == 6, "수첩을 못 쓰니 색인이 통째로 죽는다: %d건" % len(rows)
+
+        # (8) 계기 자기시험([272]) - 진도 적기를 막으면 (2)가 잡아야 한다
+        SI.JOURNAL = SI.CACHE + "l"
+        try:
+            _os.remove(SI.JOURNAL)
+        except OSError:
+            pass
+        _os.remove(SI.CACHE)
+        SI._jclose()
+        SI._JF[0] = False                    # 옛 동작: 진도를 한 줄도 안 적는다
+        seen2 = []
+
+        def _boom2(name, mtime):
+            seen2.append(name)
+            if len(seen2) > 3:
+                raise KeyboardInterrupt("여기서 죽는다")
+            return oldG(name, mtime)
+        SI.guess_date = _boom2
+        try:
+            SI.scan()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            SI.guess_date = oldG
+        assert len(SI._journal_load()) == 0, (
+            "진도 적기를 막았는데도 (2)가 통과한다 - 이 검사는 아무것도 안 재고 있다([272])")
+    finally:
+        SI.CACHE, SI.JOURNAL, SI.guess_date = oldC, oldJ, oldG
+        for a, v in olddirs.items():
+            setattr(S, a, v)
+        SI._JF[0] = None
+        SI._jclose()
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print(chr(9989), "[519] 원본 색인이 진도를 남긴다 - 죽어도 남음·이어받음·rescan·깨진줄·자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49446,6 +49582,7 @@ if __name__ == "__main__":
     t516_remote_5xx_is_not_a_code_bug()
     t517_archive_keep_stops_on_budget()
     t518_gate_retries_once_when_sources_changed()
+    t519_source_index_keeps_progress()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

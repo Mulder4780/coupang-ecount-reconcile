@@ -199,7 +199,13 @@ def _journal_load():
     out, rv = {}, rules_version()
     try:
         f = open(JOURNAL, encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
+        return out                     # 없는 것이 정상이다 - 완주하면 지운다
+    except Exception as e:
+        # ★ 이 수첩은 진도를 아껴 줄 뿐 색인의 근거가 아니다 - 못 읽으면
+        #   처음부터 세면 된다(예전과 같아질 뿐이다).  그러나 **없는 것과
+        #   못 읽은 것은 다르므로** 왜 진도가 안 이어졌는지 말한다([169]).
+        print("  · 진도 수첩을 못 읽었습니다(%s) — 이번 회차는 처음부터 셉니다" % e)
         return out
     with f:
         for ln in f:
@@ -413,7 +419,7 @@ def scan(rescan=False):
     if rescan:
         try:
             os.remove(JOURNAL)
-        except OSError:
+        except Exception:      # 뒤처리 - 못 지워도 색인은 끝까지 간다
             pass
     roots, missing = [], []
     for attr in ("ERP_DIR", "BAND_DIR", "COUPANG_DIR", "KAKAO_DIR", "RECEIPT_DIR",
@@ -499,7 +505,7 @@ def scan(rescan=False):
     #   중간에 죽으면 안 비워지고, 다음 회차가 그 진도를 그대로 이어받는다.
     try:
         os.remove(JOURNAL)
-    except OSError:
+    except Exception:          # 뒤처리 - 못 지워도 색인은 끝까지 간다
         pass
     return out
 
