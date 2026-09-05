@@ -334,21 +334,30 @@ def main(argv: list[str] | None = None) -> int:
         fields = getattr(exc, "fields", {})
         # 클라이언트가 못 만든 실패(설정·로그인)도 밖으로 나가기 전에 지운다.
         msg = f"{type(exc).__name__}: {exc}"
+        # ★ **첫 줄만** 자국에 남긴다 — 뒤에 붙는 것은 저쪽 서버가 준 오류
+        #   페이지(HTML)라 우리 자국이 아니다. 통째로 담으면 300자 중 216자가
+        #   그 HTML 이 되어(실측 2026-09-05) 인계 P1 줄이 `<!doctype html>` 로
+        #   이어져 **사람이 못 읽는다**([169]·[292]). 전문은 `원문` 에 남으므로
+        #   잃는 것이 없다 — 오히려 는다(그 칸은 지금까지 비어 있었다).
+        head_line = (msg.splitlines() or [msg])[0].strip() or msg[:200]
         kind, how = fields.get("갈래"), fields.get("조치")
         # ★ 진단기는 같은 파일에 있는데 이 길에서만 안 불렸다 — 그래서 갈래가
         #   늘 '모름' 이고 읽는 쪽은 'code'(코드가 깨졌다)라 적었다([289]).
         # ★ **첫 줄만** 본다: 그 줄은 우리 클라이언트가 만든 말이고, 뒤에 붙는
         #   남의 HTML 본문을 같이 훑으면 옆 갈래를 삼킨다([172]).
         if not kind or kind == "모름":
-            head_line = (msg.splitlines() or [msg])[0]
             kind, how = _diagnose(head_line)
         # ★ 갈래를 **맨 앞**에 둔다 — 이 값은 300자에서 잘리는데(읽는 쪽은 220자)
         #   뒤에 두면 정작 필요한 한 마디가 남의 HTML 에 밀려 사라진다([292]·[325]).
         tag = f"[{kind}] " if kind and kind != "모름" else ""
         failed = {"ok": False, "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-                  "error": (tag + mask_secrets(msg))[:300],
+                  "error": (tag + mask_secrets(head_line))[:300],
                   "갈래": kind or "모름", "조치": how or "",
-                  "원문": fields.get("원문", "")}
+                  # ★ 전문은 여기 남긴다 — 자르는 것이지 버리는 것이 아니다([273]).
+                  #   ⚠ 여기도 반드시 `mask_secrets` 를 거친다: 이카운트 URL 에는
+                  #   `?SESSION_ID=…` 가 붙는 일이 있어 안 지우면 열쇠가 이 칸으로
+                  #   샌다([109]).
+                  "원문": mask_secrets(str(fields.get("원문") or msg))[:2000]}
         _atomic_json(STATUS, failed)
         print("ERP API 수집 실패:", failed["error"])
         return 1
