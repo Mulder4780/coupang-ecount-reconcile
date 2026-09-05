@@ -180,6 +180,44 @@ FOLDER_KIND = _folder_rules()
 #   안 그러면 앞으로 규칙을 고칠 때마다 조용히 헛일이 된다.
 RULES_KEY = "__rules__"
 
+# 진도 수첩 - **새로 센 항목만 한 줄씩** 덧붙인다([379]).
+#   본 캐시는 맨 끝에서 한 번만 쓰는데 그것이 204MB/7.5초라, 회차가 중간에
+#   끊기면 그 회차가 센 것이 통째로 사라진다.  통째로 자주 쓰는 것([381])은
+#   여기서는 못 쓴다 - 저장에만 회차의 25% 가 든다.
+JOURNAL = CACHE + "l"                      # db/source_index_cache.jsonl
+JOURNAL_FLUSH_S = 20                       # 죽어도 잃는 것이 20초치를 안 넘게
+
+
+def _journal_load():
+    """반쪽 회차가 남긴 진도를 읽는다.
+
+    * 깨진 줄은 **그 줄만** 버린다([169]) - 죽을 때 마지막 한 줄이 반쯤
+      써질 수 있는데, 그것 때문에 앞의 몇 만 줄을 버리면 이 수첩이 뜻이 없다.
+    * 규칙이 바뀌었으면 **본 캐시와 같은 기준**으로 거른다 - 내용으로 판별한
+      것만 다시 보고 나머지는 살린다(load_cache 와 같은 규칙 · [162]).
+    """
+    out, rv = {}, rules_version()
+    try:
+        f = open(JOURNAL, encoding="utf-8")
+    except OSError:
+        return out
+    with f:
+        for ln in f:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                r = json.loads(ln)
+            except Exception:
+                continue
+            k, v = r.get("k"), r.get("v")
+            if not isinstance(k, str) or not isinstance(v, dict):
+                continue
+            if r.get("r") != rv and content_classified(v):
+                continue
+            out[k] = v
+    return out
+
 
 def rules_version():
     """★ 폴더 규칙만 해싱하면 **반쪽이다** (2026-08-08 실사고 — 같은 사고 두 번째).
@@ -232,9 +270,12 @@ def load_cache():
     try:
         d = json.load(open(CACHE, encoding="utf-8"))
     except Exception:
-        return {}
+        # ★ 본 캐시가 없거나 깨졌을 때가 **수첩이 유일한 진도**인 그 상황이다 -
+        #   한 번도 완주 못 했으면 본 캐시가 아예 없다.  여기서 빈손으로
+        #   돌아가면 이 수첩이 가장 필요한 자리에서만 조용히 뜻을 잃는다([169]).
+        return _journal_load()
     if not isinstance(d, dict):
-        return {}
+        return _journal_load()
     if d.pop(RULES_KEY, None) != rules_version():
         # ★ 규칙이 바뀌었다고 **11만 건을 통째로 버리면 안 된다** (2026-08-09).
         #   다시 만드는 데 Z: 에서 6시간이 걸리는데 회차의 몫은 40분이고, 캐시는
@@ -242,7 +283,9 @@ def load_cache():
         #   하나도 안 남는다 — 규칙을 고친 벌로 색인이 영영 안 돌아오는 셈이다.
         #   (분류 규칙을 고치면 캐시도 다시 판별해야 한다는 [173] 은 그대로다.
         #    다만 '다시 볼 것'은 규칙에 기댄 항목뿐이지 색인 전체가 아니다.)
-        return {k: v for k, v in d.items() if not content_classified(v)}
+        d = {k: v for k, v in d.items() if not content_classified(v)}
+    # 앞 회차가 끊기며 남긴 진도를 얹는다 - 수첩이 더 새것이므로 나중에 넣는다.
+    d.update(_journal_load())
     return d
 
 
@@ -322,9 +365,56 @@ class RootsUnreachable(RuntimeError):
     """원본 폴더에 **하나도** 닿지 못했다 — '파일이 없다'가 아니라 '못 봤다'이다."""
 
 
+_JF = [None, 0.0]                          # [파일 손잡이, 마지막 flush 시각]
+
+
+def _jw(key, hit):
+    """새로 센 항목 한 줄을 수첩에 덧붙인다.
+
+    * **자국 하나로 색인을 죽이지 않는다** - 못 적으면 그때부터 조용히 안 적고
+      색인은 끝까지 간다(그러면 예전과 같아질 뿐이다).
+    * flush 는 **시간으로** 정한다([388]) - 개수로 정하면 파일 크기가 제각각이라
+      얼마를 잃는지 알 수 없다.  20초면 죽어도 잃는 것이 20초치다.
+    """
+    f, last = _JF
+    if f is False:
+        return
+    try:
+        if f is None:
+            os.makedirs(os.path.dirname(JOURNAL), exist_ok=True)
+            f = open(JOURNAL, "a", encoding="utf-8")
+            _JF[0] = f
+        f.write(json.dumps({"r": rules_version(), "k": key,
+                            "v": hit}, ensure_ascii=False) + chr(10))
+        now = time.time()
+        if now - last >= JOURNAL_FLUSH_S:
+            f.flush()
+            os.fsync(f.fileno())
+            _JF[1] = now
+    except Exception:
+        _JF[0] = False
+
+
+def _jclose():
+    f = _JF[0]
+    _JF[0], _JF[1] = None, 0.0
+    if f and f is not True:
+        try:
+            f.close()
+        except Exception:
+            pass
+
+
 def scan(rescan=False):
     import source_dirs as S
     cache, out = load_cache(), []
+    # ★ rescan 은 **전부 다시 판별**하라는 뜻이라 옛 진도를 이어받으면 안 된다.
+    #   먼저 비우고 이 회차가 센 새 값으로 다시 채운다.
+    if rescan:
+        try:
+            os.remove(JOURNAL)
+        except OSError:
+            pass
     roots, missing = [], []
     for attr in ("ERP_DIR", "BAND_DIR", "COUPANG_DIR", "KAKAO_DIR", "RECEIPT_DIR",
                  "DOC_DIR", "ORIGIN_ROOT"):
@@ -388,8 +478,10 @@ def scan(rescan=False):
                     "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
                 }
                 cache[key] = hit
+                _jw(key, hit)          # 진도를 그때그때 적는다 - 죽어도 남는다
             out.append(hit)
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    _jclose()
     cache[RULES_KEY] = rules_version()      # 어떤 규칙으로 판별한 캐시인지 같이 적는다
     # ★ 통째 덮어쓰기(`open(CACHE,"w")`)는 **여는 순간 원본을 0바이트로 만든다.**
     #   이 파일은 수 MB 고 채우는 데 시간이 걸리는데, 그 사이에 세션이 끊기거나
@@ -403,6 +495,12 @@ def scan(rescan=False):
     except Exception:
         # 헬퍼를 못 불러도 색인은 끝내야 한다 — 예전 방식으로라도 남긴다.
         json.dump(cache, open(CACHE, "w", encoding="utf-8"), ensure_ascii=False)
+    # ★ 완주했을 때만 수첩을 비운다 - 본 캐시가 그것을 다 담았다는 뜻이다.
+    #   중간에 죽으면 안 비워지고, 다음 회차가 그 진도를 그대로 이어받는다.
+    try:
+        os.remove(JOURNAL)
+    except OSError:
+        pass
     return out
 
 
