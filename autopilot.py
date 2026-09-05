@@ -582,8 +582,23 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
         items = list(doc.get("items") or [])
     except Exception as exc:                      # 못 읽었다 ≠ 걸린 것 없다([169])
         return {"굳음": [], "자원회복": [], "예산밖": [], "설정대기": [],
+                "크레딧대기": [],
                 "못읽음": "%s: %s" % (type(exc).__name__, exc)}
-    out, back, over, cfg = [], [], [], []
+    # 크레딧 5시간 창이 막혀 **표를 아예 못 만든 것**은 굳은 것이 아니다([289]).
+    #   그 시도 횟수는 '실패'가 아니라 **안 보낸 횟수**다 - `_escalate` 가
+    #   `ai_paused()` 에서 물러나 티켓을 만들지 않기 때문이다(2026-08-22 지시).
+    #   한 통에 담으면 인계가 'AI 인계까지 실패했다'고 말해 사람을 **멀쩡한 코드로**
+    #   **보내고**([172]) 매일 P0 로 인계 맨 위를 차지해 진짜 경보를 덮는다([170]).
+    # 판정을 여기서 만들지 않는다([162]) - `credit_window.blocked()` 를 빌린다.
+    # **한 번만 잰다**([168]) - 항목마다 물으면 대기열 길이만큼 값이 는다.
+    # **못 읽으면 예전 그대로 굳음이다**([169]) - 모름을 '크레딧 탓'으로 치면
+    #   진짜 굳음이 조용해진다.
+    try:
+        from credit_window import blocked as _cw_blocked
+        _credit_stop = bool(_cw_blocked())
+    except Exception:
+        _credit_stop = False
+    out, back, over, cfg, cw = [], [], [], [], []
     for x in items:
         if x.get("status") not in ("retry", "blocked", "manual"):
             continue
@@ -629,6 +644,18 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
             rec["다음시도"] = str(x.get("next_attempt") or "")
             cfg.append(rec)
             continue
+        # 크레딧 소진으로 **표를 아예 못 만든 것**은 굳음이 아니다(위 주석).
+        #   `_escalate` 가 실제로 물러나는 조건 셋을 그대로 쓴다([162]) - 표가
+        #   이미 있으면 그것은 **보내고 실패한** 것이라 다른 사실이고,
+        #   `NO_AI_KINDS` 갈래는 애초에 AI 인계를 안 하므로 크레딧 탓이 아니다([172]).
+        # **시도 한도와 무관하게 싣는다** - 그 횟수는 실패가 아니므로 한도로
+        #   거르면 조용해진다([169]). `설정대기` 뒤다 - 갈래가 안 겹친다([325]).
+        if (_credit_stop and not x.get("ai_ticket")
+                and 갈래 not in NO_AI_KINDS
+                and tries >= MAX_ATTEMPTS_BEFORE_AI):
+            rec["다음시도"] = str(x.get("next_attempt") or "")
+            cw.append(rec)
+            continue
         if tries < STUCK_TRIES:
             continue
         # ★ 자원 실패는 **지나간 사고**일 수 있다 — 그 자원이 지금 살아 있으면
@@ -642,8 +669,9 @@ def stuck(doc: dict[str, Any] | None = None) -> dict[str, Any]:
     out.sort(key=lambda r: -r["시도"])
     back.sort(key=lambda r: -r["시도"])
     over.sort(key=lambda r: -r["시도"])
+    cw.sort(key=lambda r: -r["시도"])
     return {"굳음": out, "자원회복": back, "예산밖": over,
-            "설정대기": cfg, "못읽음": ""}
+            "설정대기": cfg, "크레딧대기": cw, "못읽음": ""}
 
 
 def status() -> dict[str, Any]:
