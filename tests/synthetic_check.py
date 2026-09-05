@@ -34572,6 +34572,110 @@ def t517_archive_keep_stops_on_budget():
     print(chr(9989), "[517] 복구용 보관이 예산을 읽어 멈춘다 - 마감 5갈래·진도·완주·두 표·자율복구")
 
 
+def t518_gate_retries_once_when_sources_changed():
+    """관문이 도는 중에 소스가 바뀌면 **새 판으로 한 번 더 잰다**([476] 의 약속).
+
+    2026-09-05 실사고: 09:50 회차의 관문이 `ALL GREEN` 까지 갔는데 도중에 소스가
+    바뀌어 거절됐다.  관문은 `daily_run` 의 **0단계**라 그날 대조(접수취소·객관완료·
+    청구상태·오기입·사실대조·캠프담당자)가 통째로 안 돌았다.  그런데 그 거절 문구는
+    오래도록 "바뀐 판을 **다시 검사합니다**" 라고 적어 놓고 **실제로는 다시 안
+    돌았다** — 약속만 하고 안 지킨 자리([169]).
+
+    ★ 판정 자체는 한 글자도 안 건드린다([476]·[172]) — 반쪽을 시험한 결과는
+      여전히 불합격이다.  바뀐 것은 '그다음에 무엇을 하나' 뿐이다.
+    ★ 진짜 파일은 한 글자도 안 만진다([247]) — 지문·합격증·예산을 목으로 갈고
+      `finally` 로 되돌린다([371] · 모듈 속성은 프로세스 전체의 것이다)."""
+    import sys as _sys
+    _sys.path.insert(0, ROOT)
+    import daily_run as D
+
+    # ⚠ 칸 이름을 **짐작하지 않는다**([165]) — 만들면서 `sha` 라 지었다가 걸렸다. 진짜 이름은
+    #   `fingerprint` 이고, 틀리면 `_gate_same` 이 둘 다 None 으로 읽어 **언제나 같다**
+    #   → 이 검사가 아무것도 안 재면서 통과한다.
+    A = {"fingerprint": "aaa", "files": 2, "bytes": 10, "map": {"x.py": "1", "y.py": "9"}}
+    B = {"fingerprint": "bbb", "files": 2, "bytes": 11, "map": {"x.py": "2", "y.py": "9"}}
+    C = {"fingerprint": "ccc", "files": 2, "bytes": 12, "map": {"x.py": "3", "y.py": "9"}}
+
+    def fp_of(seq):
+        """부를 때마다 하나씩 꺼낸다 - '도중에 바뀌었다'를 흉내낸다."""
+        box = list(seq)
+        def f(root=None, detail=False):
+            return box.pop(0) if len(box) > 1 else box[0]
+        return f
+
+    def runner_of(out="ALL GREEN - 실작업 진행 가능", ok=True):
+        calls = []
+        def r(name, args, timeout=None, retry=0):
+            calls.append(name)
+            return {"name": name, "ok": ok, "returncode": 0 if ok else 1, "out": out}
+        return r, calls
+
+    old = (D._gate_fingerprint, D._load_gate_proof, D._save_gate_proof,
+           D.budget_left_sec, D._gate_retry_room)
+    try:
+        D._load_gate_proof = lambda root=None: {}          # 합격증 재사용 없음
+        D._save_gate_proof = lambda *a, **k: None          # 진짜 합격증을 안 덮는다([247])
+        D.budget_left_sec = lambda: None                   # 예산 시계 없음 = 손으로 돌릴 때
+
+        # (1) 도중에 바뀌면 **딱 한 번** 다시 돌고, 새 판이 깨끗하면 합격이다
+        D._gate_fingerprint = fp_of([A, B, B, B])
+        r, calls = runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 2, "새 판으로 다시 안 돌았거나 너무 많이 돌았다: %d회" % len(calls)
+        assert got.get("ok") is True, "새 판이 깨끗한데 불합격이다: %r" % (got.get("ok"),)
+        assert not got.get("소스바뀜"), "다시 재서 깨끗해졌는데 아직 '소스바뀜' 이다"
+        # ★ 다시 쟀다는 사실을 **말한다**([169]) - 조용히 하면 사람이 왜 두 배 걸렸는지 모른다
+        assert got.get("관문재검") is True, "다시 쟀다는 사실을 안 말한다([169])"
+        assert "다시 검사했다" in str(got.get("out") or ""), "출력에 그 사실이 없다([169])"
+
+        # (2) 두 번째도 바뀌면 **세 번은 안 돈다** - 정직하게 불합격을 적는다
+        D._gate_fingerprint = fp_of([A, B, B, C])
+        r, calls = runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 2, "무한히 다시 돈다: %d회" % len(calls)
+        assert got.get("ok") is False, "두 번째도 바뀌었는데 합격이다([476])"
+        assert got.get("소스바뀜") is True, "두 번째도 바뀌었는데 '소스바뀜' 을 안 적었다"
+
+        # (3) ★ 좁히는 것도 고장이다([172]) - 안 바뀌었으면 **한 번만** 돈다
+        D._gate_fingerprint = fp_of([A, A])
+        r, calls = runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 1, "안 바뀌었는데 두 번 돈다 - 관문이 늘 두 배가 된다: %d회" % len(calls)
+        assert got.get("ok") is True and not got.get("관문재검"), "안 바뀌었는데 재검이라 적었다"
+
+        # (4) 시간이 없으면 다시 안 잰다 - 뒤 단계를 굶기면 고치려던 것보다 나쁘다([172])
+        D.budget_left_sec = lambda: 60.0
+        D._gate_fingerprint = fp_of([A, B, B, B])
+        r, calls = runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 1, "예산이 60초뿐인데 다시 잰다: %d회" % len(calls)
+        assert got.get("소스바뀜") is True, "다시 못 쟀으면 예전 그대로 정직하게 적어야 한다"
+        D.budget_left_sec = lambda: None
+
+        # (5) ★ **앞에 붙이지 않는다**([165]) - 읽는 쪽이 `startswith("시간초과(")` 로 가른다.
+        #     한 글자라도 앞에 붙으면 진짜 시간초과가 `code` 로 뒤집혀 사람을
+        #     멀쩡한 검증으로 보낸다([172]).
+        D._gate_fingerprint = fp_of([A, B, B, B])
+        r, calls = runner_of(out="시간초과(1500s)", ok=False)
+        got = D._run_gate(ROOT, r)
+        assert str(got.get("out") or "").startswith("시간초과("), (
+            "재검 표시를 앞에 붙여 시간초과 갈래를 덮었다([165]): %r"
+            % (str(got.get("out") or "")[:40],))
+
+        # (6) 계기 자기시험([272]) - 다시 도는 문을 막으면 (1)이 잡아야 한다
+        D._gate_retry_room = lambda: False
+        D._gate_fingerprint = fp_of([A, B, B, B])
+        r, calls = runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 1 and got.get("소스바뀜") is True, (
+            "다시 도는 문을 막았는데도 (1)이 통과한다 - 이 검사는 아무것도 안 재고 있다([272])")
+    finally:
+        (D._gate_fingerprint, D._load_gate_proof, D._save_gate_proof,
+         D.budget_left_sec, D._gate_retry_room) = old
+
+    print(chr(9989), "[518] 관문이 소스가 바뀌면 새 판으로 한 번 더 잰다 - 한 번만·시간·앞에안붙임")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49341,6 +49445,7 @@ if __name__ == "__main__":
     t515_open_stats_export_says_it_before_the_numbers()
     t516_remote_5xx_is_not_a_code_bug()
     t517_archive_keep_stops_on_budget()
+    t518_gate_retries_once_when_sources_changed()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

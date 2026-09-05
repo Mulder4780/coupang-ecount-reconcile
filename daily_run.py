@@ -512,6 +512,10 @@ def _run_once(name, args, timeout):
 # 0단계 관문(합성검증)에 주는 시간. 실측 395.7초(2026-08-19, 한가한 기계) 대비
 # 약 3.8배. `run()` 기본값 600초로는 바쁜 아침에 관문이 회차를 죽였다.
 GATE_TIMEOUT_S = int(os.environ.get("COUPANG_GATE_TIMEOUT_S") or 1500)
+
+# 다시 검사한 뒤에도 회차에 남아야 하는 최소 시간.  이만큼도 안 남으면 다시 안 잰다 —
+# 관문을 살리자고 뒤 단계를 통째로 굶기면 고치려던 것보다 나쁘다([172]).
+GATE_RETRY_FLOOR_S = int(os.environ.get("COUPANG_GATE_RETRY_FLOOR_S") or 600)
 GATE_PROOF_SCHEMA = 1
 GATE_PROOF_NAME = "합성검증_통과증명.json"
 GATE_SOURCE_EXTENSIONS = {
@@ -677,7 +681,19 @@ def _save_gate_proof(stamp, duration_s, root=ROOT):
     return proof
 
 
-def _run_gate(root=ROOT, runner=None):
+def _gate_retry_room():
+    """새 판으로 다시 잴 시간이 남았나.
+
+    ★ 예산 시계가 없으면(사람이 손으로 돌릴 때) **언제나 예**다 — 그때는 굶길
+      뒤 단계가 없다.  못 읽는 것을 '시간 없음'으로 치면 손 관문이 영영 안 다시 돈다([169]).
+    """
+    left = budget_left_sec()
+    if left is None:
+        return True
+    return left > GATE_TIMEOUT_S + GATE_RETRY_FLOOR_S
+
+
+def _run_gate(root=ROOT, runner=None, _retry=True):
     """코드가 같으면 최근 합격증을 쓰고, 바뀌었을 때만 전체 합성검증을 돈다.
 
     실패·시간초과는 옛 합격증을 덮어쓰지 않는다. 검증 도중 코드가 바뀌면 그 결과는
@@ -714,6 +730,24 @@ def _run_gate(root=ROOT, runner=None):
     after = _gate_fingerprint(root, detail=True)
     edited = not _gate_same(after, before)
     changed = _gate_changed(before, after) if edited else []
+
+    # ★ **약속만 하고 안 지키던 자리** (2026-09-05 실사고).  아래 거절 문구는
+    #   오래도록 "바뀐 판을 **다시 검사합니다**" 라고 적어 놓고 실제로는 실패한
+    #   결과를 그대로 돌려줬다.  관문은 이 회차의 **0단계**라 그러면 그날 대조가
+    #   통째로 안 돈다 — 실측 09:50 회차가 `ALL GREEN` 까지 가고도 그렇게 빠졌다.
+    # ★ **판정 자체는 옳다**([476]) — 반쪽을 시험한 결과를 통과시키면 안 된다.
+    #   고칠 자리는 '그러면 어떻게 하나' 쪽이고, 답은 **새 판으로 한 번 더 재는 것**이다.
+    # ★ **딱 한 번만** 다시 돈다(`_retry`) — 옆에서 계속 고치면 무한히 돌 수 있다.
+    #   두 번째도 바뀌었으면 아래 갈래가 예전 그대로 정직하게 불합격을 적는다.
+    if edited and _retry and _gate_retry_room():
+        again = dict(_run_gate(root, runner, _retry=False))
+        again["관문재검"] = True
+        # ⚠ **앞에 붙이지 않는다** — 읽는 쪽이 `out.startswith("시간초과(")` 로
+        #   갈래를 가른다([165]).  앞에 한 글자라도 붙이면 진짜 시간초과가
+        #   `code`(코드가 깨졌다)로 뒤집혀 사람을 멀쩡한 검증으로 보낸다([172]).
+        again["out"] = (str(again.get("out") or "")
+                       + "\n· 소스가 바뀌어 새 판으로 다시 검사했다(바뀐 파일 %d개)" % len(changed))
+        return again
 
     if step.get("ok") and "ALL GREEN" in str(step.get("out") or ""):
         if edited:
