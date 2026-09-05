@@ -116,6 +116,16 @@ def decide(now, marker, claims, rounds, force=False):
         if str(marker.get("done_date") or "") == now.date().isoformat():
             return {"go": False, "kind": "완주", "skip": [], "why": "오늘 회차는 이미 끝났다"}
     # ★ 남의 점유는 force 로도 안 뺏는다 — 그것이 이 회차의 첫째 규칙이다.
+    # 2026-09-05 실측 - publish 에는 '마지막 기회'를 안 준다(아래 rounds 갈래와 다르다).
+    #   그날 정오 창 여섯 기회가 전부 양보였다: 12:00/12:20/12:50 은 publish(앱 서버),
+    #   12:10/12:30/12:40 은 일일대조. 앱 서버는 10분마다 cloud_publish --cloud 를 돌리고
+    #   이 회차도 10분마다 불리므로 두 주기가 같아 정각마다 부딪힌다 - 우연이 아니라 구조다.
+    #   그래서 여기에도 마지막 기회를 줄까 했는데 손해를 세어 보니 줄 것이 없었다:
+    #   그날 09:50 회차가 합성검증과 캠프명 표준화를 이미 했고 인계 갱신은 워치독이
+    #   30분마다 한다. 남는 '정기점검 내용 조사' 하나는 HEAVY_STEPS 라 마지막 기회에도
+    #   어차피 건너뛴다 - 곧 문을 넣어도 실제로 도는 단계가 0개다([172] 문제 없는 것을
+    #   고치지 않는다). 되풀이가 거슬리면 고칠 자리는 코드가 아니라 정오회차 트리거를
+    #   :03 처럼 어긋나게 두는 것이고, 그것은 스케줄러 설정이라 사람이 정한다.
     for what in ("ledger", "publish"):
         if what in live:
             c = next(x for x in claims if x.get("what") == what and x.get("alive"))
