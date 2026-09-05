@@ -34812,6 +34812,78 @@ def t519_source_index_keeps_progress():
     print(chr(9989), "[519] 원본 색인이 진도를 남긴다 - 죽어도 남음·이어받음·rescan·깨진줄·자기시험")
 
 
+def t520_ai_handoff_not_sent_when_instructions_too_long():
+    """[520] AI 인계는 지시문이 한도를 넘으면 보내지 않는다 (2026-09-05 실사고).
+
+    실측: cwd=ecount 에서 `claude -p` 를 부르면 같은 CLAUDE.md(1.1MB)를 프로젝트
+    뿌리와 ecount 에서 두 벌 실어 요청이 1,079,788 토큰이 된다(한도 1,000,000).
+    2026-09 실패 티켓 4건이 전부 이 사유이고 대화 자체는 3,558 토큰뿐이었다 -
+    곧 AI 인계가 구조적으로 100% 실패하면서 매번 opus/high 를 골라 왕복을 태웠다.
+
+    재는 것은 여섯이다. 막는 쪽만이 아니라 **안 막는 쪽**도 잰다([172]) -
+    지시문이 줄면 저절로 다시 가야 하고, 좁히는 것도 고장이다.
+    """
+    import importlib
+    AD = importlib.import_module("agent_dispatch")
+    PRJ = os.path.dirname(str(AD.ROOT))
+
+    # (1) 지금 그대로면 막힌다 - 이것이 사고의 재현이다
+    a = AD.instruction_tokens("claude", str(AD.ROOT))
+    assert a is not None and a > AD.PROMPT_TOKEN_LIMIT, \
+        "[520] cwd=ecount 에서 지시문이 한도를 안 넘는다고 나온다: %r" % a
+
+    # (2) 한 칸 위(사본 한 벌)면 안 막힌다 - 줄면 저절로 간다
+    b = AD.instruction_tokens("claude", PRJ)
+    assert b is not None and b <= AD.PROMPT_TOKEN_LIMIT, \
+        "[520] 사본 한 벌인데도 막는다(좁히는 것도 고장이다): %r" % b
+
+    # (3) codex 는 한 글자도 안 건드렸다([172])
+    c = AD.instruction_tokens("codex", str(AD.ROOT))
+    assert c is not None and c <= AD.PROMPT_TOKEN_LIMIT, \
+        "[520] codex 갈래까지 막는다: %r" % c
+
+    # (4) 못 재면 None = 보낸다([169]) - 모를 때 기우는 방향은 보내는 쪽이다
+    assert AD.instruction_tokens("gpt", str(AD.ROOT)) is None
+    tmp = tempfile.mkdtemp(prefix="t520_")
+    assert AD.instruction_tokens("claude", tmp) is None, \
+        "[520] 지시문이 없는데 0 이 아니라 값을 냈다"
+
+    # (5) 관문은 **보내기 전**에 있어야 뜻이 있다
+    src = open(os.path.join(str(AD.ROOT), "agent_dispatch.py"),
+               encoding="utf-8").read()
+    gate = src.index("_est = instruction_tokens(agent, ROOT)")
+    send = src.index("command = _agent_command(agent, executable, prompt")
+    assert gate < send, "[520] 관문이 명령을 만든 뒤에 있다 - 그러면 이미 보낸 것이다"
+
+    # (6) 자국이 traces() 가 읽는 칸을 갖는다([304]) - 진짜 reports 는 안 건드린다([247])
+    old = AD.ROOT
+    try:
+        AD.ROOT = type(old)(tmp)
+        AD._too_long_trace("시험 표", "claude", 1008631)
+    finally:
+        AD.ROOT = old
+    d = json.load(open(os.path.join(tmp, "reports", "AI인계_오류.json"),
+                       encoding="utf-8"))
+    for k in ("작업", "갈래", "무엇", "조치"):
+        assert d.get(k), "[520] 자국에 %s 칸이 없다 - 인계에 안 실린다" % k
+    assert not os.path.exists(os.path.join(str(AD.ROOT), "reports",
+                                           "AI인계_오류.json")), \
+        "[520] 검증이 진짜 자국 파일을 만들었다([247])"
+
+    # 계기 자기시험([272]): 관문을 빼면 (5)가 잡히나
+    broken = src.replace("_est = instruction_tokens(agent, ROOT)",
+                         "_est = None  # 관문 제거", 1)
+    assert "_est = instruction_tokens(agent, ROOT)" not in broken
+    caught = False
+    try:
+        broken.index("_est = instruction_tokens(agent, ROOT)")
+    except ValueError:
+        caught = True
+    assert caught, "[520] 계기 자기시험: 관문을 빼도 안 잡힌다"
+    print(chr(9989) + " [520] AI 인계 - 지시문 한도 관문(막힘 %d · 사본한벌 %d · codex %d)"
+          % (a, b, c))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49583,6 +49655,7 @@ if __name__ == "__main__":
     t517_archive_keep_stops_on_budget()
     t518_gate_retries_once_when_sources_changed()
     t519_source_index_keeps_progress()
+    t520_ai_handoff_not_sent_when_instructions_too_long()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

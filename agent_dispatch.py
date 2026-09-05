@@ -327,6 +327,69 @@ def _ticket_prompt(record: dict[str, Any], local_returncode: int) -> str:
 """
 
 
+# --------------------------------------------------------------------
+# 보내기 전에 지시문 크기를 잰다 (2026-09-05 실사고).
+#
+# 실측: `claude -p` 를 cwd=ROOT(ecount)에서 부르면 CLAUDE.md 를 계층으로 읽어
+#   Documents/CLAUDE.md(3,474) + PRJ/CLAUDE.md(1,107,757) + ecount/CLAUDE.md(1,107,757)
+#   = 2,218,988 바이트를 싣는다. 그런데 뒤 둘은 **같은 파일의 사본**이다
+#   (2026-07-31 규칙 - 세 파일은 내용이 같아야 한다).
+#   그래서 요청이 1,079,788 토큰이 되어 한도(1,000,000)를 넘고 즉사한다.
+#   대화 자체는 3,558 토큰뿐이다 - 곧 AI 인계가 구조적으로 100% 실패한다.
+#   실측 2026-09: 실패 티켓 4건이 전부 이 사유다.
+#
+# * 막는 것이 아니라 헛시도를 없애는 것이다([67] - 자동 인계를 다시 조이지
+#   않는다). 지시문이 줄면 이 관문은 저절로 안 걸린다.
+# * 못 재면 보낸다([169]) - 물러나는 값은 거절 한 번이고, 잘못 막으면 AI
+#   인계가 통째로 죽는다. 모를 때 기우는 방향은 보내는 쪽이다.
+PROMPT_TOKEN_LIMIT = 1_000_000
+_BYTES_PER_TOKEN = 2.2          # 실측 2,218,988바이트 <-> 1,079,788토큰(2.055)보다
+                                # 크게 잡는다 = 토큰을 작게 어림 = 덜 막는다
+_INSTRUCTION_NAME = {"claude": "CLAUDE.md", "codex": "AGENTS.md"}
+
+
+def instruction_tokens(agent: str, cwd) -> int | None:
+    """그 cwd 에서 CLI 가 계층으로 읽을 지시문 크기(토큰 어림). 못 재면 None."""
+    name = _INSTRUCTION_NAME.get(agent)
+    if not name:
+        return None
+    try:
+        here = Path(cwd).resolve()
+    except Exception:
+        return None
+    total = 0
+    seen = False
+    for d in [here, *here.parents]:
+        try:
+            p = d / name
+            if p.is_file():
+                total += p.stat().st_size
+                seen = True
+        except OSError:
+            return None                 # 못 읽었으면 '작다'고 우기지 않는다
+    return int(total / _BYTES_PER_TOKEN) if seen else None
+
+
+def _too_long_trace(title: str, agent: str, est: int) -> None:
+    """왜 못 보냈는지 자국을 남긴다. schedule_watch.traces() 가 reports/*_오류.json
+    을 글로브로 모아 인계 '먼저 처리할 것' 에 저절로 싣는다([304]).
+    """
+    try:
+        (ROOT / "reports").mkdir(exist_ok=True)
+        _atomic_json(ROOT / "reports" / "AI인계_오류.json", {
+            "작업": "AI 인계",
+            "갈래": "프롬프트초과",
+            "시각": datetime.now().isoformat(timespec="seconds"),
+            "무엇": ("AI 인계를 못 보냈다 - %s 가 실을 지시문이 약 %d 토큰이라 "
+                   "한도 %d 를 넘는다. 같은 지시문(CLAUDE.md 1.1MB)을 프로젝트 "
+                   "뿌리와 ecount 에서 두 벌 싣기 때문이다. 표: %s"
+                   % (agent, est, PROMPT_TOKEN_LIMIT, title[:60])),
+            "조치": "python ecount/agent_dispatch.py --status",
+        })
+    except Exception:
+        pass                            # 자국 하나로 인계를 죽이지 않는다
+
+
 def _agent_command(agent: str, executable: str, prompt: str, last_message: Path,
                    chosen: dict[str, Any] | None = None) -> list[str]:
     """CLI 명령을 짓는다. `chosen` 이 있으면 **고른 모델**을 깃발로 붙인다.
@@ -424,6 +487,18 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
     except Exception as exc:                    # 고르기가 실패해도 인계는 나간다
         record["ai_tier_error"] = str(exc)[:120]
     _atomic_json(path, record)
+    # 보내기 전 관문: 지시문이 한도를 넘으면 안 보낸다(instruction_tokens 주석).
+    _est = instruction_tokens(agent, ROOT)
+    if _est is not None and _est > PROMPT_TOKEN_LIMIT:
+        _why = ("AI 인계를 못 보냈다 - 지시문이 약 %d 토큰이라 한도 %d 를 넘는다"
+                % (_est, PROMPT_TOKEN_LIMIT))
+        record.update({"status": "failed", "error": _why, "not_sent": True,
+                       "instruction_tokens": _est,
+                       "completed_at": datetime.now().isoformat(timespec="seconds")})
+        _atomic_json(path, record)
+        _too_long_trace(str(record.get("title") or ""), agent, _est)
+        return record
+
     command = _agent_command(agent, executable, prompt, last_message, chosen)
     try:
         result = run_tree(command, cwd=ROOT, env=_background_agent_env(),
