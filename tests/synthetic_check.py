@@ -9007,9 +9007,14 @@ def t83_agent_dispatch_and_calendar():
                 return SimpleNamespace(returncode=0, stdout="codex 1.0", stderr="",
                                        timed_out=False, stuck_pid=0)
 
+            # instruction_tokens 는 진짜 CLAUDE.md 크기를 읽는다([520] 관문).
+            # 이 검사가 재는 것은 **폴백 규칙**이지 지시문 크기가 아니므로 목으로
+            # 끊는다 - 안 끊으면 지시문이 한도를 넘는 날 이 검사가 같이 죽는다
+            # ([211] 관문이 실데이터에 매인다). None = '못 쟀다' = 보낸다([169]).
             with patch.object(A, "resolve_agent_executable",
                               side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
-                 patch.object(A, "run_tree", side_effect=quota_then_codex):
+                 patch.object(A, "run_tree", side_effect=quota_then_codex), \
+                 patch.object(A, "instruction_tokens", return_value=None):
                 route = A.route_status()
                 assert route["primary"] == "claude" and route["selected"] == "codex", route
                 ticket = A.enqueue("synthetic", "합성 AI 연계", ["tests/synthetic_check.py"])
@@ -9055,7 +9060,8 @@ def t83_agent_dispatch_and_calendar():
             with patch.object(A, "route_status", return_value=ready_route), \
                  patch.object(A, "resolve_agent_executable",
                               side_effect=lambda name: str(Path(td) / f"{name}.exe")), \
-                 patch.object(A, "run_tree", side_effect=claude_exec_then_codex):
+                 patch.object(A, "run_tree", side_effect=claude_exec_then_codex), \
+                 patch.object(A, "instruction_tokens", return_value=None):
                 consumed = A.run_ticket(runtime_path, 0)
                 assert consumed["status"] == "done", consumed
                 assert consumed["selected"] == "codex", consumed
