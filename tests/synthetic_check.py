@@ -17589,30 +17589,6 @@ def _t_wd_steps(src=None):
     return []
 
 
-def _stuck_no_credit(ap, doc=None):
-    """`autopilot.stuck()` 을 **크레딧 상태와 무관하게** 부른다([211]).
-
-    ★ 왜 (2026-09-06 실사고): [521] 이 `크레딧대기` 갈래를 더한 뒤로, 크레딧 5시간
-      창이 차 있는 동안에는 `code`·`timeout` 항목이 전부 그 갈래로 빠져 `굳음` 이
-      **빈다**. 그래서 그날 09:50 회차의 관문이 `t404` 에서 죽었고
-      **그날 대조가 통째로 안 돌았다**(접수취소·객관완료·청구상태·오기입·
-      사실대조·캠프 담당자). 합성 큐를 주는 검사가 **진짜 대화기록(크레딧)** 을
-      읽고 있던 것이다 — 관문이 실데이터에 매인 자리다.
-    ★ 크레딧 갈래 **자체**는 `t521` 이 목을 걸고 따로 잰다. 여기서는 안 잰다 —
-      한 검사가 두 가지를 재면 어느 쪽이 깨졌는지 사람이 못 가른다([289]).
-    ⚠ 모듈 속성은 **프로세스 전체의 것**이라 `finally` 로 되돌린다([371]).
-      `stuck()` 은 함수 안에서 `from credit_window import blocked` 를 하므로
-      `sys.modules["credit_window"].blocked` 를 갈아 끼우면 그 자리에 닿는다.
-    """
-    import credit_window as _CW
-    _keep = _CW.blocked
-    _CW.blocked = lambda: False
-    try:
-        return ap.stuck() if doc is None else ap.stuck(doc)
-    finally:
-        _CW.blocked = _keep
-
-
 def _t370_code_only(text):
     """설명 글(독스트링·주석)을 걷어낸다 — 규칙을 세기 전에 하는 일이다.
 
@@ -27838,30 +27814,30 @@ def t424_resource_failures_that_already_passed():
     E_FRAME = frame + '  File "C:/x/z.py", line 2, in run\nRuntimeError: broke'
 
     # ① 자원이 지금 살아 있으면 경보가 아니라 알림이다
-    d = _stuck_no_credit(ap, doc(item("살아있는자원", "resource", E_ALIVE)))
+    d = ap.stuck(doc(item("살아있는자원", "resource", E_ALIVE)))
     assert not d["굳음"] and len(d["자원회복"]) == 1, ("지나간 자원 실패가 아직 경보다", d)
 
     # ② 지금도 죽어 있으면 **경보 그대로** (좁히는 것도 고장이다)
-    d = _stuck_no_credit(ap, doc(item("죽은자원", "resource", E_DEAD)))
+    d = ap.stuck(doc(item("죽은자원", "resource", E_DEAD)))
     assert len(d["굳음"]) == 1 and not d["자원회복"], ("죽은 자원을 완화했다", d)
 
     # ③ 경로가 파일이면 그 **폴더**를 잰다
-    d = _stuck_no_credit(ap, doc(item("관리대장", "resource", E_XLSX)))
+    d = ap.stuck(doc(item("관리대장", "resource", E_XLSX)))
     assert len(d["자원회복"]) == 1, ("확장자 모양을 못 읽었다", d)
 
     # ④ code·timeout 은 자원이 살아 있어도 완화하지 않는다
-    d = _stuck_no_credit(ap, doc(item("코드", "code", E_ALIVE), item("시간초과", "timeout", E_ALIVE)))
+    d = ap.stuck(doc(item("코드", "code", E_ALIVE), item("시간초과", "timeout", E_ALIVE)))
     assert len(d["굳음"]) == 2 and not d["자원회복"], ("갈래를 넘어 완화했다", d)
 
     # ⑤⑥ 경로를 못 뽑거나 후보가 여럿이면 **모름** → 경보 유지([169])
-    d = _stuck_no_credit(ap, doc(item("프레임만", "resource", E_FRAME)))
+    d = ap.stuck(doc(item("프레임만", "resource", E_FRAME)))
     assert len(d["굳음"]) == 1, ("경로가 없는데 완화했다", d)
     two = "OSError: '%s' and '%s' both failed" % (ALIVE, os.path.join(ALIVE, "reports"))
-    d = _stuck_no_credit(ap, doc(item("둘", "resource", two)))
+    d = ap.stuck(doc(item("둘", "resource", two)))
     assert len(d["굳음"]) == 1, ("후보가 여럿인데 골랐다", d)
 
     # ⑦ 한도 아래는 애초에 안 센다
-    d = _stuck_no_credit(ap, doc(item("적음", "resource", E_ALIVE, tries=2)))
+    d = ap.stuck(doc(item("적음", "resource", E_ALIVE, tries=2)))
     assert not d["굳음"] and not d["자원회복"], ("한도 아래를 셌다", d)
 
     # ⑧⑨⑩ 인계가 알림을 **조용히 빼지 않는다**([169]) · 진짜 굳음은 예전대로 경보
@@ -27893,7 +27869,7 @@ def t424_resource_failures_that_already_passed():
     real = ap.resource_back
     try:
         ap.resource_back = lambda t: None
-        d = _stuck_no_credit(ap, doc(item("살아있는자원", "resource", E_ALIVE)))
+        d = ap.stuck(doc(item("살아있는자원", "resource", E_ALIVE)))
         assert len(d["굳음"]) == 1 and not d["자원회복"], \
             "계기 자기시험 실패 — 문을 없애도 통과한다(이 검사는 아무것도 안 재고 있다)"
     finally:
@@ -38552,7 +38528,7 @@ def t404_stuck_autorecovery_reaches_the_handoff():
     전 = os.path.getmtime(실제) if os.path.exists(실제) else None
 
     # ① 오래 굳은 것만 올린다 — 대기 자체는 정상이다([170])
-    r = _stuck_no_credit(AP404, 큐([항목("갓 시작", attempts=1),
+    r = AP404.stuck(큐([항목("갓 시작", attempts=1),
                         항목("아홉 번", attempts=AP404.STUCK_TRIES - 1),
                         항목("열 번", attempts=AP404.STUCK_TRIES)]))
     이름 = [x["이름"] for x in r["굳음"]]
@@ -38560,11 +38536,11 @@ def t404_stuck_autorecovery_reaches_the_handoff():
         "[404] 한도 아래를 올리거나 한도를 넘긴 것을 뺀다 — %r" % 이름
 
     # ② 끝난 일은 안 올린다(done 을 올리면 경보가 매일 뜬다 · [170])
-    r = _stuck_no_credit(AP404, 큐([항목("끝남", status="done", attempts=99)]))
+    r = AP404.stuck(큐([항목("끝남", status="done", attempts=99)]))
     assert not r["굳음"], "[404] 끝난 일을 굳었다고 한다"
 
     # ③ 오래 굳은 순서다 — 사람이 위에서부터 본다
-    r = _stuck_no_credit(AP404, 큐([항목("적게", attempts=12), 항목("많이", attempts=30)]))
+    r = AP404.stuck(큐([항목("적게", attempts=12), 항목("많이", attempts=30)]))
     assert [x["이름"] for x in r["굳음"]] == ["많이", "적게"], "[404] 순서가 시도 순이 아니다"
 
     # ④ ★ 원인이 **가운데** 있어도 싣는다([365] — 앞도 꼬리도 아니다).
@@ -38574,7 +38550,7 @@ def t404_stuck_autorecovery_reaches_the_handoff():
               + "i 관리대장 최신본 자동 탐지: v615.xlsx\n" * 6
               + "! 클라우드 연속운영 사본 실패: HTTPError: HTTP Error 404: Not Found\n"
               + "openpyxl UserWarning: Data Validation extension is not supported\n")
-    r = _stuck_no_credit(AP404, 큐([항목("사본", attempts=26, err=가운데)]))
+    r = AP404.stuck(큐([항목("사본", attempts=26, err=가운데)]))
     왜 = r["굳음"][0]["왜"]
     assert "404" in 왜, "[404] 진짜 원인을 못 싣는다 — 겉은 경보인데 왜인지 못 읽는다: " + 왜[:90]
 
@@ -38583,7 +38559,7 @@ def t404_stuck_autorecovery_reaches_the_handoff():
         "[404] 멀쩡한 줄을 오류로 지목한다"
 
     # ⑥ 오류 표시가 없으면 **꼬리**를 준다 — 빈손으로 돌려보내지 않는다([169])
-    r = _stuck_no_credit(AP404, 큐([항목("표시없음", attempts=15, err="가" * 400 + "끝부분")]))
+    r = AP404.stuck(큐([항목("표시없음", attempts=15, err="가" * 400 + "끝부분")]))
     assert "끝부분" in r["굳음"][0]["왜"], "[404] 오류 표시가 없다고 아무 말도 안 한다"
 
     # ⑦ 못 읽으면 '걸린 것 없음' 이 아니라 **못 읽었다**([169])
@@ -38594,7 +38570,7 @@ def t404_stuck_autorecovery_reaches_the_handoff():
             raise RuntimeError("합성: 큐가 깨졌다")
     깨진큐 = _깨짐()
     깨진큐["items"] = []                      # truthy 로 만든다
-    r = _stuck_no_credit(AP404, 깨진큐)
+    r = AP404.stuck(깨진큐)
     assert r["못읽음"] and not r["굳음"], "[404] 못 읽었는데 '걸린 것 없음' 으로 넘어간다"
 
     # ⑧ ★ 인계가 **실제로 싣는가**([328] — 함수만 있고 안 부르면 없는 것과 같다).
@@ -38647,23 +38623,10 @@ def t404_stuck_autorecovery_reaches_the_handoff():
     보관 = AP404.STUCK_TRIES
     try:
         AP404.STUCK_TRIES = 0
-        r = _stuck_no_credit(AP404, 큐([항목("갓 시작", attempts=1)]))
+        r = AP404.stuck(큐([항목("갓 시작", attempts=1)]))
         assert r["굳음"], "(자기시험 준비 실패)"
     finally:
         AP404.STUCK_TRIES = 보관
-
-    # (13) ★ 이 검사는 **크레딧 상태에 안 매인다**([211] · 2026-09-06 실사고).
-    #    크레딧 5시간 창이 차 있는 동안 09:50 회차의 관문이 여기서 죽어
-    #    **그날 대조가 통째로 안 돌았다**. 소진을 흉내내도 (1)이 그대로여야 한다.
-    import credit_window as _CW404
-    _keep404 = _CW404.blocked
-    try:
-        _CW404.blocked = lambda: True
-        r = _stuck_no_credit(AP404, 큐([항목("열 번", attempts=AP404.STUCK_TRIES)]))
-        assert [x["이름"] for x in r["굳음"]] == ["열 번"], \
-            "[404] 크레딧이 찬 동안 이 검사가 빨개진다 — 그러면 그날 대조가 통째로 안 돈다([211])"
-    finally:
-        _CW404.blocked = _keep404
 
     후 = os.path.getmtime(실제) if os.path.exists(실제) else None
     assert 전 == 후, "[404] 검증이 진짜 대기열 파일을 건드렸다([247])"
@@ -39635,7 +39598,7 @@ def t436_autopilot_skips_what_it_can_never_finish():
     _oldq = ap.QUEUE_PATH
     try:
         ap.QUEUE_PATH = pathlib.Path(q)
-        st = _stuck_no_credit(ap)
+        st = ap.stuck()
     finally:
         ap.QUEUE_PATH = _oldq
     assert [r["이름"] for r in st["예산밖"]] == ["예산밖·예산을 안 읽는다"], (
