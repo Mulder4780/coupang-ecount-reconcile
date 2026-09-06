@@ -57,6 +57,7 @@ collect_gate.py — 수집을 **누가** 하느냐가 아니라 **지금 자원�
     낡은 이름을 안내에 쓰면 사람이 없는 세션을 찾는다([172]).
 """
 import argparse
+import io
 import os
 import sys
 
@@ -237,6 +238,48 @@ def _note(갈래, 왜, 주인=""):
         return False
 
 
+def _unattended_mark():
+    """무인 자국 마커 자리. **조율표에서 파생시킨다**([402]) — 검증이 조율표를
+    임시로 돌리면 이 마커도 따라가야 진짜 자국이 안 덮인다."""
+    import coordinate
+    return os.path.join(os.path.dirname(coordinate.MARK), ".수집문_무인자국.txt")
+
+
+def _note_unattended_once():
+    """무인 통과를 **하루 한 번만** 적는다.
+
+    ★ 왜 필요한가(2026-09-06 실측): 무인이 자국을 한 줄도 안 남겨서 조율표의
+      `마지막 돎` 이 **09-02 에 멈춰** 있었고, 그러니 굶주림 판정이 매일
+      *"수집이 6회 연속 양보했다"* 를 인계 맨 위에 올렸다. 그런데 일은 실제로
+      되고 있다 — 증분·09:50 회차가 convert_dump·intake 를 계속 부른다.
+      **거짓 경보는 진짜 경보를 덮는다**([170]).
+    ★ **하루 한 번이라야 한다.** 매번 적으면 5분 회차가 하루 수백 줄을 만들어
+      40줄 상한에 **사람 창 자국이 통째로 밀려난다** — 그러면 표가 쓸모없어진다.
+      [293]-12 가 원본이전에서 쓴 그 방식이다(하루 한 번 · 날짜 도장).
+    ★ **못 적어도 일을 막지 않는다** — 자국 하나로 자동 수집을 세우지 않는다.
+    ★ 마커를 못 읽으면 **적는 쪽**으로 기운다([169]) — 물러나는 값은 자국 한 줄이고,
+      안 적으면 거짓 굶주림이 그대로 남는다.
+    """
+    from datetime import datetime
+    오늘 = datetime.now().strftime("%Y-%m-%d")
+    mark = None
+    try:
+        mark = _unattended_mark()
+        if io.open(mark, encoding="utf-8").read().strip() == 오늘:
+            return False
+    except OSError:
+        pass          # 없거나 못 읽으면 적는 쪽으로 간다
+    except Exception:
+        return False  # 조율표 자리를 못 찾으면 아무것도 안 한다
+    if not _note("완주", "수집 문 통과 — 무인 회차(그날 첫 통과만 적는다 · 끝까지 갔는지는 그 스크립트 자국이 말한다)"):
+        return False
+    try:
+        io.open(mark, "w", encoding="utf-8").write(오늘)
+    except OSError:
+        pass          # 자국은 남았다 — 마커를 못 써도 내일 한 줄 더 적힐 뿐이다
+    return True
+
+
 # ★ **이름이 아니라 차선으로 적는다** (2026-08-28 형님 지시: "이 창에서만 수집해").
 #   세션 이름은 **기계가 못 본다**([313] — 그래서 2026-08-07 의 이름 규칙이 한 줄도 안
 #   지켜졌다) 그리고 창을 새로 열 때마다 바뀜다 — 상수에 박으면 **반드시 낡는다**.
@@ -293,6 +336,9 @@ def guard(why="", 자원=None):
       어느 창인지 안다. 적는 자리는 `COLLECT_SESSION_NAME` **하나**다.
     """
     if is_unattended():
+        # ★ 무인은 **막지 않는다** — 다만 그날 첫 통과는 자국에 남긴다
+        #   (안 남기면 조율표가 "나흘째 안 돌았다"는 거짓 굶주림을 낸다).
+        _note_unattended_once()
         return True
     v = check()
     if v["갈래"] == "가능":
