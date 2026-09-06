@@ -34958,6 +34958,93 @@ def t520_ai_handoff_not_sent_when_instructions_too_long():
           % (a, b, c))
 
 
+def t523_round_does_not_yield_to_itself():
+    """수집 문이 **나를 부른 그 회차**에는 안 물러난다 ([386] · 2026-09-06 실사고).
+
+    ★ 왜 — 09:50 회차의 "업로드 투입함 원본 분류"·"다운로드 흡수" 두 단계가 매
+      회차 실패했는데 사유가 *"일일대조 이(가) 지금 돌고 있다"* 였다. **그 단계를
+      부른 것이 바로 그 일일대조다.** 회차가 제 자신에게 양보하는 것은 어떤
+      경우에도 고장이다([412] 가 관문에서 배운 그대로 · [300]).
+    ★ 그 양보가 조율 표에 쌓여 굶주림 경보까지 냈다 — **P0 하나와 경보 하나가
+      한 뿌리**였다.
+    ★ 글자로는 못 잰다([295]) — `coordinate.running` 을 목으로 갈아 **불러서**
+      잰다. 목은 프로세스 전체의 것이라 `finally` 로 되돌린다([371]).
+    """
+    import os as _os
+    import io as _io
+    import coordinate as _C
+    import collect_gate as _G
+    import daily_run as _D
+
+    keep, env0 = _C.running, _os.environ.get("COUPANG_ROUND_JOB")
+
+    def 목(잡):
+        return lambda *a, **k: list(잡)
+
+    def 재기():
+        """(내회차만 · 남의회차도 · 표시없음) 세 갈래의 판정."""
+        _C.running = 목(["일일대조"])
+        _os.environ["COUPANG_ROUND_JOB"] = "일일대조"
+        a = _G._round_verdict()
+        _C.running = 목(["일일대조", "증분 파이프라인"])
+        b = _G._round_verdict()
+        _os.environ.pop("COUPANG_ROUND_JOB", None)
+        _C.running = 목(["일일대조"])
+        c = _G._round_verdict()
+        return a, b, c
+
+    try:
+        a, b, c = 재기()
+        # (1) 나를 부른 회차에는 안 물러난다 — 이것이 이 검사의 본체다.
+        assert a[0] == "가능", "제 자신에게 양보한다: %r" % (a,)
+        # (2) ★ **넓히지 않는다**([172]) — 남의 회차가 같이 돌면 그대로 물러나고
+        #     그 이름을 댄다. 좁히는 것도 고장이지만 넓히는 것은 더 나쁘다
+        #     (두 창이 같이 Z: 를 긁으면 캐시가 오염된다 · 사고 #27).
+        assert b[0] == "양보" and "증분" in b[1], "남의 회차에도 안 물러난다: %r" % (b,)
+        # (3) ★ **표시가 없으면 예전 그대로**([169]) — 사람이 손으로 부른 길에는
+        #     이 값이 없다. 모름을 "내 회차"로 치면 두 창이 같이 긁는다.
+        assert c[0] == "양보", "표시가 없는데 통과시킨다: %r" % (c,)
+        # (4) ★ 값을 **손으로 안 적는다**([162]) — 조율 이름이 바뀌는 날 한쪽만
+        #     고쳐지면 이 문은 한 건도 안 걸리면서 오류도 안 낸다([165]).
+        assert _D.ENV.get("COUPANG_ROUND_JOB") == _D.COORD_JOB, (
+            "daily_run 이 조율 이름을 안 넘긴다")
+        # ⚠ `Q` 는 이 파일 **모듈 수준에 없다**([324]) — 여기서 짓는다.
+        #   안 그러면 떼어 돌릴 때는 통과하고 **관문에서만 죽는다**([339]).
+        _q = chr(34)
+        _src = _io.open(_D.__file__, encoding="utf-8", newline="").read()
+        assert (_q + "COUPANG_ROUND_JOB" + _q + ": COORD_JOB") in _src, (
+            "ENV 에 이름을 문자열로 베껴 적었다 — 사본이 둘이 된다([162])")
+        # (5) ★ 계기 자신도 시험한다([272]) — 빼는 문을 없애면 (1)이 잡히나.
+        _keep_env = _G.os.environ
+
+        class _빈환경(dict):
+            def get(self, k, d=None):
+                return None if k == "COUPANG_ROUND_JOB" else _keep_env.get(k, d)
+
+            def pop(self, k, d=None):
+                return _keep_env.pop(k, d)
+
+            def __setitem__(self, k, v):
+                _keep_env[k] = v
+        try:
+            _G.os.environ = _빈환경()
+            잡힘 = False
+            try:
+                a2, _b2, _c2 = 재기()
+                잡힘 = a2[0] != "가능"
+            except AssertionError:
+                잡힘 = True
+            assert 잡힘, "빼는 문을 없애도 (1)이 통과한다 — 이 검사는 아무것도 안 잰다"
+        finally:
+            _G.os.environ = _keep_env
+    finally:
+        _C.running = keep
+        if env0 is None:
+            _os.environ.pop("COUPANG_ROUND_JOB", None)
+        else:
+            _os.environ["COUPANG_ROUND_JOB"] = env0
+    print(chr(9989) + " [523] 회차가 제 자신에게 양보하지 않는다 - 내회차/남의회차/표시없음/한곳/자기시험")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49880,6 +49967,7 @@ if __name__ == "__main__":
     t520_ai_handoff_not_sent_when_instructions_too_long()
     t521_credit_wait_is_not_stuck()
     t522_timeout_says_share_state()
+    t523_round_does_not_yield_to_itself()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

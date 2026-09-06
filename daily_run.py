@@ -27,16 +27,28 @@ REPORT_DIR = os.path.join(ROOT, "reports")
 #   Z: 를 훑으면 서로를 25분 제한 밖으로 밀어내 그날 대조가 통째로 안 돈다
 #   (2026-08-24 실사고). **이 표시가 빠지면 회차의 관문이 스스로 물러나
 #   매일 아침 대조가 안 돈다** — 고치려던 것보다 나쁘다.
-ENV = {**os.environ, "PYTHONIOENCODING": "utf-8",
-       "COUPANG_GATE_OWNER": "daily_run",
-       # zscan 단계 제한 30분보다 5분 먼저 체크포인트·75로 자진복귀한다.
-       # 완주 전에는 기존 리포트를 건드리지 않으므로 반쪽 숫자가 나오지 않는다([284]).
-       "ZSCAN_BUDGET_SEC": os.environ.get("ZSCAN_BUDGET_SEC") or "1500"}
-RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 # 조율 표에서 이 회차를 부르는 이름. **양보한 쪽과 완주한 쪽이 같은 이름을 써야**
 # `coordinate.audit()` 이 "양보했는데 주인이 끝냈나"를 이을 수 있다(둘이 갈리면
 # 모든 양보가 영영 '헛양보'로 보인다 — 낱말이 어긋나면 한 건도 안 걸린다).
 COORD_JOB = "일일대조"
+
+ENV = {**os.environ, "PYTHONIOENCODING": "utf-8",
+       "COUPANG_GATE_OWNER": "daily_run",
+       # ★ 자식 단계가 **나를 부른 회차**를 알아보게 한다([386] · 2026-09-06
+       #   실사고). 수집 문(`collect_gate`)은 회차 락을 보고 물러나는데, 그
+       #   단계를 부른 것이 바로 이 회차라 **제 자신에게 양보**하고 있었다 —
+       #   "업로드 투입함 원본 분류"·"다운로드 흡수"가 매 회차 실패했고 그
+       #   양보가 조율 표에 쌓여 굶주림 경보까지 냈다(P0 하나와 경보 하나가
+       #   한 뿌리다). `[412]` 가 관문에서 배운 것과 같다 —
+       #   **회차가 제 자신에게 양보하는 것은 어떤 경우에도 고장이다.**
+       # ★ 값을 손으로 안 적는다([162]) — `COORD_JOB` 그대로다. 여기 문자열을
+       #   또 쓰면 조율 이름이 바뀌는 날 한쪽만 고쳐지고, 그때 이 문은 **한
+       #   건도 안 걸리면서 오류도 안 낸다**([165]).
+       "COUPANG_ROUND_JOB": COORD_JOB,
+       # zscan 단계 제한 30분보다 5분 먼저 체크포인트·75로 자진복귀한다.
+       # 완주 전에는 기존 리포트를 건드리지 않으므로 반쪽 숫자가 나오지 않는다([284]).
+       "ZSCAN_BUDGET_SEC": os.environ.get("ZSCAN_BUDGET_SEC") or "1500"}
+RUN_LOCK = os.path.join(REPORT_DIR, ".daily_run.lock")
 
 # collect_all과 autopilot의 "한 회차 진척·아직 남음" 계약. 0(완료)이나
 # 1(실패)로 바꾸면 큐가 일찍 닫히거나 정상 증분을 실패로 센다([217]).
