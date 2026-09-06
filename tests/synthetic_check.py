@@ -113,6 +113,33 @@ def make_erp(path):
     os.replace(broken, path)
 
 
+def _credit_charged(fn):
+    """`stuck()` 을 부르는 검사를 **크레딧 갈래에서 뗀다**([211]).
+
+    2026-09-06 실사고: `[521]` 이 `autopilot.stuck()` 에 크레딧 갈래를 더하자,
+    그것을 안 끈 검사 셋(`t404`·`t424`·`t436`)이 **크레딧이 막힌 시각에만**
+    **빨갛게** 됐다.  관문은 `daily_run` 의 **0단계**라 그날 대조가 통째로
+    안 돈다(접수취소·객관완료·청구상태·오기입·사실대조·캠프 담당자).
+
+    ★ 이 셋이 재려는 것은 **한도·갈래·예산**이지 크레딧이 아니다 - 무관한
+      갈래는 **목으로 못 박는다**([501] 이 `data_freshness` 에서 배운 그대로).
+    ★ 크레딧 갈래 자체는 `t521` 이 따로 잰다 - 여기서 끄는 것이 그 검사를
+      약하게 만들지 않는다.
+    ★ 모듈 속성은 **프로세스 전체의 것**이라 `finally` 로 되돌린다([371]).
+    """
+    def _wrap(*a, **k):
+        import credit_window as _CW
+        _old = _CW.blocked
+        _CW.blocked = lambda: False
+        try:
+            return fn(*a, **k)
+        finally:
+            _CW.blocked = _old
+    _wrap.__name__ = fn.__name__
+    _wrap.__doc__ = fn.__doc__
+    return _wrap
+
+
 def t1_erp_check(tmp):
     import erp_ledger_check as E
     assert E.norm_slip("2026/07-02-6") == "2026/07/02-6"
@@ -27745,6 +27772,7 @@ def t423_erp_breaks_the_tie_for_duplicate_projects():
     print("  [423] 같은 프로젝트 행이 여럿이면 ERP 가 가른다 — 못 가르면 '중복' 이라 말한다")
 
 
+@_credit_charged
 def t424_resource_failures_that_already_passed():
     """[424] **지나간 자원 실패**를 '굳었다'고 부르지 않는다 (2026-08-25 실측).
 
@@ -38474,6 +38502,7 @@ def t405_kakao_memo_channel_never_leaks():
     print("  [405] 카톡 '나와의 채팅' 채널(기본 꺼짐·업무값 차단·토큰 안 샘) OK")
 
 
+@_credit_charged
 def t404_stuck_autorecovery_reaches_the_handoff():
     """자율복구가 **오래 못 푸는 일**이 인계까지 온다 (2026-08-23 형님 지시).
 
@@ -39474,6 +39503,7 @@ const tick=()=>new Promise(r=>setTimeout(r,20));
     print("\u2705 [435] 캘린더 캡처는 안 기다리고 일일보고만 기다린다 (실행으로 잼)")
 
 
+@_credit_charged
 def t436_autopilot_skips_what_it_can_never_finish():
     """[436] 자율복구는 **이 회차 예산으로 못 끝내는 일**을 부르지 않는다.
 
