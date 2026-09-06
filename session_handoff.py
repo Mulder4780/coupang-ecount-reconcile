@@ -298,8 +298,18 @@ def ledger():
         st = os.stat(path)
         return {"버전": ver, "파일": os.path.basename(path),
                 "수정": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")}
-    except Exception as e:
-        return {"오류": str(e)[:60]}
+    except (Exception, SystemExit) as e:
+        # ★ `SystemExit` 는 `Exception` **이 아니다**.  `latest_master()` 가
+        #   그것을 던지므로(workbook_patch:64 · [467] 이 일부러 그렇게 뒀다)
+        #   예전 `except Exception` 은 **있는 것처럼 보이는데 실제로는 없었다**
+        #   ([212] 가 시각 비교에서 겪은 것과 같은 모양).
+        # ★ 그래서 Z: 가 끊긴 날 **인계 한 장이 통째로 없어졌다**(2026-09-06
+        #   실측: `--check` 가 한 줄짜리 오류만 냈다).  인계는 세션의 **첫
+        #   명령**이라 그때가 가장 필요한 순간이다 —
+        #   **덜 세는 것은 견딜 수 있고 화면이 없어지는 것은 못 견딘다**([212]).
+        # ★ 조용히 넘기지 않는다([169]) — `버전` 자리에 그렇게 적어
+        #   **읽는 쪽을 한 글자도 안 고치고** 말한다([172]).
+        return {"오류": str(e)[:60], "버전": "? (못 읽음)"}
 
 
 def next_tasks():
