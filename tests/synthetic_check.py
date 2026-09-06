@@ -34431,6 +34431,18 @@ def t516_remote_5xx_is_not_a_code_bug():
         "만드는 쪽 낱말이 읽는 쪽 표에 없다([165]): %r" % (SIGN,))
     assert any(k == SIGN for k, _s, _h in E._SIGNS), "_SIGNS 에서 그 갈래가 사라졌다"
 
+    # (4-2) ★ **응답 없이 끊긴 것도 같은 갈래**다(2026-09-06 실측 · 70회).
+    #       HTTP 5xx 는 답이라도 왔지만 이것은 답조차 못 받았다 - 그런데
+    #       **조치가 같다**(기다린다 · 다시 두드리지 않는다).  옛날에는 `모름`
+    #       -> `code` 라 사람을 멀쩡한 코드로 보냈다([172]·[289]).
+    for _t in ("ERP API 수집 실패: RemoteDisconnected: Remote end closed connection"
+               " without response",
+               "http.client.RemoteDisconnected"):
+        assert E._diagnose(_t)[0] == SIGN, (
+            "응답 없이 끊긴 것을 못 고른다: %r -> %r" % (_t[:40], E._diagnose(_t)[0]))
+        assert A.classify_failure("[%s] %s" % (SIGN, _t)) == "resource", (
+            "읽는 쪽이 아직 code 다: %r" % (_t[:40],))
+
     # (5) 좁히는 것도 고장이다([172]) - 옆 갈래 넷은 그대로여야 한다
     for text, want in (
             ("EXP00001 데이터 입력에 오류가 있습니다", "요청 본문 형식"),
