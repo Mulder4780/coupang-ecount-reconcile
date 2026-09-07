@@ -22738,7 +22738,17 @@ def t313_collect_gate_never_scrapes_over_someone():
         # ⑥ Z: 를 훑는 회차가 돌면 양보한다(사고 #29 — SMB 독점).
         ai_claim.load = lambda: {}
         coordinate.running = lambda report_dir=None: ["일일대조"]
-        v = G.check()
+        # ★ 이 검사가 재려는 것은 **남의 회차에 양보하는가** 다. 그런데 [523] 이
+        #   `COUPANG_ROUND_JOB`(나를 부른 회차)을 목록에서 빼므로, 관문이 회차의
+        #   0단계로 돌 때는 그 이름이 바로 '일일대조' 라 여기가 '가능' 이 된다.
+        #   손으로 돌리면 통과하고 **회차에서만 죽는다**([235] · 2026-09-07 실사고).
+        #   무관한 갈래는 목으로 못 박는다([501]·[521] 이 배운 그 자리 — 세 번째다).
+        _job313 = os.environ.pop("COUPANG_ROUND_JOB", None)
+        try:
+            v = G.check()
+        finally:
+            if _job313 is not None:
+                os.environ["COUPANG_ROUND_JOB"] = _job313   # 프로세스 전체의 것이다([371])
         assert v["갈래"] == "양보" and v["주인"] == "일일대조",             "[313] 회차가 도는데 같이 Z: 를 긁으려 한다: %r" % v
 
         # ⑦ ★ **못 읽은 것을 '가능' 으로 치지 않는다**(`[169]`).
