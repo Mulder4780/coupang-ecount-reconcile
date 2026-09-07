@@ -16211,6 +16211,8 @@ const INPUT_SPEC = {
     {label:'입금액', col:'입금액', vtype:'number', cur:r=>r.입금액, ph:'숫자만'},
   ]},
   as: { sheet:'02_돌발AS접수', key_col:'접수ID', fields:[
+    {label:'캠프명', col:'캠프명', vtype:'text', cur:r=>r.캠프명,
+     ph:'전국쿠팡캠프 화면의 표기와 같게 적습니다'},
     {label:'담당기사', col:'담당기사', vtype:'text', cur:r=>r.담당기사, opts:'담당기사'},
     {label:'방문예정일', col:'방문예정일', vtype:'date', cur:r=>r.방문예정일, ph:'YYYY-MM-DD'},
     {label:'작업완료일', col:'작업완료일', vtype:'date', cur:r=>r.작업완료일, ph:'YYYY-MM-DD'},
@@ -16221,6 +16223,8 @@ const INPUT_SPEC = {
     {label:'최종확인일', col:'최종확인일', vtype:'date', cur:r=>r.최종확인일, ph:'YYYY-MM-DD'},
   ]},
   pm: { sheet:'04_정기점검', key_col:'점검ID', fields:[
+    {label:'캠프명', col:'캠프명', vtype:'text', cur:r=>r.캠프명,
+     ph:'전국쿠팡캠프 화면의 표기와 같게 적습니다'},
     {label:'실제점검일', col:'실제점검일', vtype:'date', cur:r=>r.실제점검일, ph:'YYYY-MM-DD'},
     {label:'비용구분', col:'유상·무상·보험', vtype:'text', cur:r=>r['유상·무상·보험'],
      values:['유상','무상','보험']},
@@ -21967,6 +21971,9 @@ function openCheckDrawer(r){
   const reason=checkTypeDesc(type)||`${type} 상태가 객관 근거로 아직 닫히지 않았습니다.`;
   const evidence=checkDescOf(r)||'구체 근거 문구가 아직 없습니다. 원본 자료와 연결 원장을 확인해야 합니다.';
   const asOf=checkEvidenceAsOf(r), owner=checkOwnerOf(r), linked=x.kind||checkTargetExists(x.project);
+  // 캠프명·상태·날짜는 이 갈래에서 원장 카드로 고친다 - 류지영 2026-09-08
+  // "들어가면 어디서 수정해야하는지 안나와여".  고칠 수 없는 갈래에는 안 준다([466]).
+  const canEdit=(x.kind==='as'||x.kind==='pm');
   window._activeCheckRow=r;
   const fields=Object.entries(r).filter(([,v])=>checkFieldText(v).trim());
   openPane(`<div class="check-drawer-head"><div><h2>${esc2(type)}</h2>
@@ -21978,14 +21985,14 @@ function openCheckDrawer(r){
       <section class="check-drawer-block wide"><h3>현재 확인된 근거</h3>
         <div class="check-drawer-evidence"><span class="chip c-info">${esc2(r.근거상태||'근거상태 미표기')}</span>
           ${asOf?`<span class="basis">기준 ${esc2(dataStampText(asOf))}</span>`:''}</div><p>${esc2(evidence)}</p></section>
-      <section class="check-drawer-block wide"><h3>다음 행동</h3><p>${esc2(safety.next)}</p></section>
+      <section class="check-drawer-block wide"><h3>다음 행동</h3><p>${esc2(safety.next)}${canEdit?' 이 창 아래 <b>수정하기</b>를 누르면 그 건의 원장 카드가 열립니다 — 거기서 캠프명·상태·날짜를 고쳐 저장하고, 필요하면 삭제도 할 수 있습니다.':''}</p></section>
     </div>
     <details class="check-drawer-raw"><summary>확인 원문 필드 보기</summary>
       <div class="dl">${fields.map(([k,v])=>`<dt>${esc2(k)}</dt><dd>${esc2(checkFieldText(v))}</dd>`).join('')}</div></details>
     <div class="actions sticky check-drawer-actions">
       <button type="button" class="abtn" onclick="recheckActiveIssue()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>근거 재대조</button>
       <button type="button" class="abtn" onclick="openCheckUpload()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-upload"/></svg>자료 올리기</button>
-      <button type="button" class="abtn primary" onclick="openCheckRecordFromDrawer()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>${linked?'연결 원장 보기':'원본표 보기'}</button>
+      <button type="button" class="abtn primary" onclick="openCheckRecordFromDrawer()"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-${canEdit?'pencil-square':'clipboard-data-fill'}"/></svg>${canEdit?'수정하기':(linked?'연결 원장 보기':'원본표 보기')}</button>
       <button type="button" class="abtn" onclick="closeSheetAll()">닫기</button>
     </div>`);
 }
