@@ -1462,6 +1462,7 @@ RYU_ENTRY_CONFIG = {
         "label": "돌발AS", "sheet": "02_돌발AS접수", "key_col": "접수ID",
         "date_col": "접수일자", "kind": "as",
         "fields": [
+            {"name": "캠프명", "label": "캠프명", "type": "text"},
             {"name": "담당기사", "label": "담당기사", "type": "text"},
             {"name": "진행상태", "label": "진행 상태", "type": "text"},
             {"name": "방문예정일", "label": "방문예정일", "type": "date"},
@@ -1513,6 +1514,7 @@ RYU_ENTRY_CONFIG = {
         "label": "정기점검", "sheet": "04_정기점검", "key_col": "점검ID",
         "date_col": "점검예정일", "kind": "pm",
         "fields": [
+            {"name": "캠프명", "label": "캠프명", "type": "text"},
             {"name": "점검상태", "label": "점검 상태", "type": "text"},
             {"name": "점검예정일", "label": "점검 예정일", "type": "date"},
             {"name": "점검예정시간", "label": "점검 예정시간", "type": "text"},
@@ -1658,6 +1660,7 @@ STAFF_ENTRY_PERMISSIONS = {
 }
 STAFF_REASON_REQUIRED_FIELDS = {
     "유상·무상·보험", "비용구분", "거래명세서번호", "PO번호",
+    "캠프명",
     # 금액을 고치는 것은 청구를 고치는 것이다 — 몇 달 뒤 "이건 왜 이 금액이지"를
     # 물을 사람이 반드시 있고, 그때 답할 수 있는 것은 이 한 줄뿐이다.
     "세금계산서발행일", "입금액", "실제작업공급가액",
