@@ -35055,6 +35055,158 @@ def t523_round_does_not_yield_to_itself():
             _os.environ["COUPANG_ROUND_JOB"] = env0
     print(chr(9989) + " [523] 회차가 제 자신에게 양보하지 않는다 - 내회차/남의회차/표시없음/한곳/자기시험")
 
+def t524_login_retries_like_the_rest_of_the_app():
+    """[524] 류지영 PIN 로그인이 **한 번 실패하면 곧바로 포기**하던 것 (2026-09-07)
+
+    ★ 무슨 일이 있었나 — 류지영 매니저가 업무센터에 못 들어갔다. 앱·서버·회선은
+      전부 멀쩡했고(로컬 0.04초 · 인터넷 0.13초 · Z: 0.29초) 끊긴 것은 **고정
+      Funnel 바깥 길** 하나였다 — 그날만 9번, 최근 20분에 5번, 매번 1분쯤 뒤 복귀.
+      그런데 `login()` 은 fetch 가 한 번 터지면 **곧바로 return** 이라
+      **한 번 두드리고 돌아섰다**.
+    ★ [197] 이 만든 재시도 사다리는 이미 있었다 — 그것을 쓰는 곳이 여럿인데
+      **로그인만 안 와 있었다**([300] 한 곳에서 배운 것을 다른 곳이 모른다).
+      바로 아래 `restoreRoleSession()` 은 2026-08-09 실사고로 이미 한 번 더 두드린다.
+    ★ `api()` 를 못 쓴다([366]) — 그 함수는 401 을 만나면 PIN 을 지우고 잠금 화면을
+      띄운다. 로그인 자리에서 부르면 **PIN 이 틀린 사람이 잠금 화면에 갇힌다**.
+
+    지키는 것
+      · **서버가 답을 준 갈래는 한 글자도 안 건드렸다**([172]) — 401(PIN 오류)·
+        429(잠금)는 예전처럼 **한 번**이다. 429 는 걸수록 나빠진다([197]).
+      · 기다리는 동안 화면이 말하고 **[취소]** 를 준다 — 말없이 2분 세우면
+        그것도 고장으로 읽힌다([169]).
+      · 두 번 눌러도 한 벌만 돈다 — 같은 요청을 겹쳐 보내면 더 느려진다.
+    ★ 글자로는 "정말 다시 두드리는가" 를 못 잰다([295]) — node 로 **실행해서** 잰다.
+    """
+    import io as _io, tempfile as _tf, ast as _ast
+    import proc_guard as _pg                     # 창 없이 자식을 띄운다([270]·[272])
+
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    _NL = chr(10)
+
+    # 재려는 코드는 **실제 소스에서 뽑는다** — 스텁으로 때우면 그 검사는
+    # 그날부터 실제 코드를 안 재면서 초록으로 남는다([366]).
+    i = src.index(_NL + "let LOGIN_TRY = null;")
+    j = src.index(_NL + "$(" + chr(39) + "pin" + chr(39) + ").addEventListener", i)
+    code = src[i + 1:j]
+    k = src.index(_NL + "const RETRY_WAIT_MS = [")
+    ladder = src[k + 1:src.index(_NL, k + 1)]
+
+    # (0) 사다리가 **실측보다 길어야** 뜻이 있다([197]·[90]) — 고정 Funnel 끊김
+    #     실측 중앙값 64초 · 108구간 중 97구간(90%)이 60초 초과.
+    waits = _ast.literal_eval(ladder[ladder.index("["):ladder.rindex("]") + 1])
+    assert sum(waits) / 1000.0 >= 64, (
+        "[524] 재시도 사다리 합이 %.1f초다 — 실측 끊김 중앙값 64초보다 짧으면 "
+        "다시 걸어 놓고도 결국 같은 실패로 끝난다([197])" % (sum(waits) / 1000.0,))
+
+    HARNESS = [
+        "let PIN='', LEGACY_PIN='', staffSlug='ryu-jiyeong';",
+        "const LIVE_SYNC={booting:false};",
+        "const _els={pin:{value:'1234'},pinerr:{innerHTML:'',textContent:''},gate:{style:{}}};",
+        "const $ = id => _els[id];",
+        "const localStorage={_d:{},getItem(k){return this._d[k]||null;},",
+        "  setItem(k,v){this._d[k]=v;},removeItem(k){delete this._d[k];}};",
+        "let booted=0;",
+        "function show(){} function curView(){return 'dash';}",
+        "function bootstrapAuthenticatedData(){booted++;}",
+        "let WAITS=[], CANCEL_AT=0;",
+        # _wait 은 목이다 — 진짜로 기다리면 이 검사가 2분 걸린다.
+        # 목이 즉시 끝나므로 setTimeout 취소는 루프가 다 돈 뒤에야 온다.
+        # 재려는 것은 "기다리는 중에 취소가 걸리면 멈추는가" 이므로 그 순간을
+        # 목이 직접 만든다([272] 재료가 사고를 재현 못 하면 아무것도 안 잰다).
+        "const _wait = ms => { WAITS.push(ms);",
+        "  if(CANCEL_AT && WAITS.length===CANCEL_AT) loginCancel();",
+        "  return Promise.resolve(); };",
+        ladder,
+        code,
+        "let FETCHES=0, MODE='throw';",
+        "globalThis.fetch = async () => { FETCHES++;",
+        "  if(MODE==='throw') throw new Error('net');",
+        "  if(MODE==='throw-then-ok' && FETCHES<3) throw new Error('net');",
+        "  if(MODE==='429') return {ok:false,status:429};",
+        "  if(MODE==='401') return {ok:false,status:401};",
+        "  return {ok:true,status:200}; };",
+        "const out={};",
+        "function reset(m){MODE=m;FETCHES=0;WAITS=[];booted=0;LOGIN_TRY=null;",
+        "  _els.pinerr.innerHTML='';_els.pinerr.textContent='';}",
+        "(async () => {",
+        "  reset('throw'); await login();",
+        "  out.끊김_횟수=FETCHES; out.끊김_기다림=WAITS.slice();",
+        "  out.끊김_문구=/오프라인 입력 모드/.test(_els.pinerr.innerHTML);",
+        "  reset('throw-then-ok'); await login();",
+        "  out.복귀_횟수=FETCHES; out.복귀_부팅=booted;",
+        "  reset('429'); await login();",
+        "  out.잠금_횟수=FETCHES; out.잠금_문구=_els.pinerr.textContent;",
+        "  reset('401'); await login();",
+        "  out.오류_횟수=FETCHES; out.오류_문구=_els.pinerr.textContent;",
+        "  reset('ok'); await login();",
+        "  out.성공_횟수=FETCHES; out.성공_기다림=WAITS.length;",
+        "  reset('throw'); CANCEL_AT=1; await login(); CANCEL_AT=0;",
+        "  out.취소_횟수=FETCHES;",
+        "  reset('throw'); await Promise.all([login(), login()]);",
+        "  out.두번_횟수=FETCHES;",
+        "  out.사다리=RETRY_WAIT_MS.slice();",
+        "  console.log(JSON.stringify(out));",
+        "})();",
+    ]
+
+    def _run(js):
+        tmp = _tf.mkdtemp()
+        f = os.path.join(tmp, "t524.js")
+        _io.open(f, "w", encoding="utf-8", newline=_NL).write(_NL.join(js))
+        return _pg.run_tree(["node", f], timeout=180)
+
+    r = _run(HARNESS)
+    if r.returncode != 0 and "not recognized" in ((r.stderr or "") + (r.stdout or "")):
+        print("   [524] node 가 없어 로그인 재시도는 못 쟀다 — 통과라는 뜻이 아니다")
+        return
+    assert r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+    got = json.loads((r.stdout or "").strip().splitlines()[-1])
+    N = len(got["사다리"]) + 1
+
+    # (1) 계속 끊기면 사다리 끝까지 다시 건다 — 이것이 이 고침의 본체다.
+    assert got["끊김_횟수"] == N, (
+        "[524] 끊겼을 때 %d번만 두드렸다 — %d번이어야 한다. 한 번 누르고 돌아서면 "
+        "1분 뒤 열리는 문 앞에서 못 들어간다" % (got["끊김_횟수"], N))
+    assert got["끊김_기다림"] == got["사다리"], (
+        "[524] 기다린 초가 사다리와 다르다: %r vs %r" % (got["끊김_기다림"], got["사다리"]))
+    assert got["끊김_문구"] is True, (
+        "[524] 끝내 안 되면 오프라인 입력 모드를 안내해야 한다([169])")
+
+    # (2) 중간에 돌아오면 그때 들어간다 — 재시도가 헛돌면 뜻이 없다.
+    assert got["복귀_횟수"] == 3 and got["복귀_부팅"] == 1, (
+        "[524] 세 번째에 서버가 답했는데 안 들어갔다: %r" % (got,))
+
+    # (3) 서버가 답을 준 갈래는 **한 번 그대로**다([172] 좁히는 것도 고장).
+    #     429 는 잠금이라 걸수록 나빠지고([197]) 401 은 백 번 걸어도 같다.
+    assert got["잠금_횟수"] == 1, "[524] 429(잠금)를 다시 걸었다 — 걸수록 나빠진다([197])"
+    assert got["잠금_문구"] == "시도 초과로 잠금 — 10분 후 다시 시도하세요", got["잠금_문구"]
+    assert got["오류_횟수"] == 1, "[524] 401(PIN 오류)을 다시 걸었다 — 백 번 걸어도 같다"
+    assert got["오류_문구"] == "PIN이 올바르지 않습니다", got["오류_문구"]
+
+    # (4) 정상 경로가 안 느려진다 — 성공은 한 번이고 기다림이 없다.
+    assert got["성공_횟수"] == 1 and got["성공_기다림"] == 0, (
+        "[524] 성공하는데도 다시 걸거나 기다린다: %r" % (got,))
+
+    # (5) 취소하면 멈춘다 — 말없이 2분 세우면 그것도 고장으로 읽힌다([169]).
+    assert got["취소_횟수"] < N, (
+        "[524] 취소를 눌러도 끝까지 간다(%d/%d)" % (got["취소_횟수"], N))
+
+    # (6) 두 번 눌러도 한 벌 — 겹쳐 보내면 더 느려진다.
+    assert got["두번_횟수"] == N, (
+        "[524] 두 번 누르니 두 벌이 돌았다(%d, 한 벌이면 %d)" % (got["두번_횟수"], N))
+
+    # (7) 계기 자기시험([272]) — 옛 동작(한 번 두드리고 포기)이면 (1)이 잡히나.
+    OLDL = "for(let i=0;i<N;i++)"
+    old = [x.replace(OLDL, "for(let i=0;i<1;i++)") for x in HARNESS]
+    assert old != HARNESS, "[524] 계기가 옛 동작을 못 만든다 — 재시도 루프 모양이 바뀌었다"
+    r2 = _run(old)
+    if r2.returncode == 0:
+        g2 = json.loads((r2.stdout or "").strip().splitlines()[-1])
+        assert g2["끊김_횟수"] == 1, (
+            "[524] 계기가 눈멀었다 — 재시도를 없앴는데도 %d번 두드렸다" % g2["끊김_횟수"])
+    print("  [524] 로그인이 끊긴 길을 다시 두드린다(잠금·PIN오류는 한 번 그대로) \u2705")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -49978,6 +50130,7 @@ if __name__ == "__main__":
     t521_credit_wait_is_not_stuck()
     t522_timeout_says_share_state()
     t523_round_does_not_yield_to_itself()
+    t524_login_retries_like_the_rest_of_the_app()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
