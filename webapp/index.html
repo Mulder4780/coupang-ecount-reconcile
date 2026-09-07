@@ -8042,22 +8042,53 @@ async function adminModeLogout(){
     if(btn) btn.disabled=false;
   }
 }
+let LOGIN_TRY = null;                 /* 도는 중이면 {cancel:false} — 두 번 안 돈다 */
+function loginCancel(){ if(LOGIN_TRY) LOGIN_TRY.cancel = true; }
+/* ★ 한 번 실패하고 곧바로 포기하지 않는다 (2026-09-07 실사고 · 분담판 [390]).
+   류지영 매니저가 PIN 게이트에서 막혔는데 앱·서버·회선은 전부 멀쩡했다 —
+   끊긴 것은 **고정 Funnel 바깥 길** 하나였고, 그날만 9번(최근 20분에 5번)
+   깜빡이며 매번 1분쯤 뒤 돌아왔다. 그런데 login() 은 한 번 두드려 보고
+   곧바로 포기했다(재시도 0회). 바로 아래 restoreRoleSession() 은 2026-08-09
+   실사고로 이미 한 번 더 두드리는데 여기만 안 와 있었다([300]).
+   ⚠ 다시 거는 것은 **fetch 자체가 throw 한 갈래**뿐이다. 서버가 답을 준
+     갈래(401·403·429)는 한 글자도 안 건드린다 — 429 는 잠금이라 다시 걸수록
+     나빠지고, PIN 오류는 백 번 걸어도 같다([197] 의 그 문).
+   ⚠ 사다리는 RETRY_WAIT_MS 를 **빌린다**([162]). 여기 숫자를 적으면 사본이 되고,
+     Funnel 실측이 바뀌는 날 한쪽만 고쳐진다.
+   ⚠ 사람이 앞에서 기다리는 자리라 **몇 번째인지 말하고 취소할 수 있어야 한다** —
+     말없이 2분을 세우면 그것은 고장으로 읽힌다([169]). */
 async function login(){
+  if(LOGIN_TRY) return;                 /* 이미 두드리는 중 — 두 번 보내지 않는다 */
   const pin = $('pin').value.trim();
-  let r;
+  const tries = { cancel:false };
+  LOGIN_TRY = tries;
+  const N = RETRY_WAIT_MS.length + 1;
+  const say = t => { $('pinerr').innerHTML = t; };
+  const OFFLINE = '서버에 닿지 않아 PIN을 확인할 수 없습니다 — 이 기기에서 로그인한 적이 있으면 앱을 닫았다 다시 열면 오프라인 입력 모드로 들어갑니다';
   try{
-    r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
-  }catch(e){
-    /* 서버에 못 닿음 — PIN 대조 자체가 불가능하다. 로그인 이력이 없는 기기는 열지 않는다. */
-    $('pinerr').textContent = '서버에 닿지 않아 PIN을 확인할 수 없습니다 — 이 기기에서 로그인한 적이 있으면 앱을 닫았다 다시 열면 오프라인 입력 모드로 들어갑니다';
-    return;
-  }
-  if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin');
-            try{ localStorage.setItem('cw_dev_auth','1'); }catch(e){}
-            $('gate').style.display='none';
-            LIVE_SYNC.booting=true; show(curView()); bootstrapAuthenticatedData(); }
-  else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
-  else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
+    for(let i=0;i<N;i++){
+      let r;
+      try{
+        r = await fetch('/api/login',{method:'POST',body:JSON.stringify({pin,staff_slug:staffSlug||''})});
+      }catch(e){
+        /* 서버·바깥 길에 못 닿았다. 곧 돌아올 수 있으므로 한 번 더 두드린다. */
+        if(tries.cancel || i === N-1){ say(OFFLINE); return; }
+        say('연결이 잠시 끊겼습니다 — ' + (i+2) + '/' + N + '번째 다시 시도 중… ' +
+            '<a href="#" onclick="loginCancel();return false;" style="text-decoration:underline">취소</a>');
+        await _wait(RETRY_WAIT_MS[i]);
+        if(tries.cancel){ say(OFFLINE); return; }
+        continue;
+      }
+      /* 여기부터는 서버가 답을 준 것이다 — 예전 그대로 둔다([172]). */
+      if(r.ok){ PIN='session'; LEGACY_PIN=''; localStorage.removeItem('cw_pin');
+                try{ localStorage.setItem('cw_dev_auth','1'); }catch(e){}
+                $('gate').style.display='none';
+                LIVE_SYNC.booting=true; show(curView()); bootstrapAuthenticatedData(); }
+      else if(r.status===429) $('pinerr').textContent = '시도 초과로 잠금 — 10분 후 다시 시도하세요';
+      else $('pinerr').textContent = 'PIN이 올바르지 않습니다';
+      return;
+    }
+  } finally { LOGIN_TRY = null; }
 }
 $('pin').addEventListener('keyup',e=>{ if(e.key==='Enter'||$('pin').value.length===4) login(); });
 
