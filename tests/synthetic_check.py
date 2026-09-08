@@ -34679,6 +34679,21 @@ def t518_gate_retries_once_when_sources_changed():
             return box.pop(0) if len(box) > 1 else box[0]
         return f
 
+    def split_runner_of():
+        """분리 관문 판 - 창 팝업 감사와 본 검증에 갈라 답한다.
+
+        ⚠ 감사에 `WINDOW AUDIT GREEN` 을 안 주면 `_run_gate` 가 **거기서 일찍
+          끝나** 재검을 아예 안 탄다 - 2026-09-08 에 이 검사가 그렇게 죽었다."""
+        calls = []
+        def r(name, args, timeout=None, retry=0):
+            calls.append(name)
+            if "--window-audit-only" in list(args):
+                return {"name": name, "ok": True, "returncode": 0,
+                        "out": "WINDOW AUDIT GREEN"}
+            return {"name": name, "ok": True, "returncode": 0,
+                    "out": "ALL GREEN - 실작업 진행 가능"}
+        return r, calls
+
     def runner_of(out="ALL GREEN - 실작업 진행 가능", ok=True):
         calls = []
         def r(name, args, timeout=None, retry=0):
@@ -34687,11 +34702,16 @@ def t518_gate_retries_once_when_sources_changed():
         return r, calls
 
     old = (D._gate_fingerprint, D._load_gate_proof, D._save_gate_proof,
-           D.budget_left_sec, D._gate_retry_room)
+           D.budget_left_sec, D._gate_retry_room, D._gate_supports_split)
     try:
         D._load_gate_proof = lambda root=None: {}          # 합격증 재사용 없음
         D._save_gate_proof = lambda *a, **k: None          # 진짜 합격증을 안 덮는다([247])
         D.budget_left_sec = lambda: None                   # 예산 시계 없음 = 손으로 돌릴 때
+        # ⚠ **분리 관문은 목으로 못 박는다**([501]·[371]) - 이 검사가 재려는 것은
+        #   '소스가 바뀌면 한 번 더 잰다' 이지 창 팝업 감사가 아니다.  게다가
+        #   `_gate_supports_split` 은 **검증판 소스를 읽으므로**, 안 박으면 이
+        #   검사가 그 낱말이 있고 없고에 따라 초록·빨강을 오간다([211]).
+        D._gate_supports_split = lambda root=None: False
 
         # (1) 도중에 바뀌면 **딱 한 번** 다시 돌고, 새 판이 깨끗하면 합격이다
         D._gate_fingerprint = fp_of([A, B, B, B])
@@ -34745,9 +34765,26 @@ def t518_gate_retries_once_when_sources_changed():
         got = D._run_gate(ROOT, r)
         assert len(calls) == 1 and got.get("소스바뀜") is True, (
             "다시 도는 문을 막았는데도 (1)이 통과한다 - 이 검사는 아무것도 안 재고 있다([272])")
+        D._gate_retry_room = old[4]
+
+        # (7) ★ **분리 관문에서도 다시 잰다** (2026-09-08 실사고).
+        #     이 검사가 관문에서 빨갛게 죽었는데 **계약은 한 톨도 안 깨져 있었다** -
+        #     검증판에 창 팝업 감사 선택지가 들어오면서 `_run_gate` 가 감사를 먼저
+        #     따로 돌리는데, 위 가짜 runner 가 그 응답을 안 줘 **감사에서 일찍 끝났다.**
+        #     곧 재료가 지금 코드 경로를 재현 못 한 것이다([272]).
+        #     그래서 **실제로 도는 그 갈래**도 여기서 같이 잰다 - 한 판이 감사+검증
+        #     2회이므로 다시 재면 4회다.
+        D._gate_supports_split = lambda root=None: True
+        D._gate_fingerprint = fp_of([A, B, B, B])
+        r, calls = split_runner_of()
+        got = D._run_gate(ROOT, r)
+        assert len(calls) == 4, (
+            "분리 관문에서 감사+검증 두 판(4회)이 아니다: %d회" % len(calls))
+        assert got.get("ok") is True and got.get("관문재검") is True, (
+            "분리 관문에서는 다시 안 잰다([476])")
     finally:
         (D._gate_fingerprint, D._load_gate_proof, D._save_gate_proof,
-         D.budget_left_sec, D._gate_retry_room) = old
+         D.budget_left_sec, D._gate_retry_room, D._gate_supports_split) = old
 
     print(chr(9989), "[518] 관문이 소스가 바뀌면 새 판으로 한 번 더 잰다 - 한 번만·시간·앞에안붙임")
 
