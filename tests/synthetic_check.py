@@ -30731,13 +30731,36 @@ def t466_unregistered_plan_gets_a_way_not_a_dead_button():
         raise AssertionError("중괄호가 안 맞는다: " + name)
 
     need = ["wtUnregistered", "entryRowOf", "wtRegisterFromPlan", "wtRowActions", "wtStatus",
-            "wtCard", "wtDraftOf", "wtIsEditing", "recordIdOf", "entryKeyCol"]
+            "wtCard", "wtDraftOf", "wtIsEditing", "recordIdOf", "entryKeyCol",
+            # 2026-09-08 이력·품목 표기로 wtCard 가 이 둘을 부른다([366])
+            "wtHistHtml", "wtWhatHtml"]
     def _arrow(nm):
-        """화살표 함수는 `fn()` 이 못 잡는다 — `const 이름=` 부터 세미콜론까지."""
-        i = src.index("const " + nm + "=")
-        return src[i:src.index(";", i) + 1]
+        """`const 이름 =` 부터 — 화살표는 세미콜론까지, **표(`{`)는 중괄호 짝까지**.
 
-    arrow = [_arrow("wtDraftKey"), _arrow("wtRowId")]
+        표까지 넓힌 이유: wtCard 가 WT_HIST/WT_WHAT 을 읽는다. 스텁으로 때우면
+        그날부터 실제 표를 안 재면서 초록으로 남는다([366]).
+        """
+        _bs = chr(92)                            # heredoc 에 역슬래시를 안 쓴다([471])
+        m = _re.search("const" + _bs + "s+" + _re.escape(nm) + _bs + "s*=", src)
+        assert m, "상수를 못 찾았다: " + nm
+        i = m.end()
+        while i < len(src) and src[i] in " " + chr(9):
+            i += 1
+        if i < len(src) and src[i] == "{":          # 표 — 중괄호 짝까지
+            d, j = 0, i
+            while j < len(src):
+                if src[j] == "{":
+                    d += 1
+                elif src[j] == "}":
+                    d -= 1
+                    if d == 0:
+                        return src[m.start():j + 1] + ";"
+                j += 1
+            raise AssertionError("중괄호가 안 맞는다: " + nm)
+        return src[m.start():src.index(";", i) + 1]
+
+    arrow = [_arrow("wtDraftKey"), _arrow("wtRowId"),
+             _arrow("WT_HIST"), _arrow("WT_WHAT")]
 
     harness = _NL.join([
         "const WT_DRAFTS={}, WT_EDITING=new Set();",
