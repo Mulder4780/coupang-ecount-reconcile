@@ -36,16 +36,23 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARK = os.path.join(ROOT, "reports", "밴드수집_중단.json")
 ENV = "COUPANG_BAND_COLLECT"
+ERP_MARK = os.path.join(ROOT, "reports", "ERP수집_중단.json")
+ERP_ENV = "COUPANG_ERP_COLLECT"
 
 # ★ 갈래마다 따로 끈다 (2026-09-08 형님 지시: "내가 자료 긁어오라고할 때만 긁어오고
 #   수시로 긁어오는 건 다 멈춰").  기본값이 "band" 라 **옛 호출자는 한 글자도
 #   안 바뀐다**([172]) — 넓히는 것이지 옛 동작을 바꾸는 것이 아니다.
 #   ★ 표시 파일과 환경변수를 갈래마다 따로 두는 이유: 한 파일에 담으면 밴드를
 #     다시 켜는 순간 ERP 까지 같이 켜진다.  끄고 켜는 값이 갈래마다 다르다.
+#   ★★ 표에는 **경로가 아니라 그 경로를 담은 모듈 속성 이름**을 적는다
+#     (2026-09-08 실사고).  값을 그대로 담으면 모듈이 로드될 때 굳어서,
+#     검증이 patch.object(CS, "MARK", 임시경로) 로 목을 걸어도 이 표 안의
+#     사본은 안 따라간다 — 그러면 그 검사가 **진짜 표시 파일**을 읽고 쓴다.
+#     그날 관문의 CS.resume() 이 형님이 2026-09-01 에 켜 두신 밴드 중단
+#     표시를 실제로 **지웠다**([247] 검증이 실측 증거를 바꾼 자리 · [328]).
 KINDS = {
-    "band": (MARK, ENV, "밴드"),
-    "erp": (os.path.join(ROOT, "reports", "ERP수집_중단.json"),
-            "COUPANG_ERP_COLLECT", "ERP"),
+    "band": ("MARK", "ENV", "밴드"),
+    "erp": ("ERP_MARK", "ERP_ENV", "ERP"),
 }
 
 
@@ -56,12 +63,20 @@ def _kind(kind):
       그 갈래만 영영 안 막히면서 오류도 안 난다.  부르는 쪽은 어차피 try 로
       감싸 안전한 쪽(중단 아님)으로 떨어지므로 동작은 안 나빠지고, 검증이
       이 예외로 갈래 이름이 어긋난 것을 잡는다.
+    ★ 표에 적힌 것은 **속성 이름**이라 여기서 지금 읽는다 — 그래야 검증이
+      건 목(patch.object)이 따라온다(위 KINDS 주석).  반환 모양은 예전
+      그대로 (경로, 환경변수, 이름) 이라 부르는 쪽은 한 글자도 안 바뀐다.
     """
     try:
-        return KINDS[kind]
+        mark_attr, env_attr, label = KINDS[kind]
     except KeyError:
         raise ValueError("모르는 수집 갈래: %r (아는 것: %s)"
                          % (kind, ", ".join(sorted(KINDS))))
+    g = globals()
+    try:
+        return g[mark_attr], g[env_attr], label
+    except KeyError as e:
+        raise ValueError("수집 갈래 %r 의 설정 이름 %s 가 이 모듈에 없다" % (kind, e))
 
 
 def _read(kind="band"):
