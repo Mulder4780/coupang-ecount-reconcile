@@ -247,6 +247,26 @@ def _validated_rows(client: EcountClient, endpoint: str, body: dict[str, Any]) -
 
 
 def collect(endpoints: list[str], days: int = 120, force: bool = False) -> dict[str, Any]:
+    # ★ 자동 수집 중단이면 바깥(이카운트)을 안 부른다 (2026-09-08 형님 지시).
+    #   `--force` 는 **사람이 명령한 길**이라 그대로 통과한다([387] 의 무인 통과와
+    #   같은 자리) — 막기만 하고 길이 없으면 그것은 없는 문이다([408]).
+    # ★ 중단은 **실패가 아니다**([293]) — ok 를 False 로 주면 회차가 매번 실패로
+    #   적어 가짜 경보가 인계 맨 위를 차지한다([170]).
+    # ★ 못 읽으면 **안 막는다**([169]) — 판정은 collect_switch 한 곳에서 빌린다([162]).
+    if not force:
+        try:
+            import sys as _sys, os as _os
+            _bd = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "band")
+            if _bd not in _sys.path:
+                _sys.path.insert(0, _bd)
+            import collect_switch as _CS
+            _off, _why = _CS.stopped("erp")
+        except Exception:
+            _off, _why = False, ""
+        if _off:
+            return {"ok": True, "skipped": "collect_stopped", "why": _why,
+                    "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                    "sources": {}, "next": "사람이 명령할 때만: python erp_api_collect.py --force"}
     if not force and _fresh():
         cached = _read(STATUS)
         cached["cached"] = True
