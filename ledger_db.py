@@ -604,6 +604,18 @@ def json_queue_lock(path, timeout=30):
 #   ★ 되돌리려면 `COUPANG_ARCHIVE_WEEKLY=0` 한 줄이다([126] 과 같은 보호장치).
 WEEKLY_ARCHIVE = os.environ.get("COUPANG_ARCHIVE_WEEKLY", "1") != "0"
 
+# ★ 2026-09-08 형님 지시: "엑셀 저장은 내가 명령하거나 버튼을 누를때만 하고
+#   수시로 저장하는 작업은 하지마 모든건 DB로 관리해"
+#   → **자동 경로**(스케줄러 11:00·15:00 · 5분 증분)는 보관본을 아예 안 만든다.
+#     사람 길은 한 글자도 안 막는다([172]): 앱 [보관본 지금 생성] 은
+#     archive_worker 를 직접 부르고, `--apply --force`(사람 명령)는 그대로 통과한다.
+#   ★ 업무는 한 톨도 안 느려진다 - 저장은 예전처럼 응답 전에 DB 에 확정된다
+#     (2026-08-10 정본 규칙). 줄어드는 것은 **엑셀 스냅샷 빈도**뿐이다.
+#   ★ 되돌리려면 COUPANG_ARCHIVE_AUTO=1 ([126] 과 같은 보호장치).
+AUTO_ARCHIVE = os.environ.get("COUPANG_ARCHIVE_AUTO", "0") != "0"
+AUTO_OFF_WHY = ("자동 보관본 생성이 꺼져 있다 - 사람이 명령하거나 "
+                "[보관본 지금 생성] 을 누를 때만 만든다(2026-09-08 지시)")
+
 # * 2026-09-02 형님 지시: "이 앱의 데이터를 2주에 한번 엑셀에 반영"
 #   "이 앱이 원본이고 여기서 전부 관리할거야" - 업무 정본이 DB 라는 것은 2026-08-10
 #   부터 정본 규칙이고, 바뀐 것은 **엑셀 스냅샷 빈도**뿐이다(주 1회 -> 2주 1회).
@@ -676,6 +688,10 @@ def archive_when_text():
     고쳐져 **앱이 거짓을 말한다**([169]). 2026-08-24 에 실제로 그랬다: 회차를
     주 1회로 바꿨는데 화면은 그대로 "하루 두 번"이라고 적고 있었다."""
     hhmm = " · ".join("%02d:%02d" % (w.hour, w.minute) for w in WINDOWS)
+    # ★ 자동이 꺼져 있으면 그렇게 말한다([169]) - 시각을 적어 두면 화면이
+    #   "11:00 에 만들어집니다" 라고 거짓을 확언한다(2026-08-24 에 실제로 그랬다).
+    if not AUTO_ARCHIVE:
+        return "사람이 명령할 때만 - 자동으로는 만들지 않습니다([보관본 지금 생성] 단추)"
     if WEEKLY_ARCHIVE:
         if ARCHIVE_PERIOD_DAYS == 7:
             return "주 1회 — 그 주 첫 %s 회차" % hhmm
@@ -706,6 +722,26 @@ def weekly_blocked(now, done_slots):
     if gap >= ARCHIVE_PERIOD_DAYS:
         return None
     return "지난 보관본에서 %d일 (주기 %d일)" % (gap, ARCHIVE_PERIOD_DAYS)
+
+def auto_archive_blocked(now, done_slots):
+    """**자동으로** 보관본을 만들어도 되나 - 자동 경로의 유일한 판정([162]).
+
+    형님 지시 2026-09-08: "엑셀 저장은 내가 명령하거나 버튼을 누를때만 하고
+    수시로 저장하는 작업은 하지마 모든건 DB로 관리해".
+
+    스케줄러 경로(`eligible_slot`)와 5분 증분 경로(`automation_pipeline
+    ._needs_archive`)가 둘 다 이것을 빌린다. 각자 세면 언젠가 갈리고, 갈린
+    뒤에는 어느 쪽이 맞는지 아무도 모른다.
+
+    ★ 사람 길은 여기를 안 탄다([172]) - 앱 [보관본 지금 생성] 은 archive_worker
+      를 직접 부르고, `--force` 는 `eligible_slot` 이 먼저 통과시킨다.
+    ★ 조용히 막지 않는다([169]) - 왜 안 만드는지를 말로 돌려준다. 부르는 쪽이
+      그것을 자국·화면에 적을 수 있어야 "몇 달째 보관본이 없다"를 알아챈다.
+    ★ 자동을 다시 켜면 예전 주기 규칙이 그대로 산다 - 이 문은 그 앞에 설 뿐이다.
+    """
+    if not AUTO_ARCHIVE:
+        return AUTO_OFF_WHY
+    return weekly_blocked(now, done_slots)
 
 
 # ── 시각 판정 (순수 함수 — 합성 검증 대상) ──────────────────────
@@ -757,8 +793,9 @@ def eligible_slot(now, done_slots, force=False):
     slot = slot_of(now)
     if not slot or slot in set(done_slots or []):
         return None
-    # ★ 주 1회 — 그 주에 이미 만들었으면 나머지 부름은 조용히 물러난다([417]).
-    if weekly_blocked(now, done_slots):
+    # ★ 자동 경로는 아예 안 만든다(2026-09-08 지시) - 자동을 켜면 그때 주기
+    #   규칙([417])이 그 안에서 그대로 판정한다. 사람 명령(force)은 위에서 이미 통과했다.
+    if auto_archive_blocked(now, done_slots):
         return None
     return slot
 

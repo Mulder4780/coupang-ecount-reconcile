@@ -936,15 +936,16 @@ class AutomationPipeline:
         )
         if not need:
             return False
-        # ★ 주 1회(2026-08-24 지시) — 이 회차는 **5분마다** 불리므로 여기서 막지
-        #   않으면 "주 1회"가 거짓이 된다([169]). 판정은 `ledger_db` 한 곳에서
-        #   빌린다([162]) — 여기서 따로 세면 스케줄러 경로와 언젠가 갈린다.
+        # ★ 자동 생성 금지(2026-09-08 지시) - 이 회차는 **5분마다** 불리므로
+        #   여기서 막지 않으면 "사람이 누를 때만"이 그냥 거짓이 된다([169]).
+        #   판정은 `ledger_db` 한 곳에서 빌린다([162]) - 여기서 따로 세면
+        #   스케줄러 경로와 언젠가 갈린다.
         #   ⚠ 못 읽으면 **예전처럼 만든다**: 보관본이 하나 더 생기는 것은 되돌릴 수
-        #     있지만, 그 주 스냅샷이 통째로 없는 것은 되돌릴 수 없다.
+        #     있지만, 그 스냅샷이 통째로 없는 것은 되돌릴 수 없다.
         try:
             import ledger_db as _ldb
             _, _, _done = _ldb.counts()
-            if _ldb.weekly_blocked(datetime.now(), _done):
+            if _ldb.auto_archive_blocked(datetime.now(), _done):
                 return False
         except Exception:
             pass
@@ -1556,15 +1557,15 @@ def self_test() -> bool:
     _weekly_guard_isolated = None
     try:
         import ledger_db as _ldb_iso
-        _weekly_guard_isolated = _ldb_iso.weekly_blocked
-        _ldb_iso.weekly_blocked = lambda *a, **k: False
+        _weekly_guard_isolated = _ldb_iso.auto_archive_blocked
+        _ldb_iso.auto_archive_blocked = lambda *a, **k: False
     except Exception:
         _ldb_iso = None
     try:
         return _self_test_body()
     finally:
         if _ldb_iso is not None and _weekly_guard_isolated is not None:
-            _ldb_iso.weekly_blocked = _weekly_guard_isolated
+            _ldb_iso.auto_archive_blocked = _weekly_guard_isolated
 
 
 def _self_test_body() -> bool:
