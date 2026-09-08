@@ -6,6 +6,11 @@ rem   엑셀이 아니라 앱에만 입력한다. `워치독실행.bat` 은 2026
 rem   **이 파일이 빠져 있었다**(분담판 [50]). 09:50 회차라 지금 당장 막히지는 않지만,
 rem   판단이 두 곳에 있으면 한쪽만 고쳐진다 — 그것이 [44] 사고의 모양이었다.
 rem   판단은 operation_window 한 곳이다. 되돌리려면 COUPANG_INPUT_WINDOW=08:00-09:30.
+rem ★ 2026-09-08 형님 지시: "일딜 대조 전부 끄고 내가 지시할 때만 긁어오는
+rem   구조로 변경해" - 이 줄이 "나는 자동 경로다"라고 밝히는 표시다.
+rem   판정은 operation_window.auto_round_blocked 한 곳이다([162]).
+rem   되돌리려면 COUPANG_AUTO_DAILY=1 ([126]).
+set COUPANG_AUTO_ROUND=1
 set PYTHONIOENCODING=utf-8
 "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" -c "import sys,os;sys.path.insert(0,r'%~dp0');import operation_window as W;sys.exit(10 if W.is_input_window() else 0)"
 if errorlevel 10 exit /b 0

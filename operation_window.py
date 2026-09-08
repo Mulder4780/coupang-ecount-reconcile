@@ -73,3 +73,41 @@ def input_window_label() -> str:
         return "없음(앱 전용 입력 — 2026-08-11)"
     return "%02d:%02d~%02d:%02d KST" % (win[0].hour, win[0].minute,
                                         win[1].hour, win[1].minute)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ★ 2026-09-08 형님 지시: "일딜 대조 전부 끄고 내가 지시할 때만 긁어오는
+#   구조로 변경해" - 자동으로 도는 대조 회차를 끈다.
+#
+#   ★ 가르는 근거는 **부르는 쪽이 스스로 밝히는 것** 하나다.
+#     COUPANG_UNATTENDED 로 가르면 안 된다 - 앱 [전체 대조 실행] 도 그것을
+#     심으므로(app_server:12356) 형님이 누르시는 길까지 막힌다(지시의 정반대).
+#   ★ 되돌리기 한 줄: COUPANG_AUTO_DAILY=1 ([126] 과 같은 보호장치).
+#   ★ 끄는 것은 **자동으로 도는 것**뿐이다 - 사람 길 셋(앱 · 워크벤치 ·
+#     python daily_run.py)은 한 글자도 안 막는다([172] 좁히는 것도 고장이다).
+# ═══════════════════════════════════════════════════════════════
+AUTO_ROUND_KEY = "COUPANG_AUTO_ROUND"      # 자동 경로가 스스로 심는 표시
+AUTO_DAILY_KEY = "COUPANG_AUTO_DAILY"      # 되돌리기 스위치
+AUTO_OFF_WHY = ("자동 대조가 꺼져 있다 - 사람이 명령하거나 앱 [전체 대조 실행] 을 "
+                "누를 때만 돈다(2026-09-08 지시)")
+
+
+def auto_round_blocked(auto=None, env=None):
+    """**자동으로** 대조를 돌려도 되나 - 자동 경로의 유일한 판정([162]).
+
+    돌려주는 것은 왜 막는지를 적은 **말**이거나 None(돌아도 된다)이다.
+    ★ 조용히 막지 않는다([169]) - 부르는 쪽이 그 말을 자국·화면에 적을 수
+      있어야 "몇 달째 대조가 안 돌았다"를 아무도 모르는 일이 안 생긴다.
+
+    auto : True 면 부르는 쪽이 "나는 자동 경로다"라고 밝힌 것이다(워치독).
+           None 이면 환경변수 표시를 본다(스케줄러가 .bat 에서 심는다).
+    env  : 검증이 갈아 끼우기 위한 자리 - 기본은 진짜 os.environ 이다.
+    """
+    e = os.environ if env is None else env
+    if str(e.get(AUTO_DAILY_KEY, "0")) != "0":
+        return None                      # 사람이 다시 켰다([126])
+    if auto is None:
+        auto = str(e.get(AUTO_ROUND_KEY, "")) == "1"
+    if not auto:
+        return None                      # 사람 길 - 한 글자도 안 막는다([172])
+    return AUTO_OFF_WHY

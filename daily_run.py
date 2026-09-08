@@ -12,7 +12,8 @@ reports/종합리포트_*.md 한 장으로 요약한다. Windows 작업 스케�
 """
 import sys, os, glob, json, re, subprocess, time, uuid, hashlib
 from datetime import datetime
-from operation_window import input_window_label, is_input_window
+from operation_window import (auto_round_blocked, input_window_label,
+                              is_input_window)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1326,7 +1327,35 @@ def _run_pipeline():
     return steps
 
 
+def _note_auto_off(why):
+    """자동 회차가 물러난 것을 남긴다([169]) - **조용히 안 도는 것이 제일 나쁘다**.
+
+    덮어쓴다(마지막 한 번만 남긴다) - 30분마다 쌓이면 아무도 안 읽는다([170]).
+    ★ 자국 하나 때문에 회차를 죽이지 않는다 - 못 써도 그냥 물러난다.
+    """
+    try:
+        import io as _io, json as _json
+        os.makedirs(REPORT_DIR, exist_ok=True)
+        with _io.open(AUTO_OFF_TRACE, "w", encoding="utf-8", newline="") as f:
+            _json.dump({
+                "때": datetime.now().isoformat(timespec="seconds"),
+                "왜": str(why),
+                "되돌리기": "COUPANG_AUTO_DAILY=1",
+                "사람이 돌리려면": "앱 [전체 대조 실행] 또는 python daily_run.py",
+            }, f, ensure_ascii=False, indent=1)
+    except Exception:                 # noqa: BLE001 - 자국을 남기려다 막지 않는다
+        pass
+
+
 def main():
+    # ★ 자동 대조 금지(2026-09-08 지시) - 사람이 부른 길은 여기를 안 탄다([172]).
+    #   판정은 operation_window 한 곳에서 빌린다([162]) - 여기서 환경변수를
+    #   직접 보면 워치독 쪽과 언젠가 갈리고, 갈린 뒤엔 어느 쪽이 맞는지 모른다.
+    _auto_off = auto_round_blocked()
+    if _auto_off:
+        print("자동 대조를 시작하지 않습니다 - " + str(_auto_off))
+        _note_auto_off(_auto_off)
+        return
     if is_input_window():
         print(f"입력 보호시간({input_window_label()}) — 일일 자동대조를 시작하지 않습니다.")
         return
@@ -1405,6 +1434,7 @@ def main():
         release_run_lock(token)
 
 
+AUTO_OFF_TRACE = os.path.join(REPORT_DIR, "자동대조_꺼짐.json")
 GATE_CRASH = os.path.join(REPORT_DIR, "일일대조_오류.json")
 STEP_CRASH = os.path.join(REPORT_DIR, "일일대조_단계중단_오류.json")
 

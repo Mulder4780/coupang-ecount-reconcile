@@ -14,7 +14,8 @@ watchdog.py — 자가치유 워치독 (무인 운영의 심장)
 """
 import sys, os, re, glob, json, time, subprocess, urllib.request
 from datetime import datetime, timedelta
-from operation_window import input_window_label, is_input_window
+from operation_window import (auto_round_blocked, input_window_label,
+                              is_input_window)
 from proc_guard import run_tree
 
 try:
@@ -881,6 +882,15 @@ def sync_uploads(dry):
         m = re.search(r"업로드 원본 분류:\s*(\d+)건", summary)
         moved = int(m.group(1)) if m else 0
         if r.returncode == 0 and moved:
+            # ★ 자동 대조 금지(2026-09-08 지시) - 이 자리는 워치독이 **스스로**
+            #   깨우는 자동 경로라 auto=True 로 밝힌다. 판정은 한 곳에서
+            #   빌린다([162]) - 여기서 환경변수를 직접 보면 daily_run 쪽과
+            #   언젠가 갈린다.
+            # ★ 원본 분류는 그대로 한다([172]) - 막는 것은 **대조를 깨우는 것**
+            #   하나뿐이다. 좁히는 것도 고장이므로 흡수까지 멈추지 않는다.
+            _off = auto_round_blocked(auto=True)
+            if _off:
+                return f"{summary} → 전체 대조는 안 깨운다(자동 대조 꺼짐)"
             # daily_run의 프로세스 잠금이 이미 실행 중인 중복 기동을 안전하게 막는다.
             start_hidden("daily_run.py")
             return f"{summary} → 전체 대조 시작"
