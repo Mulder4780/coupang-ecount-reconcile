@@ -7007,6 +7007,28 @@ def t126_app_font_and_revert():
         "가르는 법: 다른 synthetic_check 프로세스가 도는지 본다 "
         "(Get-CimInstance Win32_Process | ? CommandLine -like '*synthetic_check*')"
         % ("·".join(sorted(시작상태)) or "확인 못 함"))
+    # ★ 담당자가 그 화면을 쓰는 중이면 **왕복을 안 한다**([354] 류지영 우선).
+    #   이 왕복은 진짜 파일 넷을 쓰는데(그것이 요점이다 · [126]) index.html 은
+    #   요청마다 디스크에서 읽혀([369]) 틈이 안 난다 — 실측 2026-09-08 WinError 5.
+    #   그러면 관문이 **0단계에서** 죽어 그날 대조가 통째로 안 돈다.
+    # ★ 조용히 건너뛰지 않는다([169]) — 건너뛴 사실과 이유를 말한다.
+    # ★ 못 물어봤으면 **예전 그대로 한다**([172] 좁히는 것도 고장이다) — 늘 건너뛰면
+    #   이 검사는 아무것도 안 재면서 초록으로 남는다([169]).
+    # ★ 미리 묻고 **아예 안 만진다** — 시도했다 반쪽이 되면 네 파일이 어긋난 채
+    #   남고, 그것이 [126] 이 막으려는 바로 그 모양이다.
+    _busy = ""
+    try:
+        import restart_server as _RS       # webapp 은 위에서 이미 길에 올렸다
+        _u = _RS.in_use()                  # 실측 0.11초 — 비싸지 않다([168])
+        if _u.get("읽음") and (_u.get("건수") or 0) > 0:
+            _busy = "담당자가 앱을 쓰는 중이다(최근 %s건 · %.1f분 전)" % (
+                _u.get("건수"), float(_u.get("분전") or 0))
+    except Exception:
+        _busy = ""
+    if _busy:
+        print("  [126] 앱 글꼴 일원화(4파일·캔버스 포함) — **왕복은 건너뜀**: "
+              + _busy + " " + chr(9989))
+        return
     try:
         F.apply("legacy")
         assert {s["상태"] for s in F.state()} == {"예전"}, \
