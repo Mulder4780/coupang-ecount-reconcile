@@ -2482,6 +2482,7 @@ body.staff-mode .tabbar button.staff-worklog-nav{display:flex}
 .wt-card .meta .wt-h{display:inline-flex;gap:4px;align-items:baseline;white-space:nowrap}
 .wt-card .meta .wt-h i{font-style:normal;opacity:.7;font-size:0.78125rem}
 .wt-card .meta .wt-nodate{opacity:.7}
+.gh-hid{font-weight:400;font-size:0.8125rem;color:var(--ink-3);margin-left:4px}
 .wt-card .wt-what{margin-top:5px;color:var(--ink-2);font-size:0.84375rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
   padding:5px 10px;font-family:inherit;font-size:0.84375rem;cursor:pointer;color:var(--ink-2)}
@@ -15266,7 +15267,10 @@ function toggleGroupMode(){
   try{ localStorage.setItem('csos_list_group', groupModeOn()?'0':'1'); }catch(e){}
   renderSettle();
 }
-function renderGroups(rows){
+function renderGroups(rows, hidden){
+  /* hidden = 기본 목록에서 숨긴 행(완료(...)). **안 넘기면 빈 배열**이라
+     예전과 같은 문구가 나온다 — as·pm·check 호출을 안 건드린다([172]). */
+  const hid = Array.isArray(hidden) ? hidden : [];
   const on = groupModeOn(), box = $('sgroups');
   const defs = GROUP_BY[mode] || GROUP_BY.settle, k = groupByKey();
   $('slist').style.display = on ? 'none' : '';      // 빈 문자열이라야 화면폭 규칙이 다시 산다
@@ -15287,6 +15291,8 @@ function renderGroups(rows){
   }
   const by = {};
   rows.forEach(r=>{ const g = groupVal(r,k); (by[g] = by[g] || []).push(r); });
+  const hby = {};   // 묶음마다 몇 건이 숨었나 — 기준은 위와 **같은 groupVal**([162])
+  hid.forEach(r=>{ const g = groupVal(r,k); hby[g] = (hby[g]||0)+1; });
   window._groupSets = by;
   const money = mode==='settle';
   const sum = list => list.reduce((a,r)=>a+(+r.공급가액||0),0);
@@ -15300,7 +15306,8 @@ function renderGroups(rows){
         ${all?'<b>전체 목록</b>':(k==='__stat'?chip(name):`<b>${esc2(name)}</b>`)}
         ${money?`<span style="font-size:13.5px;color:var(--ink-3)">${fmt(sum(list))}원</span>`:''}</span>
       <span style="flex:none;display:flex;align-items:center;gap:8px">
-        <b style="font-variant-numeric:tabular-nums">${list.length}건</b>
+        <b style="font-variant-numeric:tabular-nums">${list.length}건</b>${
+          (all?hid.length:(hby[name]||0)) ? `<span class="gh-hid" title="완료로 입증된 건은 기본 목록에서 숨깁니다 — 상태에서 골라 보세요">/ 전체 ${list.length+(all?hid.length:(hby[name]||0))}건</span>` : ''}
         <span aria-hidden="true" style="color:var(--ink-3);font-size:16px;line-height:1">›</span></span>
     </div>`;
   /* ★ 묶음이 많으면 묶음 목록 자체가 다시 길어진다 — 실측 캠프별 110묶음.
@@ -15322,7 +15329,9 @@ function renderGroups(rows){
              <span><b>큰 ${GROUP_TOP}묶음만 보기</b></span><span style="flex:none">›</span></div>`
         : '');
   box.innerHTML = rows.length
-    ? head(`${label}별 ${names.length}묶음 · 전체 ${rows.length}건` +
+    ? head(`${label}별 ${names.length}묶음 · ` +
+           (hid.length ? `${rows.length}건 · 완료 ${hid.length}건은 숨김(상태에서 고르면 보입니다)`
+                       : `전체 ${rows.length}건`) +
            (restN ? ` — 큰 ${shown.length}묶음만 보이는 중` : '')) +
       tile('', rows, 1) + shown.map(n=>tile(n, by[n], 0)).join('') + more
     : zeroNote(sectionOfMode(mode),'조건에 맞는 건이 없습니다');   // 머리줄은 안 붙인다 — 셀 것이 없으면 요약도 없다
@@ -15393,11 +15402,26 @@ function renderSettle(){
   const q = ($('q').value||'').toLowerCase(), f = $('fstat').value;
   const pr = workPeriodRange();
   let undated = 0;
+  /* ★ 숨긴 것을 **숫자로 말한다**([169]) — 2026-09-08 형님 물음
+       "PO 가 왜 이렇게 적지? 전체 수량하고 PO 에서 확인한 캐프 수량이 안맞는데"
+     실측 v631: 정산 750건 중 **681건이 완료(...)** 라 숨어 화면은 69건·26묶음만
+     보인다. 그런데 머리글이 **"전체 69건"** 이라 적어 그것이 전부로 읽혔다 —
+     PO350950 은 화면 8건인데 실제 23건·캐프 21곳이고, PO364055(29건)는
+     아예 안 뜼다. 사람은 원장을 의심하게 된다.
+     ★ **숨기는 동작은 한 글자도 안 바꿈**([172]) — 2026-08-04 지시다. 말만 한다. */
+  const hiddenDone = [];
   const base = curRows().filter(r => {
     if(f && statOf(r)!==f) return false;
     // 완료로 객관 입증된 건(완료(ERP 수금확인) 등)은 기본 리스트에서 숨긴다
     // (2026-08-04 지시). 상태 필터로 그 상태를 직접 고르면 여전히 보인다.
-    if(!f && /^완료\(/.test(statOf(r)||'')) return false;
+    if(!f && /^완료\(/.test(statOf(r)||'')){
+      /* 숨긴 것도 **같은 조건**으로 센다 — 검색·기간을 안 거치면 숫자가 부풀어
+         사람이 "왜 이렇게 많이 숨었지" 하고 없는 것을 찾는다([172]). */
+      const d0 = pr ? dateOf(r, mode) : '';
+      if((!q || Object.values(r).join('').toLowerCase().includes(q)) && settleExtraPass(r)
+         && (!pr || (d0 && d0 >= pr[0] && d0 <= pr[1]))) hiddenDone.push(r);
+      return false;
+    }
     if(q && !Object.values(r).join('').toLowerCase().includes(q)) return false;
     if(!settleExtraPass(r)) return false;
     if(pr){
@@ -15503,7 +15527,7 @@ function renderSettle(){
   window._lastRows = rows;
   // 목록·표는 위에서 늘 만들어 둔다(엑셀·캡처·인쇄가 그대로 읽는다). 묶음 보기는
   // 그것을 **접어 둘 뿐**이다 — 안 만들면 접었을 때 저장한 파일이 비어 나온다.
-  renderGroups(rows);
+  renderGroups(rows, hiddenDone);
 }
 
 /* ── 상세 시트 ── */
