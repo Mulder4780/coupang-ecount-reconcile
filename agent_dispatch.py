@@ -25,6 +25,22 @@ from proc_guard import background_popen_kwargs, run_tree
 
 
 ROOT = Path(__file__).resolve().parent
+
+# AI CLI 를 부르는 자리(2026-09-08 실사고 - [397]).
+#
+# `claude -p` 는 CLAUDE.md 를 **계층으로** 읽는다. cwd=ROOT(ecount)면
+# PRJ/CLAUDE.md 와 ecount/CLAUDE.md 를 **두 벌** 싣는데 그 둘은 같은 파일의
+# 사본이다(2026-07-31 정본/사본 규칙). 실측 1,024,902 토큰 > 한도 1,000,000 이라
+# **AI 인계가 구조적으로 100% 실패**했다. 뿌리에서 부르면 한 벌만 실려
+# 513,240 토큰(한도의 51%)이 된다.
+#
+# * 바꾸는 것은 **AI CLI 를 부르는 자리 둘**뿐이다([172] - 좁히는 것도 고장이다).
+#   로그인 확인(auth status)·버전·파이썬 재호출은 지시문을 안 실으므로 안 건드린다.
+# * git 뿌리는 여전히 **ecount** 다(뿌리는 git 저장소가 아니다 - 실측).
+#   그래서 프롬프트가 작업 폴더를 한 줄 알려 준다(_ticket_prompt).
+# * 관문(instruction_tokens)도 **같은 cwd** 로 재야 한다 - 안 그러면 옛 값으로
+#   막아 이 고침이 통째로 뜻을 잃는다.
+AGENT_CWD = ROOT.parent
 REPORT_DIR = ROOT / "reports" / "agent_dispatch"
 STATUS_PATH = ROOT / "reports" / "agent_dispatch_status.json"
 PROBE_TIMEOUT_SECONDS = 4
@@ -316,6 +332,9 @@ def _ticket_prompt(record: dict[str, Any], local_returncode: int) -> str:
 작업 키: {record.get('task_key', '')}
 로컬 업무 스크립트 종료 코드: {local_returncode}
 
+작업 폴더: 이 저장소의 코드와 git 저장소는 모두 **ecount** 안에 있습니다.
+명령은 그 안에서 부르세요 (예: cd ecount && python session_handoff.py --check).
+
 중요:
 1. 로컬 업무 스크립트는 이미 정확히 한 번 실행됐으므로 다시 실행하지 마세요.
 2. 먼저 AGENTS.md, session_handoff.py --check, 최신 19_AI작업인수인계 및 git 상태를 확인하세요.
@@ -488,7 +507,7 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
         record["ai_tier_error"] = str(exc)[:120]
     _atomic_json(path, record)
     # 보내기 전 관문: 지시문이 한도를 넘으면 안 보낸다(instruction_tokens 주석).
-    _est = instruction_tokens(agent, ROOT)
+    _est = instruction_tokens(agent, AGENT_CWD)
     if _est is not None and _est > PROMPT_TOKEN_LIMIT:
         _why = ("AI 인계를 못 보냈다 - 지시문이 약 %d 토큰이라 한도 %d 를 넘는다"
                 % (_est, PROMPT_TOKEN_LIMIT))
@@ -501,7 +520,7 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
 
     command = _agent_command(agent, executable, prompt, last_message, chosen)
     try:
-        result = run_tree(command, cwd=ROOT, env=_background_agent_env(),
+        result = run_tree(command, cwd=AGENT_CWD, env=_background_agent_env(),
                           timeout=AGENT_TIMEOUT_SECONDS,
                           drain_timeout=60, output_limit=200_000)
         combined = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
@@ -532,7 +551,7 @@ def run_ticket(ticket_path: str | Path, local_returncode: int = 0) -> dict[str, 
                     "codex", codex_executable,
                     _ticket_prompt(record, local_returncode), last_message,
                 )
-                result = run_tree(command, cwd=ROOT, env=_background_agent_env(),
+                result = run_tree(command, cwd=AGENT_CWD, env=_background_agent_env(),
                                   timeout=AGENT_TIMEOUT_SECONDS,
                                   drain_timeout=60, output_limit=200_000)
                 codex_output = (result.stdout or "") + (
