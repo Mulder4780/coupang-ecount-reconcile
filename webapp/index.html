@@ -2478,6 +2478,11 @@ body.staff-mode .tabbar button.staff-worklog-nav{display:flex}
 .wt-card.is-dirty{border-color:var(--warn)}
 .wt-card .top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .wt-card .meta{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-3);font-size:0.84375rem;margin-top:3px}
+/* 이력·품목 (2026-09-08) — 굳은 색을 안 쓴다([332]). */
+.wt-card .meta .wt-h{display:inline-flex;gap:4px;align-items:baseline;white-space:nowrap}
+.wt-card .meta .wt-h i{font-style:normal;opacity:.7;font-size:0.78125rem}
+.wt-card .meta .wt-nodate{opacity:.7}
+.wt-card .wt-what{margin-top:5px;color:var(--ink-2);font-size:0.84375rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wt-open{margin-left:auto;border:1px solid var(--line);background:none;border-radius:8px;
   padding:5px 10px;font-family:inherit;font-size:0.84375rem;cursor:pointer;color:var(--ink-2)}
 .wt-card-actions{margin-left:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px}
@@ -8648,6 +8653,42 @@ function wtCampCode(name){
     + ' <button type="button" class="btn xs" data-camp="' + esc2(row.캠프명||'')
     + '" onclick="event.stopPropagation();campEditOpen(this.dataset.camp)" title="이 캠프의 거래처코드를 입력·변경·삭제하고 저장합니다"><svg class=\"bi\" aria-hidden=\"true\" focusable=\"false\"><use href=\"#i-bootstrap-pencil-square\"/></svg>코드 고치기</button></span>';
 }
+/* ═══ 언제 했는지 · 어떤 품목인지 — 카드에서 바로 보인다 (2026-09-08 지시) ═══
+   "돌발AS나 정기점검 항목에 언제 했는지 이력관리와 어떤 품목인지 알 수 있게
+    전부 표기해 앞으로도 쪽 표기하는 알고리즘 구현"
+
+   ★ 전에는 meta 줄이 **라벨 없는 날짜 둘**뿐이라 무엇이 무엇인지도 몰랐고,
+     원장에 적힌 내용은 서버가 안 담아 **한 글자도 안 떴다**— 실측 v631:
+     정기점검 `점검내용` **380건**에 "3개월 정기점검(그리스 주입·WD-40 도포·
+     도어락 체크·유압유 교체) / 장비 2대: 매립형 4RT 01호" 처럼 **무엇을 했고
+     어떤 품목인지**가 그대로 적혀 있다([165] 안 담는 칸은 빈칸과 구별되지 않는다).
+   ★ 값이 없는 칸은 **안 그린다**([172]) — 빈 라벨이 줄줄이 뜼면 그것도 고장이고,
+     카드가 부풀면 목록이 길어져 끝까지 못 내려간다([236]).
+   ★ 낱말을 여기서 지어내지 않는다 — **원장 열 이름 그대로** 읽는다([166]·[165]).
+     열 이름이 바뀌면 서버 spec 과 이 표를 같이 고친다. */
+const WT_HIST = {
+  as: [['접수','접수일자'],['방문예정','방문예정일'],['완료','작업완료일'],['확인','최종확인일']],
+  pm: [['예정','점검예정일'],['점검','실제점검일'],['확인','최종확인일(유현민 체크)']],
+};
+const WT_WHAT = {
+  as: [['신청','신청내용'],['문제','문제내용'],['조치','조치내용']],
+  pm: [['점검','점검내용'],['이상','이상내용'],['추가','추가작업내용']],
+};
+/* 날짜가 하나도 없으면 **그렇다고 말한다**([169]) — 빈 줄은 '안 그려진 것'과 구별이 안 된다. */
+function wtHistHtml(k,r){
+  const on=(WT_HIST[k]||[]).map(([lab,col])=>[lab,String((r||{})[col]||'').slice(0,10)]).filter(([,v])=>v);
+  if(!on.length) return '<span class="wt-nodate">날짜 없음</span>';
+  return on.map(([lab,v])=>'<span class="wt-h"><i>'+esc2(lab)+'</i>'+esc2(v)+'</span>').join('');
+}
+/* 내용이 없으면 줄 자체를 안 만든다 — 없는 것을 있는 쳄 보이지 않는다.
+   긴 글은 CSS 로 한 줄만 보이고 **전문은 title 로 남긴다**([273] 조용히 자르지 않는다). */
+function wtWhatHtml(k,r){
+  const on=(WT_WHAT[k]||[]).map(([lab,col])=>[lab,String((r||{})[col]||'').trim()])
+    .filter(([,v])=>v && v!=='없음' && v!=='-');
+  if(!on.length) return '';
+  const txt=on.map(([lab,v])=>lab+' '+v).join(' · ');
+  return '<div class="wt-what" title="'+esc2(txt)+'">'+esc2(txt)+'</div>';
+}
 function wtCard(k,r){
   const cfg=WT_CFG[k], id=wtRowId(k,r);
   const stv=wtStatus(k,r);
@@ -8670,9 +8711,8 @@ function wtCard(k,r){
              ${/완료|취소/.test(stv)?'':`<button class="wt-open wt-done" onclick="wtComplete('${k}',${esc4(id)})">✓ 완료 처리</button>`}`}
         <button class="wt-open" onclick="openRecord('${k}',${esc4(id)},${esc4(String(r.프로젝트NO||''))})">상세</button>
       </div></div>
-    <div class="meta"><span class="sid">${esc2(id)}</span>
-      <span>${esc2(String(r[cfg.dateCol]||'예정일 미정').slice(0,10))}</span>
-      <span>${esc2(String(r[cfg.doneCol]||'').slice(0,10))}</span></div>
+    <div class="meta"><span class="sid">${esc2(id)}</span>${wtHistHtml(k,r)}</div>
+    ${wtWhatHtml(k,r)}
     <div class="wt-edit">${cfg.edit.map(([col,typ])=>wtField(k,id,col,typ,r[col])).join('')}</div>
     ${wtRowActions(k,id,r)}
   </div>`;
