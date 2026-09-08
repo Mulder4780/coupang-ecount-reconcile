@@ -37,31 +37,64 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARK = os.path.join(ROOT, "reports", "밴드수집_중단.json")
 ENV = "COUPANG_BAND_COLLECT"
 
+# ★ 갈래마다 따로 끈다 (2026-09-08 형님 지시: "내가 자료 긁어오라고할 때만 긁어오고
+#   수시로 긁어오는 건 다 멈춰").  기본값이 "band" 라 **옛 호출자는 한 글자도
+#   안 바뀐다**([172]) — 넓히는 것이지 옛 동작을 바꾸는 것이 아니다.
+#   ★ 표시 파일과 환경변수를 갈래마다 따로 두는 이유: 한 파일에 담으면 밴드를
+#     다시 켜는 순간 ERP 까지 같이 켜진다.  끄고 켜는 값이 갈래마다 다르다.
+KINDS = {
+    "band": (MARK, ENV, "밴드"),
+    "erp": (os.path.join(ROOT, "reports", "ERP수집_중단.json"),
+            "COUPANG_ERP_COLLECT", "ERP"),
+}
 
-def _read():
+
+def _kind(kind):
+    """갈래를 (표시파일, 환경변수, 이름) 으로 푼다.
+
+    ★ 모르는 갈래면 **예외를 올린다**([165]) — 조용히 False 를 주면 오타 하나로
+      그 갈래만 영영 안 막히면서 오류도 안 난다.  부르는 쪽은 어차피 try 로
+      감싸 안전한 쪽(중단 아님)으로 떨어지므로 동작은 안 나빠지고, 검증이
+      이 예외로 갈래 이름이 어긋난 것을 잡는다.
+    """
     try:
-        with io.open(MARK, encoding="utf-8") as f:
+        return KINDS[kind]
+    except KeyError:
+        raise ValueError("모르는 수집 갈래: %r (아는 것: %s)"
+                         % (kind, ", ".join(sorted(KINDS))))
+
+
+def _read(kind="band"):
+    mark = _kind(kind)[0]
+    try:
+        with io.open(mark, encoding="utf-8") as f:
             d = json.load(f)
         return d if isinstance(d, dict) else None
     except Exception:
         return None
 
 
-def stopped():
-    """(중단인가, 왜) — 못 읽으면 (False, 왜못함)."""
-    env = os.environ.get(ENV)
+def stopped(kind="band"):
+    """(중단인가, 왜) — 못 읽으면 (False, 왜못함).
+
+    ★ 못 읽으면 **중단 아님**이다([169] 를 이 자리에 맞게 정한 것).  표시가
+      깨졌다고 수집을 막으면 나중에 왜 안 되는지 아무도 모른다.  물러나는 값은
+      헛 수집 한 번이고, 잘못 막는 값은 **자료를 영영 못 받는 것**이다.
+    """
+    mark, env_name, label = _kind(kind)
+    env = os.environ.get(env_name)
     if env is not None:
         if env == "0":
-            return True, "환경변수 %s=0" % ENV
-        return False, "환경변수 %s=%s (켬)" % (ENV, env)
-    d = _read()
+            return True, "환경변수 %s=0" % env_name
+        return False, "환경변수 %s=%s (켬)" % (env_name, env)
+    d = _read(kind)
     if d is None:
         return False, ""
     if not d.get("중단"):
         return False, "중단 표시 없음"
     why = str(d.get("왜") or "").strip()
     when = str(d.get("언제") or "").strip()
-    say = "밴드 자동 수집 중단"
+    say = "%s 자동 수집 중단" % label
     if when:
         say += "(%s 지시)" % when
     if why:
@@ -69,41 +102,49 @@ def stopped():
     return True, say
 
 
-def note():
+def note(kind="band"):
     """사람·로그에 한 줄로 적을 말.  중단이 아니면 빈 문자열."""
-    off, why = stopped()
+    off, why = stopped(kind)
     return why if off else ""
 
 
-def warning_status():
+def warning_status(kind="band"):
     """경보도 수집과 같은 스위치를 본다. 못 읽으면 기존 경보를 유지한다([361])."""
     try:
-        off, why = stopped()
+        off, why = stopped(kind)
     except Exception:
         off, why = False, "중단 설정 확인 못 함"
+    try:
+        env_name = _kind(kind)[1]
+    except ValueError:
+        env_name = ENV
+    tail = "" if kind == "band" else " --kind %s" % kind
     return {"수집중단": bool(off), "왜": why,
-            "재개": "python band/collect_switch.py --resume (또는 COUPANG_BAND_COLLECT=1)"}
+            "재개": "python band/collect_switch.py%s --resume (또는 %s=1)"
+                    % (tail, env_name)}
 
 
-def stop(why="", when="", write=True):
+def stop(why="", when="", write=True, kind="band"):
     """중단으로 적는다.  **사람이 명령할 때만** 부른다."""
+    mark = _kind(kind)[0]
     d = {"중단": True, "왜": why, "언제": when}
     if not write:
         return d
-    os.makedirs(os.path.dirname(MARK), exist_ok=True)
-    tmp = MARK + ".tmp"
+    os.makedirs(os.path.dirname(mark), exist_ok=True)
+    tmp = mark + ".tmp"
     with io.open(tmp, "w", encoding="utf-8", newline="") as f:
         f.write(json.dumps(d, ensure_ascii=False, indent=1))
-    os.replace(tmp, MARK)
+    os.replace(tmp, mark)
     return d
 
 
-def resume(write=True):
+def resume(write=True, kind="band"):
     """다시 켠다 — 표시를 지운다."""
+    mark = _kind(kind)[0]
     if not write:
         return True
     try:
-        os.remove(MARK)
+        os.remove(mark)
     except OSError:
         pass
     return True
@@ -117,18 +158,40 @@ def main():
         except Exception:
             pass
     a = sys.argv[1:]
-    if a and a[0] == "--stop":
-        why = a[1] if len(a) > 1 else ""
-        when = a[2] if len(a) > 2 else ""
-        stop(why, when)
-        print("밴드 자동 수집을 중단으로 적었습니다 —", MARK)
-    elif a and a[0] == "--resume":
-        resume()
-        print("밴드 자동 수집을 다시 켰습니다 — 표시를 지웠습니다")
-    off, why = stopped()
-    print("지금: %s%s" % ("중단" if off else "켬", (" · " + why) if why else ""))
+    # --kind 는 어디에 있어도 받는다 — 앞에 적든 뒤에 적든 같은 뜻이다.
+    kind = "band"
+    if "--kind" in a:
+        i = a.index("--kind")
+        if i + 1 < len(a):
+            kind = a[i + 1]
+        del a[i:i + 2]
+    if "--all" in a:
+        a.remove("--all")
+        kinds = sorted(KINDS)
+    else:
+        kinds = [kind]
+    try:
+        for k in kinds:
+            _kind(k)
+    except ValueError as e:
+        print(e)
+        return 2
+    for k in kinds:
+        label = _kind(k)[2]
+        if a and a[0] == "--stop":
+            why = a[1] if len(a) > 1 else ""
+            when = a[2] if len(a) > 2 else ""
+            stop(why, when, kind=k)
+            print("%s 자동 수집을 중단으로 적었습니다 — %s" % (label, _kind(k)[0]))
+        elif a and a[0] == "--resume":
+            resume(kind=k)
+            print("%s 자동 수집을 다시 켰습니다 — 표시를 지웠습니다" % label)
+        off, why = stopped(k)
+        print("지금[%s]: %s%s" % (label, "중단" if off else "켬",
+                                (" · " + why) if why else ""))
     print("★ 끄는 것은 **긁는 것**뿐입니다 — 흡수·대조·정리는 그대로 돕니다.")
-    print("★ 사람이 `collect_gate --run` 으로 직접 돌리는 길은 안 막습니다.")
+    print("★ 사람이 직접 돌리는 길은 안 막습니다"
+          " (collect_gate --run · browser_chain --manual erp · erp_api_collect --force).")
     return 0
 
 

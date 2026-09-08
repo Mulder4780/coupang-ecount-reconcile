@@ -632,15 +632,22 @@ def tick():
     # 셀 때 파일도 같이 다시 만든다 — 목록과 파일이 갈리면 회차가 수렴하지 않는다.
     # ★ 밴드 수집 중단이면 **자동 갈래에서 밴드를 건너뛴다** (2026-09-01 지시).
     #   `manual_step` (형님 명령)은 안 막는다 — 사람이 그때 판단해 시키신 것이다([172]).
+    # ★ ERP 도 같은 스위치를 본다 (2026-09-08 형님 지시: "내가 자료 긁어오라고할
+    #   때만 긁어오고 수시로 긁어오는 건 다 멈춰").  갈래가 달라 따로 끈다 —
+    #   밴드를 다시 켜는 날 ERP 까지 같이 켜지면 안 된다.
+    # ★ 못 읽으면 **안 막는다**([169]) — 표시가 깨졌다고 수집을 세우면 나중에
+    #   왜 안 되는지 아무도 모른다.  판정은 collect_switch 한 곳에서 빌린다([162]).
+    _band_off = _erp_off = False
+    _band_why = _erp_why = ""
     try:
-        from band import collect_switch as _CS
-        _band_off, _band_why = _CS.stopped()
-    except Exception:
         try:
-            import collect_switch as _CS
-            _band_off, _band_why = _CS.stopped()
+            from band import collect_switch as _CS
         except Exception:
-            _band_off, _band_why = False, ""
+            import collect_switch as _CS
+        _band_off, _band_why = _CS.stopped("band")
+        _erp_off, _erp_why = _CS.stopped("erp")
+    except Exception:
+        pass
     band_n = band_remaining(write=True)
     erp_n = erp_unfinished()
     print("남은 것 — 밴드 댓글 %s · ERP 실패 %s · %s"
@@ -675,6 +682,10 @@ def tick():
             continue
 
     # ② ERP — 하루 한 번, 정해진 창 안에서, 다른 세션과 겹치지 않을 때만.
+    #   ★ 자동 수집 중단이면 여기서 멈춘다.  `manual_step`(형님 명령)은 안 막는다([172]).
+    if _erp_off:
+        note(d, "ERP 전화면 몰이", "건너뜀", _erp_why or "ERP 자동 수집 중단")
+        erp_n = 0             # 조용히 빼지 않는다 — 위 note 가 왜인지 적는다([169])
     if erp_n:
         rc = erp_step(d)
         if rc is not None:
