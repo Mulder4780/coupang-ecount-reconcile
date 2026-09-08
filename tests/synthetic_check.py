@@ -49429,6 +49429,16 @@ def t522_timeout_says_share_state():
 
 
 if __name__ == "__main__":
+    # [392] 가장 무거운 창 팝업 감사([272])를 범위 그대로 따로 돌릴 수 있게 한다.
+    # 기본 실행은 예전처럼 전부 돈다. daily_run만 두 묶음으로 나눠 각 제한을 적용한다.
+    _WINDOW_AUDIT_ONLY = "--window-audit-only" in sys.argv
+    _SKIP_WINDOW_AUDIT = "--skip-window-audit" in sys.argv
+    if _WINDOW_AUDIT_ONLY:
+        _yield_to_running_round()
+        _gate_lock_or_yield()
+        t272_no_console_windows_from_children()
+        print("WINDOW AUDIT GREEN")
+        raise SystemExit(0)
     _yield_to_running_round()
     _gate_lock_or_yield()
     # ── 관문이 **스스로 시간을 잰다** (2026-08-23 · 형님 지시 "앱 구동에 문제되는 거
@@ -49796,7 +49806,8 @@ if __name__ == "__main__":
     t196_stage_words_come_from_one_place()
     t197_restart_blip_is_not_a_failure()
     t198_source_index_no_per_file_stat()
-    t272_no_console_windows_from_children()
+    if not _SKIP_WINDOW_AUDIT:
+        t272_no_console_windows_from_children()
     t203_ledger_screens_are_split()
     t173_classify_cache_follows_rules()
     t174_zero_match_blames_the_key()

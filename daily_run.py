@@ -566,6 +566,12 @@ def _run_once(name, args, timeout):
 # 0단계 관문(합성검증)에 주는 시간. 실측 395.7초(2026-08-19, 한가한 기계) 대비
 # 약 3.8배. `run()` 기본값 600초로는 바쁜 아침에 관문이 회차를 죽였다.
 GATE_TIMEOUT_S = int(os.environ.get("COUPANG_GATE_TIMEOUT_S") or 1500)
+# 창 팝업 감사([272])는 이웃 저장소까지 전부 훑는다. 2026-09-07 실측 228.6초라
+# 몸통 1,283초와 한 제한에 묶으면 전체 1,511.9초가 되어, 검사는 초록인데 1,500초
+# 관문이 먼저 죽었다. 범위를 줄이지 않고 **두 문으로 나눠** 각각 제 시간을 준다.
+GATE_WINDOW_AUDIT_TIMEOUT_S = int(
+    os.environ.get("COUPANG_GATE_WINDOW_AUDIT_TIMEOUT_S") or 600
+)
 
 # 다시 검사한 뒤에도 회차에 남아야 하는 최소 시간.  이만큼도 안 남으면 다시 안 잰다 —
 # 관문을 살리자고 뒤 단계를 통째로 굶기면 고치려던 것보다 나쁘다([172]).
@@ -747,6 +753,18 @@ def _gate_retry_room():
     return left > GATE_TIMEOUT_S + GATE_RETRY_FLOOR_S
 
 
+def _gate_supports_split(root=ROOT):
+    """새 선택지를 아는 검증판만 두 묶음으로 돈다(옛 설치본·격리 시험 호환)."""
+    try:
+        path = os.path.join(os.fspath(root), "tests", "synthetic_check.py")
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        return ("--window-audit-only" in source
+                and "--skip-window-audit" in source)
+    except OSError:
+        return False
+
+
 def _run_gate(root=ROOT, runner=None, _retry=True):
     """코드가 같으면 최근 합격증을 쓰고, 바뀌었을 때만 전체 합성검증을 돈다.
 
@@ -768,10 +786,31 @@ def _run_gate(root=ROOT, runner=None, _retry=True):
                     % (before["files"], age)),
         }
 
-    step = runner(
-        "합성검증", [os.path.join(os.fspath(root), "tests", "synthetic_check.py")],
-        timeout=GATE_TIMEOUT_S, retry=0,
-    )
+    check_path = os.path.join(os.fspath(root), "tests", "synthetic_check.py")
+    audit = None
+    if _gate_supports_split(root):
+        audit = runner(
+            "합성검증·창팝업감사", [check_path, "--window-audit-only"],
+            timeout=GATE_WINDOW_AUDIT_TIMEOUT_S, retry=0,
+        )
+        if (not audit.get("ok")
+                or "WINDOW AUDIT GREEN" not in str(audit.get("out") or "")):
+            return {
+                **audit,
+                "name": "합성검증",
+                "out": "창 팝업 감사 분리 관문 실패\n" + str(audit.get("out") or ""),
+            }
+        step = runner(
+            "합성검증", [check_path, "--skip-window-audit"],
+            timeout=GATE_TIMEOUT_S, retry=0,
+        )
+        step = dict(step)
+        step["out"] = str(audit.get("out") or "") + "\n" + str(step.get("out") or "")
+        step["분리관문"] = True
+    else:
+        step = runner(
+            "합성검증", [check_path], timeout=GATE_TIMEOUT_S, retry=0,
+        )
     # ★ **실패 갈래도 같은 것을 묻는다** (2026-08-28 실사고).
     #   성공 갈래는 오래전부터 "검증 도중 코드가 바뀌면 어느 판을 검사한 것인지 알 수
     #   없다"고 묻는데 **실패 갈래는 안 물었다.** 그래서 반쯤 고친 코드를 시험한 실패가
