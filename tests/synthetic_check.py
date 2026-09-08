@@ -34964,7 +34964,11 @@ def t520_ai_handoff_not_sent_when_instructions_too_long():
     # (5) 관문은 **보내기 전**에 있어야 뜻이 있다
     src = open(os.path.join(str(AD.ROOT), "agent_dispatch.py"),
                encoding="utf-8").read()
-    gate = src.index("_est = instruction_tokens(agent, ROOT)")
+    # ⚠ **인자를 못 박지 않는다**([39]·[219]) - 2026-09-08 에 그것 때문에 관문이 죽었다.
+    #   [397] 이 두 번째 인자를 ROOT -> AGENT_CWD 로 고쳤는데(지시문 두 벌 문제)
+    #   **계약은 한 톨도 안 깨졌다** - 여기서 재는 것은 '관문이 명령을 만들기
+    #   전에 있나' 하나다.  얼릴 것은 계약이지 그때 쓴 인자가 아니다.
+    gate = src.index("_est = instruction_tokens(agent,")
     send = src.index("command = _agent_command(agent, executable, prompt")
     assert gate < send, "[520] 관문이 명령을 만든 뒤에 있다 - 그러면 이미 보낸 것이다"
 
