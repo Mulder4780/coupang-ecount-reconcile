@@ -25,6 +25,15 @@ import system_audit as SA
 
 class BandCollectionStopTests(unittest.TestCase):
     def setUp(self):
+        # ★ 목을 걸기 **전에** 진짜 표시 파일을 잡아 둔다([247]·[272]).
+        #   2026-09-08 실사고: KINDS 표가 MARK **값**을 모듈 로드 때 복사해
+        #   담아, patch.object(CS, "MARK", 임시) 를 걸어도 진짜 파일이 읽혔고
+        #   이 검사의 CS.resume() 이 형님이 2026-09-01 에 켜 두신 밴드 중단
+        #   표시를 **지웠다**.  그때 이 확인이 없어 관문은 빨갛기만 하고
+        #   무엇이 지워졌는지는 아무도 몰랐다 — 그래서 계기가 스스로 잰다.
+        self._real_marks = {a: Path(getattr(CS, a)) for a in ("MARK", "ERP_MARK")}
+        self._real_bytes = {a: (p.read_bytes() if p.exists() else None)
+                            for a, p in self._real_marks.items()}
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix="band-stop-")))
@@ -40,6 +49,17 @@ class BandCollectionStopTests(unittest.TestCase):
         self.stack.enter_context(patch.object(SA, "REPORTS", self.reports))
         self.stack.enter_context(patch.object(UW, "OUT", str(self.reports / "userscript.md")))
         self.mark.write_text(json.dumps({"중단": True, "왜": "사용자 지시"}), encoding="utf-8")
+        # 맨 끝에 등록해 LIFO 로 **가장 먼저** 돈다 — 목이 아직 살아 있어도
+        # 위에서 잡아 둔 진짜 경로를 쓰므로 상관없다.
+        self.addCleanup(self._assert_real_switches_untouched)
+
+    def _assert_real_switches_untouched(self):
+        """이 검사가 진짜 수집 중단 표시를 읽고 쓰지 않았나."""
+        for attr, path in self._real_marks.items():
+            now = path.read_bytes() if path.exists() else None
+            self.assertEqual(now, self._real_bytes[attr],
+                             "검증이 진짜 수집 중단 표시(CS.%s = %s)를 건드렸다 — "
+                             "격리가 샜다는 뜻이다([247])" % (attr, path))
 
     def trace(self, late):
         return {"작업": "CSOS_BrowserChain", "갈래": "기회놓침", "시각": "2026-09-03",
