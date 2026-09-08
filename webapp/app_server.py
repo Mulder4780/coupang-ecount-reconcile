@@ -10586,6 +10586,39 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
+    def _flow_stages_with_settle(self, kinds):
+        """갈래표에 정산(settle) 하나를 덧붙인다.
+
+        정산은 관리대장 드롭다운이 아니라 **청구상태 사다리**가 정본이다([166]).
+        낱말을 여기 적지 않고 billing_status.LADDER 에서 빌린다([162]) —
+        사본이 둘이면 언젠가 갈리고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+
+        ★ 못 붙여도 as·pm 을 잃지 않는다 — 그러나 조용히 넘어가지도 않는다([169]).
+        못 붙였으면 화면이 '정의를 못 받았다'고 말한다.
+        """
+        out = dict(kinds or {})
+        if "settle" in out:
+            return out
+        try:
+            import billing_status as _bs
+            ladder = list(_bs.LADDER)
+            if not ladder:
+                return out
+            out["settle"] = {
+                "이름": "정산·청구",
+                "시트": "06_거래서류청구수금",
+                "칸": "청구상태",
+                "ID칸": "정산ID",
+                "단계": [{"단계": s, "출처": "청구상태 사다리"} for s in ladder],
+                "기본단계": ladder[0],
+                "완료단계": getattr(_bs, "DONE", ladder[-1]),
+                "목록밖": [],
+                "근거": "billing_status.LADDER",
+            }
+        except Exception:
+            pass
+        return out
+
     def do_GET(self):
         p = self.path.split("?")[0]
         staff_match = re.fullmatch(r"/staff/([a-z0-9-]+)", p)
@@ -11383,8 +11416,9 @@ self.addEventListener('fetch', e => {
             # 스스로 적지 않고 여기서 받아 간다 — 두 곳에 적으면 언젠가 갈린다([162]).
             import work_flow
             try:
-                return self._send(200, {"ok": True,
-                                        **work_flow.definition("refresh" in self.path)})
+                _fs = dict(work_flow.definition("refresh" in self.path))
+                _fs["갈래"] = self._flow_stages_with_settle(_fs.get("갈래") or {})
+                return self._send(200, {"ok": True, **_fs})
             except Exception as exc:
                 return self._send(200, {"ok": False, "error": str(exc)[:200], "갈래": {}})
         if p == "/api/staff/deleted-works":
