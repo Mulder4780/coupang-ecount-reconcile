@@ -428,6 +428,38 @@ def main():
             queue_items.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": sid,
                                 "col": "PO발행일", "value": cp_by_no[po]["date"], "vtype": "date",
                                 "evidence": "쿠팡 PO목록 발행일", "only_if_empty": True})
+    # 유형F: PO번호는 이미 적혀 있는데 **PO발행일만** 빈 행
+    # * 2026-09-08 사용자 지시 "객관적 데이터로 PO발행이 확인 되면 이 공란들은
+    #   전부 입력하고 완료 처리해 앞으로 쭈욱".
+    #   위 유형E 는 'PO번호가 빈 행'만 돈다(그 문 3은 옳다 - 이미 적힌 번호를 덮으면 안 된다).
+    #   그런데 **PO발행일은 PO번호가 이미 있는 행에 필요하다.** 그래서 원장에 PO번호가
+    #   적힌 701건 중 645건이 쿠팡 목록에 발행일이 실재하는데도 아무도 안 채우고
+    #   있었다(2026-09-08 실측). **아무도 안 채우는 칸은 빈칸과 구별되지 않는다**([165]).
+    #
+    #   쓰는 자리이므로 문 셋을 세운다([170] - 읽는 길과 쓰는 길의 기준은 다르다):
+    #     1 원장에 적힌 PO번호가 **쿠팡 PO 목록에 실재**할 것
+    #       (없으면 오기입일 수 있다 - 틀린 번호를 근거로 날짜를 넣지 않는다)
+    #     2 쿠팡 목록에 **발행일이 실재**할 것 - 날짜를 지어내지 않는다([169])
+    #     3 원장 PO발행일 칸이 **빌 때만**(only_if_empty 로 한 번 더 막는다)
+    #   ! PO필요여부가 '불필요'인 행은 PO번호 자체가 비어 있어 여기 안 온다 -
+    #     그런 건에 PO 를 지어내지 않는다([172]).
+    F = 0
+    for sid, r in sorted(recs.items()):
+        po = norm_po(r.get("원장_PO번호"))
+        if not po or po not in cp_by_no:
+            continue
+        if str(r.get("원장_PO발행일") or "").strip():
+            continue
+        d = cp_by_no[po].get("date")
+        if not d:
+            continue
+        F += 1
+        queue_items.append({"sheet": "06_거래서류청구수금", "key_col": "정산ID", "key": sid,
+                            "col": "PO발행일", "value": d, "vtype": "date",
+                            "evidence": "쿠팡 PO목록 발행일(%s)" % po, "only_if_empty": True})
+    if F:
+        print("F(PO발행일 채움) %d건 - 원장 PO번호가 쿠팡 목록에 실재하고 발행일이 빈 행" % F)
+
     if E:
         print(f"E(ERP 근거 PO 연결) {len(E)}건 — 원장 빈 PO번호를 ERP 전표 근거로 채웁니다")
 
