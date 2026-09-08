@@ -239,6 +239,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .dp-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
 .dp-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
 .dp-arrow{color:var(--ink-3);font-weight:700;flex:0 0 auto}
+/* 자료 흐름과 업무 상태를 가르는 선 - 화살표가 아니다([169]).
+   '>' 는 "이 다음에 저것" 이라는 뜻인데 업무는 Excel 보관본 다음 단계가 아니다. */
+.dp-sep{width:1px;align-self:stretch;min-height:20px;background:var(--line);flex:0 0 auto;margin:0 2px}
 .dp-step{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:4px 10px;
   border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);
   cursor:pointer;font:inherit;min-width:0;max-width:230px}
@@ -8601,6 +8604,7 @@ function renderWorkTab(k){
     (remain?`<button type="button" class="auto-more" onclick="wtShowMore('${k}',this)" aria-label="업무 ${Math.min(WT_RENDER_STEP,remain)}건 더 보기">
       현재 ${visible.length}건 표시 · ${Math.min(WT_RENDER_STEP,remain)}건 더 보기 (남은 ${remain}건)</button>`:'');
   try{ navCounts(); }catch(e){}   // 자료가 들어온 뒤 메뉴 숫자를 맞춘다
+  try{ renderDataPipe(); }catch(e){}   // 띠의 업무 상태도 같이([169])
   /* * 거래처코드를 그리려면 캠프 목록이 있어야 한다 — 없으면 한 번 받아 **다시 그린다**.
      비동기라 첫 그림에는 '확인 못 함'이 뜨고 곧 코드로 바뀐다([169] — 조용히 비우지 않는다).
      이미 받았으면 아무 일도 안 한다(`campsData` 가 캐시다). */
@@ -13325,6 +13329,48 @@ async function dpFetch(force){
   })();
   return DATA_PIPE.flight;
 }
+/* 업무 카테고리 상태 - 형님 지시 2026-09-08 "상단의 파이프 라인은 각 카테고리의
+   상태를 표시해줘". 자료 흐름과 **다른 축**이라 따로 둔다.
+   * AUTOMATION_SOURCE_DEFS 에 섞지 않는다 - 그 표는 automationAction·autoRecord 가
+     읽어 '회차를 돌리는 것' 으로 다룬다. 업무 칸은 돌릴 회차가 없다([172]).
+   * 여기서 세지 않는다([162]) - 메뉴 옆 숫자를 만드는 navCountFor 하나에서 온다.
+     따로 세면 같은 화면을 두고 띠와 메뉴가 서로 다른 숫자를 말한다.
+   * 열쇠는 화면 id(v-<열쇠>)·메뉴 data-v 와 **정확히 같은 글자**여야 한다([165])
+     - 어긋나면 눌러도 아무 데도 안 가면서 오류는 안 난다. */
+const DP_WORK_DEFS=[
+  {key:'pm',    label:'정기점검',  view:'pm'},
+  {key:'as',    label:'돌발AS',    view:'as'},
+  {key:'check', label:'확인 필요', view:'check'},
+];
+function dpWorkState(n){
+  /* * null 은 0 이 아니다([169]) - '아직 자료를 못 받았다'를 '정상'이라 하면
+     그 순간 화면이 거짓을 확언한다. */
+  if(n===null||n===undefined) return {key:'neutral', label:'확인 못 함'};
+  if(n===0) return {key:'ok', label:'정상'};
+  return {key:'warn', label:n+'건'};
+}
+function dpWorkHtml(def){
+  const n=(typeof navCountFor==='function')?navCountFor(def.key):null;
+  const st=dpWorkState(n);
+  const why=(typeof NAV_N_WHY!=='undefined'&&NAV_N_WHY[def.key])||'';
+  /* 무슨 숫자인지 말한다([177]) - 숫자만 있으면 접수인지 지연인지 아무도 모른다.
+     못 셌으면 그 이유까지 적는다([169]). */
+  const tip=def.label+' - '+(n===null
+      ? '아직 자료를 못 받았습니다(정상이라는 뜻이 아닙니다)'
+      : (why ? (why+' '+n+'건') : st.label))
+    +' \u00b7 누르면 그 화면으로 갑니다';
+  return '<button class="dp-step" type="button" data-view="'+esc2(def.view)+'"'
+    +' onclick="dpGo(this.dataset.view)" title="'+esc2(tip)+'">'
+    +'<span class="dp-dot '+esc2(st.key)+'"></span>'
+    +'<span class="dp-name">'+esc2(def.label)+'</span>'
+    +'<span class="dp-note">'+esc2(st.label)+'</span>'
+    +'</button>';
+}
+function dpGo(v){
+  /* 회차를 돌리는 dpRun 이 아니다 - 화면으로 옮길 뿐이다([172]).
+     걸음도 show 가 쌓으므로 뒤로가기가 그대로 산다([428]). */
+  if(typeof show==='function') show(v);
+}
 function dpStepHtml(def,data){
   /* 상태·시각은 실행 탭 카드가 쓰는 그 함수에서 온다([162]). */
   const rec=autoRecord(data,def);
@@ -13354,7 +13400,7 @@ function renderDataPipe(){
   const data=(AUTOMATION_MON&&AUTOMATION_MON.data)||null;
   if(!DATA_PIPE.open){
     bar.innerHTML='<div class="dp-title">자료 만드는 과정</div>'
-      +'<div class="dp-flow dp-collapsed">접어 두었습니다 - 카톡·Band·ERP &rsaquo; 앱 DB &rsaquo; Excel 보관본</div>'
+      +'<div class="dp-flow dp-collapsed">접어 두었습니다 - 카톡·Band·ERP &rsaquo; 앱 DB &rsaquo; Excel 보관본 · 업무 상태</div>'
       +'<div class="dp-tools"><button class="dp-tool" type="button" onclick="dpToggleOpen()">펼치기</button></div>';
     return;
   }
@@ -13367,7 +13413,15 @@ function renderDataPipe(){
       +g.defs.map(d=>dpStepHtml(d,data)).join('')+'</span>')
     .join('<span class="dp-arrow" aria-hidden="true">&rsaquo;</span>');
   /* * 다 숨겼으면 그 사실을 말한다([169]) - 빈 띠는 고장으로 읽힌다. */
-  const body=flow||'<div class="dp-flow dp-collapsed">보일 단계를 모두 껐습니다 - [구성]에서 다시 켜세요.</div>';
+  /* 업무 카테고리 - 자료 흐름 **뒤에 구분선으로** 잇는다. 화살표를 쓰면
+     "Excel 다음에 정기점검" 이라는 거짓이 된다([169]). */
+  const wdefs=DP_WORK_DEFS.filter(d=>!hide.has(d.key));
+  const wflow=wdefs.length
+    ? (flow?'<span class="dp-sep" aria-hidden="true"></span>':'')
+      +'<span class="dp-group" title="업무 카테고리 상태">'
+      +wdefs.map(dpWorkHtml).join('')+'</span>'
+    : '';
+  const body=(flow+wflow)||'<div class="dp-flow dp-collapsed">보일 단계를 모두 껐습니다 - [구성]에서 다시 켜세요.</div>';
   const warn=(!data&&DATA_PIPE.loaded)
     ?'<span class="dp-note">'+esc2(DATA_PIPE.err||'상태를 아직 못 받았습니다 - 정상이라는 뜻이 아닙니다')+'</span>':'';
   const conf=DATA_PIPE.conf
@@ -13376,7 +13430,11 @@ function renderDataPipe(){
           '<label><input type="checkbox" '+(hide.has(d.key)?'':'checked')
           +' data-key="'+esc2(d.key)+'" onchange="dpToggleStep(this.dataset.key,this.checked)"> '
           +esc2(d.label)+'</label>').join('')
-      + '<span>· 각 칸을 누르면 그 단계를 지금 처리합니다</span></div>'
+      + DP_WORK_DEFS.map(d=>
+          '<label><input type="checkbox" '+(hide.has(d.key)?'':'checked')
+          +' data-key="'+esc2(d.key)+'" onchange="dpToggleStep(this.dataset.key,this.checked)"> '
+          +esc2(d.label)+'</label>').join('')
+      + '<span>· 자료 칸은 누르면 그 단계를 지금 처리하고, 업무 칸은 그 화면으로 갑니다</span></div>'
     : '';
   bar.innerHTML='<div class="dp-title">자료 만드는 과정</div>'
     +'<div class="dp-flow">'+body+warn+'</div>'
@@ -14622,6 +14680,7 @@ function renderSettleDependents(){
      — 실측으로 대시보드를 15초 열어 둬도 0개였다(자료는 다 와 있었는데도).
      여기는 자료를 받아 화면을 다시 그리는 자리라 어느 경로로 들어와도 걸린다. */
   try{ navCounts(); }catch(e){}
+  try{ renderDataPipe(); }catch(e){}   // 띠의 업무 상태도 같이([169])
   restoreUiContinuity(continuity);
 }
 async function refreshDataKeys(keys,targetRevision){
