@@ -22133,8 +22133,9 @@ def t236_list_is_folded_into_groups():
 
     # 목록·표는 접혀도 계속 만든다: renderGroups 는 renderSettle 의 **끝**에 온다.
     rs = live.split("function renderSettle(){", 1)[1].split("\n}\n", 1)[0]
-    assert "renderGroups(rows)" in rs, "묶음을 다시 그리지 않는다"
-    assert rs.index("$('slist').innerHTML") < rs.index("renderGroups(rows)"), \
+    # [39] 얼릴 것은 계약이지 호출 모양이 아니다 - 인자가 늘어도 안 깨지게 접두로 본다
+    assert "renderGroups(rows" in rs, "묶음을 다시 그리지 않는다"
+    assert rs.index("$('slist').innerHTML") < rs.index("renderGroups(rows"), \
         "목록을 만들기 전에 접는다 — 엑셀·캡처가 빈 채로 나간다"
 
     # 손잡이는 툴바가 아니라 묶음 머리줄에 있다(폰 툴바가 한 줄 더 늘어나면 안 된다)
