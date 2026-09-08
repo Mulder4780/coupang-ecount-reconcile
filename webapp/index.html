@@ -223,6 +223,49 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 ::selection{background:var(--brand-tint)}
 
 /* ═══ 앱바 (모바일 상단) ═══ */
+/* -- 자료 만드는 과정(파이프라인) 띠 - 헤더 바로 아래 (2026-09-08 형님 지시) --
+   형님 지시: "데이터 만드는 과정을 파이프라인으로 해드 아래부분에 표시해서 나나
+   담당자가 시각으로 볼수 있고 수정 변경할 수 있는 구조 추가해"
+
+   * 판정을 새로 만들지 않는다([162]) - 상태도 실행도 실행 탭의 그것
+     (AUTOMATION_SOURCE_DEFS / autoRecord / autoStateOf / automationCardRun)을
+     그대로 빌린다. 여기서 다시 판정하면 같은 자료를 두고 두 화면이 다르게 말한다.
+   * 접을 수 있다([236]) - 안 접으면 모든 화면이 그만큼 밀린다. 접힌 상태는 기억한다.
+   * 굳은 색을 쓰지 않는다([332]) - 전부 테마 토큰이다. */
+.dp-bar{background:var(--surface);border-bottom:1px solid var(--line);padding:6px 12px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+.dp-bar[hidden]{display:none!important}
+.dp-title{font-weight:700;color:var(--ink);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.dp-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
+.dp-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.dp-arrow{color:var(--ink-3);font-weight:700;flex:0 0 auto}
+.dp-step{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:4px 10px;
+  border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);
+  cursor:pointer;font:inherit;min-width:0;max-width:230px}
+.dp-step:hover{border-color:var(--brand)}
+.dp-step:disabled{cursor:default;opacity:.75}
+.dp-name{font-weight:600;white-space:nowrap}
+.dp-note{color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.dp-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:var(--ink-3)}
+.dp-dot.ok{background:var(--ok)}
+.dp-dot.warn,.dp-dot.data{background:var(--warn)}
+.dp-dot.danger,.dp-dot.login{background:var(--danger)}
+.dp-dot.busy{background:var(--brand);animation:dpPulse 1.2s ease-in-out infinite}
+@keyframes dpPulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dp-dot.busy{animation:none}}
+.dp-tools{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.dp-tool{min-height:32px;padding:4px 10px;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--ink);cursor:pointer;font:inherit;white-space:nowrap}
+.dp-tool:hover{border-color:var(--brand)}
+.dp-conf{width:100%;border-top:1px dashed var(--line);padding-top:6px;margin-top:2px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--ink-3)}
+.dp-conf label{display:inline-flex;align-items:center;gap:5px;color:var(--ink);cursor:pointer}
+.dp-collapsed{color:var(--ink-3)}
+@media (max-width:899px){
+  .dp-bar{font-size:11px;padding:6px 10px}
+  .dp-note{display:none}
+  .dp-step{max-width:none}
+}
 .appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
   padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;display:flex;align-items:center;gap:14px;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
@@ -3562,6 +3605,11 @@ button[aria-busy="true"]::after{
     <div class="sub" id="clock"></div>
   </div>
 </header>
+<!-- 자료 만드는 과정(파이프라인) 띠 - 헤더 바로 아래 (2026-09-08 형님 지시).
+     * 마크업은 뼈대만 두고 내용은 renderDataPipe() 가 채운다. 상태 낱말을 여기
+       적으면 화면과 서버가 다른 말을 하게 된다([162]). -->
+<div class="dp-bar" id="dataPipe" hidden aria-label="자료 만드는 과정"></div>
+
 
 <!-- ★ 주 단추에 id 를 주고 inline onclick 을 뺐다(2026-08-13). 무엇을 누르는 단추인지가
      상황마다 다르기 때문이다 — 설치할 수 있으면 [설치하기], 이 주소로는 못 하면
@@ -10208,6 +10256,8 @@ function applyView(v){
   //   바로 다음이 그 줄이기를 요구한다(계약: 카테고리를 바꾼 직후 상태 전환이
   //   늦지 않는다). 남의 계약을 밀어내지 않는다([172]).
   navCounts();
+  // 자료 만드는 과정 띠 - 화면이 바뀌어도 같은 자리에 있고, 첫 화면에서 한 번 받는다(2026-09-08 형님 지시)
+  try{ if(!DATA_PIPE.loaded) dpFetch(false); renderDataPipe(); }catch(e){}
   if(v==='as') loadOpenStats('osHostAs');
   if(v==='pm') loadOpenStats('osHostPm');                           // 메뉴 건수 — 눌러 보기 전에 안다
   // ⚠ 이 줄은 2026-08-26 커밋 9be6f98([432])에서 줄바꿈이 빠져 **위 주석에 먹혔다.**
@@ -13174,6 +13224,126 @@ async function automationCardRun(key){
   }
   uxEvent('tap','automationCard',key);
   return act.run();
+}
+/* -- 자료 만드는 과정 띠 (2026-09-08 형님 지시) -----------------------------
+   형님 지시: "데이터 만드는 과정을 파이프라인으로 해드 아래부분에 표시해서 나나
+   담당자가 시각으로 볼수 있고 수정 변경할 수 있는 구조 추가해"
+
+   * **판정도 실행도 새로 만들지 않았다**([162]). 상태는 autoRecord/autoStateOf,
+     누르면 도는 것은 automationCardRun - 실행 탭 카드가 쓰는 그 함수 그대로다.
+     여기서 다시 판정하면 같은 자료를 두고 띠와 카드가 서로 다르게 말한다.
+   * **못 받으면 '정상'이라 하지 않는다**([169]) - '확인 못 함'이라 적는다.
+   * **api() 를 쓰지 않는다**([456]) - 그 함수는 401 을 만나면 PIN 을 지우고 잠금
+     화면을 띄운다. 부팅 시점에는 아직 인증 전일 수 있어 멀쩡한 사람에게 잠금이 뜬다.
+   * **저장을 못 읽으면 아무것도 안 숨긴다**([169]) - 모름을 '꺼짐'으로 치면 띠가
+     통째로 사라지고, 그러면 다시 켤 자리조차 없다. */
+const DP_KEY_OPEN='csos_datapipe_open_v1', DP_KEY_HIDE='csos_datapipe_hide_v1';
+const DATA_PIPE={open:true,hide:[],conf:false,loaded:false,flight:null,err:''};
+/* 흐름 정의 - 자료가 어디서 와서 어디로 가는지. 열쇠는 AUTOMATION_SOURCE_DEFS 의
+   것과 **정확히 같은 글자**여야 한다([165]) - 어긋나면 그 칸만 조용히 빈다. */
+function dpFlow(){
+  return [
+    {label:'원본 받기', keys:['kakao','band','erp']},
+    {label:'정본 저장', keys:['app_db']},
+    {label:'보관본',   keys:['excel']},
+  ];
+}
+function dpPrefsLoad(){
+  try{ const v=localStorage.getItem(DP_KEY_OPEN); DATA_PIPE.open = v===null ? true : v==='1'; }catch(e){}
+  try{
+    const raw=localStorage.getItem(DP_KEY_HIDE);
+    const arr=raw?JSON.parse(raw):[];
+    DATA_PIPE.hide = Array.isArray(arr) ? arr.filter(k=>typeof k==='string') : [];
+  }catch(e){ DATA_PIPE.hide=[]; }   /* 깨졌으면 아무것도 안 숨긴다([169]) */
+}
+function dpPrefsSave(){
+  try{ localStorage.setItem(DP_KEY_OPEN, DATA_PIPE.open?'1':'0'); }catch(e){}
+  try{ localStorage.setItem(DP_KEY_HIDE, JSON.stringify(DATA_PIPE.hide)); }catch(e){}
+}
+function dpToggleOpen(){ DATA_PIPE.open=!DATA_PIPE.open; dpPrefsSave(); renderDataPipe(); }
+function dpToggleConf(){ DATA_PIPE.conf=!DATA_PIPE.conf; renderDataPipe(); }
+function dpToggleStep(key,on){
+  const set=new Set(DATA_PIPE.hide);
+  if(on) set.delete(key); else set.add(key);
+  DATA_PIPE.hide=Array.from(set); dpPrefsSave(); renderDataPipe();
+}
+/* 상태를 한 번 받는다. 실행 탭이 이미 받아 뒀으면 그것을 쓴다([168] - 같은 것을
+   두 번 묻지 않는다). 401 이면 조용히 넘어간다 - 인증이 생기면 applyView 가 다시 부른다. */
+async function dpFetch(force){
+  if(DATA_PIPE.flight) return DATA_PIPE.flight;
+  if(!force && AUTOMATION_MON && AUTOMATION_MON.data){ DATA_PIPE.loaded=true; return null; }
+  DATA_PIPE.flight=(async()=>{
+    try{
+      const res=await fetch('/api/automation/status',{headers:PIN?{'X-CSOS-PIN':PIN}:{}});
+      if(res.status===401||res.status===403){ DATA_PIPE.err=''; return; }
+      if(!res.ok){ DATA_PIPE.err='상태를 못 받았습니다'; return; }
+      const data=await res.json();
+      if(data&&typeof data==='object'){ AUTOMATION_MON.data=data; DATA_PIPE.err=''; }
+    }catch(e){ DATA_PIPE.err='상태를 못 받았습니다'; }
+    finally{ DATA_PIPE.loaded=true; DATA_PIPE.flight=null; renderDataPipe(); }
+  })();
+  return DATA_PIPE.flight;
+}
+function dpStepHtml(def,data){
+  /* 상태·시각은 실행 탭 카드가 쓰는 그 함수에서 온다([162]). */
+  const rec=autoRecord(data,def);
+  const st=data?autoStateOf(rec):{key:'neutral',label:'확인 못 함'};
+  const when=data?autoTimeOf(rec,def):'';
+  const ago=when?(typeof agoText==='function'?agoText(when):''):'';
+  const note=[st.label,ago].filter(Boolean).join(' · ');
+  const act=automationAction(def.key);
+  return '<button class="dp-step" type="button" data-key="'+esc2(def.key)+'"'
+    +(act?'':' disabled')
+    +' onclick="dpRun(this.dataset.key)"'
+    +' title="'+esc2(def.label+' - '+note+(act?(' · 누르면 '+act.do):''))+'">'
+    +'<span class="dp-dot '+esc2(st.key)+'"></span>'
+    +'<span class="dp-name">'+esc2(def.label)+'</span>'
+    +'<span class="dp-note">'+esc2(note)+'</span>'
+    +'</button>';
+}
+async function dpRun(key){
+  if(typeof automationCardRun!=='function') return;
+  const ok=await automationCardRun(key);
+  if(ok) setTimeout(()=>dpFetch(true),1200);
+}
+try{ dpPrefsLoad(); }catch(e){}
+function renderDataPipe(){
+  const bar=$('dataPipe'); if(!bar) return;
+  bar.hidden=false;
+  const data=(AUTOMATION_MON&&AUTOMATION_MON.data)||null;
+  if(!DATA_PIPE.open){
+    bar.innerHTML='<div class="dp-title">자료 만드는 과정</div>'
+      +'<div class="dp-flow dp-collapsed">접어 두었습니다 - 카톡·Band·ERP &rsaquo; 앱 DB &rsaquo; Excel 보관본</div>'
+      +'<div class="dp-tools"><button class="dp-tool" type="button" onclick="dpToggleOpen()">펼치기</button></div>';
+    return;
+  }
+  const hide=new Set(DATA_PIPE.hide);
+  const groups=dpFlow().map(g=>{
+    const defs=g.keys.map(k=>AUTOMATION_SOURCE_DEFS.find(d=>d.key===k)).filter(Boolean).filter(d=>!hide.has(d.key));
+    return {label:g.label, defs:defs};
+  }).filter(g=>g.defs.length);
+  const flow=groups.map(g=>'<span class="dp-group" title="'+esc2(g.label)+'">'
+      +g.defs.map(d=>dpStepHtml(d,data)).join('')+'</span>')
+    .join('<span class="dp-arrow" aria-hidden="true">&rsaquo;</span>');
+  /* * 다 숨겼으면 그 사실을 말한다([169]) - 빈 띠는 고장으로 읽힌다. */
+  const body=flow||'<div class="dp-flow dp-collapsed">보일 단계를 모두 껐습니다 - [구성]에서 다시 켜세요.</div>';
+  const warn=(!data&&DATA_PIPE.loaded)
+    ?'<span class="dp-note">'+esc2(DATA_PIPE.err||'상태를 아직 못 받았습니다 - 정상이라는 뜻이 아닙니다')+'</span>':'';
+  const conf=DATA_PIPE.conf
+    ? '<div class="dp-conf"><span>띠에 보일 단계</span>'
+      + AUTOMATION_SOURCE_DEFS.filter(d=>d.key!=='last').map(d=>
+          '<label><input type="checkbox" '+(hide.has(d.key)?'':'checked')
+          +' data-key="'+esc2(d.key)+'" onchange="dpToggleStep(this.dataset.key,this.checked)"> '
+          +esc2(d.label)+'</label>').join('')
+      + '<span>· 각 칸을 누르면 그 단계를 지금 처리합니다</span></div>'
+    : '';
+  bar.innerHTML='<div class="dp-title">자료 만드는 과정</div>'
+    +'<div class="dp-flow">'+body+warn+'</div>'
+    +'<div class="dp-tools">'
+    +'<button class="dp-tool" type="button" data-key="last" onclick="dpRun(this.dataset.key)">지금 처리</button>'
+    +'<button class="dp-tool" type="button" onclick="dpToggleConf()">구성</button>'
+    +'<button class="dp-tool" type="button" onclick="dpToggleOpen()">접기</button>'
+    +'</div>'+conf;
 }
 function renderAutomationStatus(){
   const monitor=$('automationMonitor'), grid=$('automationGrid'), overall=$('automationOverall');
