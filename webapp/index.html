@@ -3528,6 +3528,33 @@ button[aria-busy="true"]::after{
 @media (prefers-reduced-motion: reduce){
   button[aria-busy="true"]::after{ animation:none; opacity:.5; }
 }
+
+    /* 진행단계 파이프라인 (2026-09-09 지시) — 카테고리마다 지금 어느 단계인지 한눈에.
+       ★ 낱말·순서는 서버(/api/flow-stages)가 정한다. 여기는 그리기만 한다([162]).
+       ★ 좁은 화면에서는 제 상자 안에서 가로로 스크롤한다 — 문서를 밀지 않는다([368]).
+       ★ 굳은 색을 쓰지 않는다([332]) — 밝은 화면·어두운 화면이 각자 맞는 값을 받는다. */
+    .rail{margin:10px 0 14px}
+    .rail-head{font-size:12px;color:var(--ink-3);margin-bottom:6px;line-height:1.5}
+    .rail-head b{color:var(--ink)}
+    .rail-flow{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding:2px 0 6px}
+    .rail-step{display:flex;align-items:center;gap:7px;flex:0 0 auto;min-width:0;
+      border:1px solid var(--line);border-radius:10px;padding:8px 11px;
+      background:var(--surface);color:var(--ink-3);white-space:nowrap}
+    .rail-no{display:inline-flex;align-items:center;justify-content:center;
+      width:19px;height:19px;border-radius:50%;border:1px solid var(--line);
+      font-size:11px;line-height:1;flex:0 0 auto}
+    .rail-step.done{color:var(--ink-2);border-color:var(--ok)}
+    .rail-step.done .rail-no{border-color:var(--ok);color:var(--ok)}
+    .rail-step.now{color:var(--ink);font-weight:700;border-color:var(--brand);
+      border-width:2px;padding:7px 10px}
+    .rail-step.now .rail-no{border-color:var(--brand);border-width:2px;color:var(--brand)}
+    .rail-arw{display:flex;align-items:center;color:var(--ink-3);flex:0 0 auto;font-size:12px}
+    .rail-side{margin-top:2px;font-size:12px;color:var(--ink-3);line-height:1.9}
+    .rail-chip{display:inline-block;border:1px solid var(--line);border-radius:999px;
+      padding:2px 9px;margin-left:5px;color:var(--ink-3)}
+    .rail-chip.on{border-color:var(--warn);color:var(--ink);font-weight:700}
+    .rail-none{font-size:12px;color:var(--ink-3);border:1px dashed var(--line);
+      border-radius:10px;padding:9px 11px;margin:10px 0 14px}
 </style>
 </head>
 <body>
@@ -8374,6 +8401,65 @@ async function loadFlowStages(force){
   return FLOW_STAGES;
 }
 function stageDef(k){ return (FLOW_STAGES && FLOW_STAGES['갈래'] && FLOW_STAGES['갈래'][k]) || null; }
+
+/* 진행단계 파이프라인 — 이 건이 지금 어느 단계인지 가로로 보여 준다 (2026-09-09 지시).
+   ★ 낱말을 화면이 적지 않는다([162]·[196]). 근거는 갈래마다 다르고 서버가 실어 준다:
+     돌발AS·정기점검 = 관리대장 10_코드관리 드롭다운 · 정산 = billing_status.LADDER.
+   ★ 순서를 지어내지 않는다([166]·[169]) — 드롭다운에 적힌 **차례 그대로** 본줄을 세우고,
+     '완료단계' 뒤에 적힌 것(취소·보류·재방문예정 …)은 **곁가지로 따로** 적는다.
+     지우지 않는다 — 조용히 빼면 그 단계가 없는 것처럼 읽힌다.
+   ★ 지금 값이 목록에 없으면 '목록 밖'이라 말한다([196]) — 값이 없는 것처럼 감추지 않는다.
+   ★ 정의를 못 받은 것과 단계가 없는 것은 다르다([169]). */
+function stageRail(kind, row){
+  const def = stageDef(kind);
+  if(!def){
+    if(FLOW_STAGES) return '';                 /* 이 갈래는 원래 단계가 없다 */
+    return '<div class="rail-none">진행단계 정의를 아직 못 받았습니다 — '
+         + '단계가 없다는 뜻이 아닙니다. 잠시 뒤 다시 열어 주세요.</div>';
+  }
+  const all = (def['단계']||[]).map(function(s){ return (s && s['단계']) || s; }).filter(Boolean);
+  if(!all.length) return '';
+  const done = def['완료단계'] || '';
+  const di   = all.indexOf(done);
+  const main = di >= 0 ? all.slice(0, di+1) : all;   /* 본줄 = 완료까지 */
+  const side = di >= 0 ? all.slice(di+1)  : [];      /* 그 뒤 = 곁가지 */
+  const col  = def['칸'] || '';
+  const rawv = row ? row[col] : '';
+  const now  = String(rawv == null ? '' : rawv).trim();
+  const ni   = main.indexOf(now), si = side.indexOf(now);
+  /* '목록 밖'은 곁가지보다 센 사실이다 — 관리대장 드롭다운에 없는 낱말이라
+     엑셀에서 그 칸을 열면 사람이 다시 골라야 한다([196]). 먼저 말한다. */
+  const outs = (def['목록밖']||[]).indexOf(now) >= 0;
+
+  let note;
+  if(!now)          note = '지금 단계가 <b>아직 안 적혔습니다</b>';
+  else if(outs)     note = '지금 <b>' + esc2(now) + '</b> — <b>관리대장 목록에 없는 낱말</b>입니다';
+  else if(ni >= 0)  note = '지금 <b>' + esc2(now) + '</b> · ' + (ni+1) + '/' + main.length + '단계';
+  else if(si >= 0)  note = '지금 <b>' + esc2(now) + '</b> — 본줄에서 벗어난 단계입니다';
+  else              note = '지금 <b>' + esc2(now) + '</b> — <b>목록에 없는 값</b>입니다';
+  const from = def['근거'] || def['목록출처'] || '';
+  const head = '<div class="rail-head">' + esc2(def['이름']||'') + ' 진행단계 · ' + note
+             + (from ? ' <span style="opacity:.75">· 근거 ' + esc2(from) + '</span>' : '')
+             + '</div>';
+
+  const cells = main.map(function(s, i){
+    let cls = 'rail-step';
+    if(ni >= 0 && i <  ni)  cls += ' done';
+    if(ni >= 0 && i === ni) cls += ' now';
+    return '<div class="' + cls + '"><span class="rail-no">' + (i+1) + '</span>'
+         + '<span class="rail-nm">' + esc2(s) + '</span></div>';
+  }).join('<span class="rail-arw" aria-hidden="true">&rarr;</span>');
+
+  const sideHtml = side.length
+    ? '<div class="rail-side">그 밖의 단계:'
+      + side.map(function(s){
+          return '<span class="rail-chip' + (s === now ? ' on' : '') + '">' + esc2(s) + '</span>';
+        }).join('') + '</div>'
+    : '';
+
+  return '<div class="rail">' + head
+       + '<div class="rail-flow">' + cells + '</div>' + sideHtml + '</div>';
+}
 function stageList(k){
   const g=stageDef(k);
   if(g && (g['단계']||[]).length) return g['단계'];
@@ -15646,6 +15732,7 @@ function openSheet(kind, idx, id, row){
   if(kind==='settle'){
     html = `<h2>${esc2(displayProject)} ${chip(r.상태)}</h2>
     <div class="sub">${esc2(r.캠프명||'캠프 미상')} · ${esc2(r.업무구분||'')} · 내부기록 ${esc2(internalId||'-')}</div>
+    ${stageRail('settle', r)}
     ${origBox(displayProject, r.PO번호, r.명세서번호)}
     ${pjHistWide(r.캠프명, displayProject)}
     <div class="dl">
@@ -15688,6 +15775,7 @@ function openSheet(kind, idx, id, row){
       </div>` : '';
     html = `<h2>${esc2(displayProject)} ${chip(statOf(r))}</h2>
       <div class="sub">${esc2(r.캠프명||'캠프 미상')} · 내부기록 ${esc2(internalId||'-')}</div>`
+      + stageRail(kind, r)
       + origBox(displayProject, r.PO번호, r.명세서번호)
       + pjHistWide(r.캠프명, displayProject) + vbox +
       '<div class="dl">' +
