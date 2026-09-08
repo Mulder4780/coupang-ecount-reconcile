@@ -1457,6 +1457,19 @@ def save_ryu_upload(fields, files):
 
 # 류지영 업무센터의 입력 항목은 원장의 수식·검증 열을 직접 건드리지 않는다.
 # 아래 화이트리스트에 있는 "사람이 확인해서 보충하는 원천 열"만 빈 칸에 한해 기록한다.
+# 돌발AS 대응등급 낱말 — as_grade 한 곳에서 온다([162]).
+# ★ 못 읽으면 선택지를 **지어내지 않는다**([169]) — 빈 목록이면 화면이 그 칸을
+#   자유입력으로 그리고, 저장 검사(as_grade.check)도 같이 빠진다. 그편이
+#   틀린 낱말을 굳히는 것보다 낫다.
+try:
+    import as_grade as _as_grade
+    _AS_GRADE_META = _as_grade.meta()
+    _AS_GRADE_TYPES = list(_as_grade.ALL_TYPES)
+except Exception:            # noqa: BLE001 - 화면을 통째로 죽이지 않는다
+    _as_grade = None
+    _AS_GRADE_META = {"등급": []}
+    _AS_GRADE_TYPES = []
+
 RYU_ENTRY_CONFIG = {
     "as": {
         "label": "돌발AS", "sheet": "02_돌발AS접수", "key_col": "접수ID",
@@ -1506,6 +1519,26 @@ RYU_ENTRY_CONFIG = {
             #     `cannot archive unknown field` 로 통째로 죽는다 — 저장은 성공하니
             #     적은 사람은 모르고 11:00·15:00 회차만 죽는다.
             {"name": "미처리사유(담당자)", "label": "확인 대기 사유(담당자가 적음)",
+             "type": "textarea"},
+            # ★ 대응등급 A/B/C — 유수비 대표 2026-09-09 통화 지시.
+            #   "A 단계는 즉시 틀어 가야 되는 / B단계는 모아서 가면 되는 거야 /
+            #    C 단계는 그냥 전화상으로 할 수 있는 거야" ·
+            #   "돌발 그 표시판에 이게 A인지 B인지 C인지 떠야 된다는 겁니다"
+            #   · 낱말은 **as_grade 한 곳**이 정한다([162]) — 여기 적으면 사본이 둘이다.
+            #   · 기계가 안 매긴다(2026-09-09 형님 지시 "미분류로 남기고 사람이 정하기") —
+            #     2026년 증상 통계로 표를 만들기 전까지 전부 미분류이고 사람이 고른다.
+            #   · 담는 자리는 앱 DB 다(형님 지시 "앱 DB에만 담고 나중에 엑셀에 담아").
+            #   ⚠ **이 세 이름은 `archive_worker.DB_ONLY_ARCHIVE_FIELDS` 에도 있어야 한다.**
+            #     02시트에 대응 열이 없다(v632 실측 45열) — 안 올리면 보관본 회차가
+            #     `cannot archive unknown field` 로 통째로 죽는데, 저장은 성공하므로
+            #     적은 사람은 모르고 회차만 조용히 실패한다([321] 이 겪은 그 자리).
+            {"name": "대응등급", "label": "대응등급(A긴급·B일반·C전화)",
+             "type": "select", "options": list(_AS_GRADE_META["등급"])},
+            {"name": "대응유형", "label": "대응유형",
+             "type": "select", "options": list(_AS_GRADE_TYPES)},
+            # 대표 요구 그대로다 — "어떠한 경우에 즉시출동인지 표시".
+            # A긴급은 이 칸이 비면 저장이 막힌다(as_grade.check).
+            {"name": "등급사유", "label": "등급 사유(A긴급은 필수 — 왜 즉시 출동인가)",
              "type": "textarea"},
             {"name": "비고", "label": "비고", "type": "textarea"},
         ],
@@ -2261,6 +2294,20 @@ def save_staff_entry(staff_slug, body, *, store=None, actor=None):
                     "record": latest, "msg": "이미 같은 값입니다",
                 }
             else:
+                # 대응등급이 성립하는지 먼저 본다(2026-09-09 지시).
+                # ★ 막기만 하는 안내는 없는 안내다([408]) — as_grade 가 무엇을
+                #   고르면 되는지 같이 적어 준다. 화면은 그 말을 그대로 띄운다.
+                # ★ 바뀐 칸만 보지 않는다 — 등급만 A로 바꾸고 사유를 안 적으면
+                #   `changed` 에 사유가 없다. **저장 뒤 값**으로 판정해야 맞다.
+                if _as_grade is not None and category == "as":
+                    _after = dict(before_values)
+                    _after.update(changed)
+                    _ok, _why = _as_grade.check(
+                        _after.get("대응등급"),
+                        _after.get("대응유형"),
+                        _after.get("등급사유"))
+                    if not _ok:
+                        raise ValueError(_why)
                 correction_fields = [
                     name for name in changed
                     if (name in clear_fields or

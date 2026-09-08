@@ -3555,6 +3555,19 @@ button[aria-busy="true"]::after{
     .rail-chip.on{border-color:var(--warn);color:var(--ink);font-weight:700}
     .rail-none{font-size:12px;color:var(--ink-3);border:1px dashed var(--line);
       border-radius:10px;padding:9px 11px;margin:10px 0 14px}
+
+    /* 돌발AS 대응등급 배지 (2026-09-09 지시) — 대표 요구 "돌발 그 표시판에 이게
+       A인지 B인지 C인지 떠야 된다는 겁니다".
+       ★ 굳은 색을 안 쓴다([332]) — 테마 토큰만. 밝은 화면·어두운 화면이 각자 맞는 값을 받는다.
+       ★ 색은 낱말 **첫 글자**(A/B/C)로 가른다 — 표가 늘어나도 안 깨진다. */
+    .gtag{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);
+      border-radius:999px;padding:1px 9px;font-size:11px;font-weight:700;
+      color:var(--ink-3);white-space:nowrap}
+    .gtag.a{border-color:var(--danger);color:var(--danger)}
+    .gtag.b{border-color:var(--warn);color:var(--warn)}
+    .gtag.c{border-color:var(--brand);color:var(--brand)}
+    .gtag.none{border-style:dashed;font-weight:400}
+    .gtag-t{font-weight:400;opacity:.8}
 </style>
 </head>
 <body>
@@ -15282,6 +15295,33 @@ function openAsPending(){
     basis:'02_돌발AS접수 · 진행상태가 작업완료·취소가 아니고 작업완료일이 비어 있는 건'}};
   openExecMetric('AS 미실시 (접수 후 미완료·취소 제외)');
 }
+/* 돌발AS 대응등급 — 배지·세기 (2026-09-09 형님 지시).
+   ★ 낱말을 화면이 적지 않는다([162]) — 정본은 as_grade 이고, 여기서는 **자료에 실제로
+     적힌 값**을 모아 쓴다. 표가 늘어나도 화면이 저절로 따라오고, 사본이 안 생긴다.
+   ★ 빈칸과 미분류를 갈라 말한다([169]) — 빈칸은 '아무도 안 봤다', 미분류는
+     '봤는데 아직 못 정했다'. 지금은 둘 다 배지 하나로 보이되 글자가 다르다.
+   ★ 등급은 **기계가 안 매긴다**(형님 지시 "미분류로 남기고 사람이 정하기") —
+     화면이 빈칸을 보고 등급을 지어내면 그 순간 이 규칙이 무너진다. */
+function gradeVal(r){ return String((r && r.대응등급) || '').trim(); }
+function gradeTag(r){
+  const g = gradeVal(r);
+  if(!g) return '<span class="gtag none" title="아직 등급을 안 정했습니다 — 상세에서 고르세요">미분류</span>';
+  const cls = g.charAt(0) === 'A' ? 'a' : g.charAt(0) === 'B' ? 'b' : g.charAt(0) === 'C' ? 'c' : 'none';
+  const t = String((r && r.대응유형) || '').trim();
+  return '<span class="gtag ' + cls + '">' + esc2(g)
+       + (t ? '<span class="gtag-t">' + esc2(t) + '</span>' : '') + '</span>';
+}
+/* 지금 목록에 실제로 있는 등급을 세어 돌려준다 — 낱말 목록을 화면이 안 적는다.
+   ★ 이름순이면 A긴급 < B일반 < C전화 로 저절로 맞고 미분류는 맨 뒤다. */
+function gradeCounts(rows){
+  const m = new Map();
+  (rows||[]).forEach(function(r){ const g = gradeVal(r) || '미분류'; m.set(g, (m.get(g)||0)+1); });
+  return Array.from(m.entries()).sort(function(x, y){
+    if(x[0] === '미분류') return 1;
+    if(y[0] === '미분류') return -1;
+    return x[0] < y[0] ? -1 : 1;
+  });
+}
 function openListKpi(label, rule){
   const all=window._visibleListRows||[];
   let rows=all;
@@ -15292,6 +15332,11 @@ function openListKpi(label, rule){
   else if(rule==='as-open') rows=all.filter(asNotDone);        // 취소 제외(같은 정의)
   else if(rule==='as-pending') rows=all.filter(asNotDone);     // '미실시' 라는 이름으로도 부른다
   else if(rule==='as-cancel') rows=all.filter(r=>String(r.진행상태||'').trim()==='취소');
+  /* 등급으로 거르기 — 낱말을 여기 안 적는다([162]). 규칙에 담아 넘긴다. */
+  else if(String(rule||'').indexOf('as-grade:')===0){
+    const want = rule.slice(9);
+    rows = all.filter(function(r){ return (gradeVal(r) || '미분류') === want; });
+  }
   else if(rule==='pm-done') rows=all.filter(r=>r.점검상태==='완료');
   else if(rule==='pm-open') rows=all.filter(r=>r.점검상태!=='완료');
   window._briefMetric={label,data:{rows:rows.map(r=>({...r,종류:mode,레코드ID:recordIdOf(r),
@@ -15637,10 +15682,19 @@ function renderSettle(){
     $('skpis').innerHTML = `
       <div class="kpi accent" role="button" tabindex="0" onclick="openListKpi('돌발AS 접수 목록','all')"><div class="v">${rows.length}</div><div class="l">접수 건수</div></div>
       <div class="kpi" role="button" tabindex="0" onclick="openListKpi('돌발AS 작업완료','as-done')"><div class="v">${done}</div><div class="l">작업완료</div></div>
-      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('AS 미실시 (접수 후 미완료·취소 제외)','as-pending')"><div class="v">${rows.filter(asNotDone).length}</div><div class="l">미실시</div></div>`;
+      <div class="kpi ${rows.length-done?'warn':''}" role="button" tabindex="0" onclick="openListKpi('AS 미실시 (접수 후 미완료·취소 제외)','as-pending')"><div class="v">${rows.filter(asNotDone).length}</div><div class="l">미실시</div></div>`
+      /* 대응등급 A/B/C — 대표 요구 "표시판에 A인지 B인지 C인지 떠야 된다".
+         누르면 그 등급만 모아 보여 준다(기존 openListKpi 길을 그대로 쓴다 · [162]). */
+      + gradeCounts(rows).map(function(e){
+          const g=e[0], n=e[1];
+          const cls = g.charAt(0)==='A' ? 'danger' : g==='미분류' ? '' : 'accent';
+          return `<div class="kpi ${cls}" role="button" tabindex="0"
+            onclick="openListKpi('돌발AS · ${g}','as-grade:${g}')">
+            <div class="v">${n}</div><div class="l">${g}</div></div>`;
+        }).join('');
     $('slist').innerHTML = rows.map((r,i)=>`
       <div class="srow" onclick="openSheet('as',${i},'${r.접수ID}')">
-        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.진행상태)}</div>
+        <div class="top"><span class="prjno">${esc2(projectLabel(r))}</span>${campTag(r.캠프명)}${chip(r.진행상태)}${gradeTag(r)}</div>
         <div class="top"><span class="camp">${r.담당기사||'-'}</span></div>
         <div class="meta"><span class="sid">${r.접수ID||''}</span><span>접수 ${r.접수일자||'-'}</span>${r.작업완료일?`<span>완료 ${r.작업완료일}</span>`:''}<span>${r['유상·무상·보험']||''}</span>${okTag(r.관리자검증상태, r.최종확인일)}${verTag(r.검증결과, r.검증문제코드)}
           ${r.완료보고서등록?`<span>완료보고서 ${r.완료보고서등록}</span>`:''}${r.ERP등록?`<span>ERP ${r.ERP등록}</span>`:''}
@@ -15649,11 +15703,11 @@ function renderSettle(){
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || zeroNote('works','조건에 맞는 건이 없습니다');
-    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('상태','진행상태')}</tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('등급','대응등급')}${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
-        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.거래명세서반영||'-'}</td><td>${r.ERP반영||r.ERP등록||'-'}</td><td>${r.검증자?(r.검증자+(r.검증일?' · '+r.검증일:'')):'-'}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
+        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.거래명세서반영||'-'}</td><td>${r.ERP반영||r.ERP등록||'-'}</td><td>${r.검증자?(r.검증자+(r.검증일?' · '+r.검증일:'')):'-'}</td><td>${gradeTag(r)}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
   } else if(mode==='check'){
     // 엑셀 07_불일치누락현황 — 검증 안 된·확인해야 할 항목 그대로
     const types = {};
