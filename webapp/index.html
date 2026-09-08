@@ -15293,13 +15293,18 @@ function renderGroups(rows, hidden){
       on?'전체 목록 펼치기':'묶음으로 접기'}</button></div>`;
   if(!on){
     box.innerHTML = head(`전체 ${rows.length}건을 본문에 펼쳐 두었습니다`);
-    window._groupSets = {}; return;
+    window._groupSets = {}; window._groupSetsHidden = {}; return;
   }
   const by = {};
   rows.forEach(r=>{ const g = groupVal(r,k); (by[g] = by[g] || []).push(r); });
-  const hby = {};   // 묶음마다 몇 건이 숨었나 — 기준은 위와 **같은 groupVal**([162])
-  hid.forEach(r=>{ const g = groupVal(r,k); hby[g] = (hby[g]||0)+1; });
-  window._groupSets = by;
+  /* 숨은 건을 **행 그대로** 담는다 — 개수만 세면 묶음을 눌렀을 때 못 보여 준다([409]).
+     기준은 위와 **같은 groupVal** 이다([162]) — 따로 세면 두 숫자가 갈린다. */
+  const hby = {};
+  hid.forEach(r=>{ const g = groupVal(r,k); (hby[g] = hby[g] || []).push(r); });
+  /* 완료만 있어 **묶음 자체가 안 보이는** 것 — 실측 PO364055 는 29건이 전부 완료다.
+     ★ 그것을 목록에 끼워 넣지 않는다([172] · 2026-08-04 숨김 지시). 대신 말한다([169]). */
+  const onlyHidden = Object.keys(hby).filter(g => !by[g]);
+  window._groupSets = by; window._groupSetsHidden = hby;
   const money = mode==='settle';
   const sum = list => list.reduce((a,r)=>a+(+r.공급가액||0),0);
   const names = Object.keys(by).sort((a,b)=> by[b].length-by[a].length || a.localeCompare(b,'ko'));
@@ -15313,7 +15318,7 @@ function renderGroups(rows, hidden){
         ${money?`<span style="font-size:13.5px;color:var(--ink-3)">${fmt(sum(list))}원</span>`:''}</span>
       <span style="flex:none;display:flex;align-items:center;gap:8px">
         <b style="font-variant-numeric:tabular-nums">${list.length}건</b>${
-          (all?hid.length:(hby[name]||0)) ? `<span class="gh-hid" title="완료로 입증된 건은 기본 목록에서 숨깁니다 — 상태에서 골라 보세요">/ 전체 ${list.length+(all?hid.length:(hby[name]||0))}건</span>` : ''}
+          (all?hid.length:((hby[name]||[]).length)) ? `<span class="gh-hid" title="완료로 입증된 건은 기본 목록에서 숨깁니다 — 상태에서 골라 보세요">/ 전체 ${list.length+(all?hid.length:((hby[name]||[]).length))}건</span>` : ''}
         <span aria-hidden="true" style="color:var(--ink-3);font-size:16px;line-height:1">›</span></span>
     </div>`;
   /* ★ 묶음이 많으면 묶음 목록 자체가 다시 길어진다 — 실측 캠프별 110묶음.
@@ -15336,7 +15341,10 @@ function renderGroups(rows, hidden){
         : '');
   box.innerHTML = rows.length
     ? head(`${label}별 ${names.length}묶음 · ` +
-           (hid.length ? `${rows.length}건 · 완료 ${hid.length}건은 숨김(상태에서 고르면 보입니다)`
+           (hid.length ? `${rows.length}건 · 완료 ${hid.length}건은 숨김(상태에서 `
+                         + `'완료 전체'를 고르면 한 번에 보입니다)`
+                         + (onlyHidden.length ? ` — 그중 ${onlyHidden.length}묶음은 `
+                             + `완료만 있어 아래에 안 보입니다` : '')
                        : `전체 ${rows.length}건`) +
            (restN ? ` — 큰 ${shown.length}묶음만 보이는 중` : '')) +
       tile('', rows, 1) + shown.map(n=>tile(n, by[n], 0)).join('') + more
@@ -15345,7 +15353,14 @@ function renderGroups(rows, hidden){
 /* 묶음 하나를 시트로 연다. 담는 모양은 openListKpi 와 같아야 한다 —
    시트 안의 카드가 그 칸(종류·레코드ID·프로젝트NO)으로 원래 기록을 찾아간다. */
 function openListGroup(name){
-  const rows = (window._groupSets||{})[name] || [];
+  /* ★ 숨은 완료 건까지 같이 연다([409]) — 2026-09-08 형님 물음의 답이다.
+     기본 목록에서 숨기는 것은 그대로 두되([172]), **묶음을 눌러 들어오면**
+     그 PO 에 실제로 몇 건이 걸렸는지 보여 준다. 상태 칩이 완료(...)라 구별된다.
+     ★ 몇 건이 숨은 것이었는지 basis 에 적는다([169]) — 안 적으면 숫자가 왜
+       화면과 다른지 묻게 된다. */
+  const shown = (window._groupSets||{})[name] || [];
+  const hidn  = (window._groupSetsHidden||{})[name] || [];
+  const rows  = shown.concat(hidn);
   const defs = GROUP_BY[mode] || GROUP_BY.settle;
   const label = (defs.find(d=>d[0]===groupByKey())||defs[0])[1];
   const title = `${modeLabel()} · ${name}`;
@@ -15353,7 +15368,9 @@ function openListGroup(name){
     프로젝트NO:projectNoOf(r),일자:dateOf(r,mode),담당자:r.담당자||r.담당기사||'',
     문제:'',상태:statOf(r),금액:+r.공급가액||0})),
     count:rows.length,kind:'list-filter',
-    basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과 중 ${label} = ${name}`}};
+    basis:`현재 ${modeLabel()} 화면의 검색·상태·기간 필터 결과 중 ${label} = ${name}`
+      + (hidn.length ? ` — ${rows.length}건 중 ${hidn.length}건은 완료로 입증돼 `
+          + `기본 목록에서는 숨는 건입니다(여기서는 같이 보여 줍니다)` : '')}};
   openExecMetric(title);
 }
 /* ★ PO·계산서로 좁히기 — 판정은 **여기 한 곳**이다([162]). 목록·표·KPI·엑셀·
