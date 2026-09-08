@@ -14997,7 +14997,13 @@ function showPeriodNote(pr, shown, undated){
 function fillStatOptions(){
   fillSettleFilters();               // 같은 때에 채운다 — 자료가 온 뒤 한 번 더 불린다
   const stats = [...new Set(curRows().map(statOf).filter(Boolean))];
-  $('fstat').innerHTML = '<option value="">상태 전체</option>' + stats.map(s=>`<option>${s}</option>`).join('');
+  /* ★ 완료 갈래가 여섯이라 하나씩 고르면 여섯 번이다 — 한 번에 보는 길을 준다([409]).
+     값 __done 은 상태 낱말이 아니라 **묶음 열쇠**이고 renderSettle 이 그 자리에서 받는다.
+     ★ 기본 목록의 숨김은 한 글자도 안 바꾼다([172]) — 2026-08-04 지시다. */
+  const doneN = curRows().filter(r=>/^완료\(/.test(statOf(r)||'')).length;
+  $('fstat').innerHTML = '<option value="">상태 전체</option>'
+    + (doneN ? `<option value="__done">완료 전체(${doneN}건)</option>` : '')
+    + stats.map(s=>`<option>${s}</option>`).join('');
 }
 /* 조치가 필요한 건인가 — ERP 계산서(묶음)는 이미 발행된 서류라 조치 대상이 아니다 */
 function needAction(r){
@@ -15411,7 +15417,9 @@ function renderSettle(){
      ★ **숨기는 동작은 한 글자도 안 바꿈**([172]) — 2026-08-04 지시다. 말만 한다. */
   const hiddenDone = [];
   const base = curRows().filter(r => {
-    if(f && statOf(r)!==f) return false;
+    /* __done 은 '완료' 로 시작하는 갈래 **전부** — 상태 낱말이 아니다([409]). */
+    if(f === '__done'){ if(!/^완료\(/.test(statOf(r)||'')) return false; }
+    else if(f && statOf(r)!==f) return false;
     // 완료로 객관 입증된 건(완료(ERP 수금확인) 등)은 기본 리스트에서 숨긴다
     // (2026-08-04 지시). 상태 필터로 그 상태를 직접 고르면 여전히 보인다.
     if(!f && /^완료\(/.test(statOf(r)||'')){
