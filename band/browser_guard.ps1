@@ -30,10 +30,17 @@ $script:BrowserGuardSites = [ordered]@{
         Host = 'www.band.us'
         Path = '/band/84789192/post'
     }
+    # 2026-09-09 실측: 이카운트가 경로를 ec5 -> ec56 으로 올렸다(형님 화면에서
+    #   읽힌 값 loginab.ecount.com/ec56/view/erp?w_flag=1...).  그래서 관문이
+    #   "주소가 정확히 그것이 아니다" 로 막았고, 그 문구가 사람에게 **주소를
+    #   바꾸라**고 두 번 헛 부탁하게 만들었다([172] 틀린 지목).
+    # * 옛 경로를 지우지 않는다 - 옛 판을 쓰는 기계에서 그날부터 못 긁는다([172]).
+    #   넓히는 것이 아니라 **정확 일치를 둘로** 둔 것이다(정규식으로 헐겁게 하지 않는다).
     'erp' = [pscustomobject]@{
-        Url = 'https://loginab.ecount.com/ec5/view/erp'
+        Url = 'https://loginab.ecount.com/ec56/view/erp'
         Host = 'loginab.ecount.com'
-        Path = '/ec5/view/erp'
+        Path = '/ec56/view/erp'
+        Paths = @('/ec56/view/erp', '/ec5/view/erp')
     }
 }
 
@@ -47,10 +54,17 @@ function Test-BGExactLocation {
     $site = Get-BGAllowedSite -SiteKey $SiteKey
     if (-not $site -or -not $Uri) { return $false }
     $path = ([string]$Uri.AbsolutePath).TrimEnd('/')
-    $expectPath = ([string]$site.Path).TrimEnd('/')
+    # * Paths 를 가진 자리만 여러 경로를 받는다 - 없는 자리(밴드 둘)는 예전
+    #   그대로 Path 하나다([172] 좁히는 것도 넓히는 것도 고장이다).
+    $expect = @()
+    if ($site.PSObject.Properties.Match('Paths').Count -gt 0 -and $site.Paths) {
+        foreach ($one in $site.Paths) { $expect += ([string]$one).TrimEnd('/') }
+    } else {
+        $expect = @(([string]$site.Path).TrimEnd('/'))
+    }
     return $Uri.Scheme -eq 'https' -and
            $Uri.Host.ToLowerInvariant() -eq $site.Host -and
-           $path -eq $expectPath
+           ($expect -contains $path)
 }
 
 function ConvertTo-BGUri {
