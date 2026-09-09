@@ -5458,6 +5458,12 @@ def _add_grade_hint(rows):
     """
     if _as_grade is None:
         return rows
+    # ★ 밴드·카톡 증상 색인 - **캐시 뒤**에 온다([168]).  못 읽으면 빈 사전이고
+    #   그러면 예전처럼 관리대장 칸만 본다([169] - 모름을 근거로 삼지 않는다).
+    try:
+        _sym = (_band_completion_index() or {}).get("증상") or {}
+    except Exception:                          # noqa: BLE001
+        _sym = {}
     try:
         for _r in (rows or {}).get("as") or []:
             if not isinstance(_r, dict):
@@ -5466,7 +5472,8 @@ def _add_grade_hint(rows):
                 continue                      # 사람이 이미 골랐다 - 안 건드린다
             # ★ 여러 칸을 순서대로 훑는다 - 접수 글이 먼저다(as_grade.HINT_COLS).
             #   실측 v632: 신청내용 한 칸이면 113건, 이 표면 242건([67]).
-            _s = _as_grade.suggest_row(_r)
+            _s = _as_grade.suggest_row(_r, _sym.get(
+                str(_r.get("프로젝트NO") or "").strip(), {}).get("글") or "")
             if _s.get("등급") and _s["등급"] != _as_grade.GRADE_UNSET:
                 _r["추천등급"] = _s["등급"]
                 _r["추천유형"] = _s.get("유형") or ""
@@ -7509,7 +7516,9 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 9   # 2026-09-04: 밴드 수집 중단 여부를 색인에 담는다
+_BAND_EV_VER = 10  # 2026-09-09: 밴드·카톡 본문에서 뽑은 증상 등급을 담는다
+#  ⚠ as_grade 규칙(config/as_grade_rules.json)을 고치면 **이 숫자를 손으로 올린다** -
+#    지문은 원본이 바뀌었나만 보므로 규칙만 바뀌면 옛 추천이 영원히 이긴다.
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
 #:   움직여 옛 색인이 영원히 이긴다(이 프로젝트가 다섯 번 겪은 모양이다).
 
@@ -7649,7 +7658,7 @@ def _band_completion_index():
             pass
 
     out = {"완료": {}, "완료종류": {"as": {}, "pm": {}},
-           "언급": set(), "카톡": {}, "최신": "", "읽음": False,
+           "언급": set(), "카톡": {}, "증상": {}, "최신": "", "읽음": False,
            "밴드수집": {}, "수집최신": "", "언급밴드": {},
            "밴드중단": _band_collect_stopped(),
            "지문": fp, "판": _BAND_EV_VER}
@@ -7660,6 +7669,31 @@ def _band_completion_index():
             if not pj:
                 continue
             out["언급"].add(pj)
+            # ★★ **증상 등급 추천을 여기서 뽑는다** (2026-09-09 형님 지시
+            #    "카카오톡이나 밴드 텍스트 참조하면 내용들이 있을거야").
+            #    여기서 하는 이유는 하나다 - 이 루프가 `load_records()` 를 **한 번만**
+            #    읽고 그 결과가 디스크에 캐시되기 때문이다([168]).  웹 요청에서
+            #    다시 파싱하면 8,554건이라 화면이 그만큼 선다([197]).
+            #    ★ 본문 전체가 아니라 **판정 결과만** 담는다 - 색인 파일이 원본만큼
+            #      커지면 서버를 다시 띄울 때마다 그것을 읽는 값이 든다.
+            #    ★ **가장 이른 글이 이긴다** - 접수 때 적힌 증상이 등급의 원래
+            #      근거이고, 나중 글은 진행 상황·서류 이야기인 일이 많다.
+            _sym_body = str(r.get("본문") or "").strip()
+            if _sym_body and _as_grade is not None:
+                _sym_prev, _sym_when = out["증상"].get(pj), norm_date(r.get("게시일"))
+                if _sym_prev is None or (
+                        _sym_when and _sym_prev.get("때") and _sym_when < _sym_prev["때"]):
+                    try:
+                        _sg = _as_grade.suggest(_sym_body)
+                    except Exception:          # noqa: BLE001
+                        _sg = None
+                    # ★ 등급이 안 나오면 **아무것도 안 담는다**([169]) - 빈 값을
+                    #   담으면 다음 글이 더 나은 근거를 줘도 안 덮는다.
+                    if _sg and _sg.get("등급") and _sg["등급"] != _as_grade.GRADE_UNSET:
+                        out["증상"][pj] = {
+                            "등급": _sg["등급"], "유형": _sg.get("유형") or "",
+                            "낱말": _sg.get("낱말") or "", "왜": _sg.get("왜") or "",
+                            "글": _sym_body[:400], "때": _sym_when}
             when = norm_date(r.get("작업일")) or norm_date(r.get("게시일"))
             if when > out["최신"]:
                 out["최신"] = when

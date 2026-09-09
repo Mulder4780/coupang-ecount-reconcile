@@ -286,16 +286,34 @@ HINT_COL_WHEN = {
 AFTER_WORK_NOTE = "작업이 끝난 뒤 적은 글에서 뽑은 추천 - 접수 시점 판단이 아니다"
 
 
-def suggest_row(row=None):
+# 밴드·카톡 글에서 온 추천에 붙는 이름 - 화면·엑셀이 이 낱말을 그대로 싣는다([162]).
+# ★ 이것도 **접수 글**이다: 밴드 접수 글은 그 건이 처음 올라온 자리라 등급의
+#   원래 근거이고, `실제작업상세` 처럼 작업이 끝난 뒤 적는 글이 아니다.
+BAND_HINT_KEY = "밴드·카톡 글"
+HINT_COL_WHEN[BAND_HINT_KEY] = "접수"
+
+
+def suggest_row(row=None, extra=""):
     """행을 받아 **여러 칸**을 순서대로 훑어 추천한다.
 
     돌려주는 것은 `suggest()` 와 같은 사전에 **`칸`** 하나를 더한 것이다.
     ★ 못 고르면 등급이 미분류이고 `칸` 은 빈 문자열이다([169]).
     """
     row = row or {}
-    for col in HINT_COLS:
+    # ★★ 순서가 뜻이다 - **접수 글이 먼저**다.  그 안에서도 관리대장 접수 칸 →
+    #    밴드·카톡 글 → 작업 뒤 칸 차례다.
+    #    실측 v632: 관리대장 `신청내용` 은 대부분 서류 메모(`돌발AS 판매전표+
+    #    거래명세서…` 350건)라 등급이 잘 안 나오고, **진짜 증상은 밴드 접수 글**에
+    #    있다 - 돌발AS 646건 중 634건에 본문이 있고 494건에 등급이 나온다([67]).
+    #    그래도 관리대장 접수 칸을 앞에 두는 이유: 그것이 우리 원장에 적힌 값이라
+    #    누가 왜 그렇게 적었는지 물을 수 있다.
+    seq = [(c, row.get(c) or "") for c in HINT_COLS if HINT_COL_WHEN.get(c) == "접수"]
+    if extra:
+        seq.append((BAND_HINT_KEY, extra))
+    seq += [(c, row.get(c) or "") for c in HINT_COLS if HINT_COL_WHEN.get(c) != "접수"]
+    for col, txt in seq:
         try:
-            s = suggest(row.get(col) or "")
+            s = suggest(txt)
         except Exception:                      # noqa: BLE001
             continue
         if s.get("등급") and s["등급"] != GRADE_UNSET:
