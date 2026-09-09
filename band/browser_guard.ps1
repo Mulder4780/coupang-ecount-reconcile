@@ -23,11 +23,13 @@ $script:BrowserGuardSites = [ordered]@{
     'band-90610953' = [pscustomobject]@{
         Url = 'https://www.band.us/band/90610953/post'
         Host = 'www.band.us'
+        Hosts = @('www.band.us', 'band.us')
         Path = '/band/90610953/post'
     }
     'band-84789192' = [pscustomobject]@{
         Url = 'https://www.band.us/band/84789192/post'
         Host = 'www.band.us'
+        Hosts = @('www.band.us', 'band.us')
         Path = '/band/84789192/post'
     }
     # 2026-09-09 실측: 이카운트가 경로를 ec5 -> ec56 으로 올렸다(형님 화면에서
@@ -56,6 +58,15 @@ function Test-BGExactLocation {
     $path = ([string]$Uri.AbsolutePath).TrimEnd('/')
     # * Paths 를 가진 자리만 여러 경로를 받는다 - 없는 자리(밴드 둘)는 예전
     #   그대로 Path 하나다([172] 좁히는 것도 넓히는 것도 고장이다).
+    # * 2026-09-09 실측: 크롬 주소창이 'www.' 를 숨겨 band.us/band/.../post 로
+    #   읽힌다.  www.band.us 와 band.us 는 **같은 사이트**다 - 정확 일치를 둘로
+    #   둘 뿐 다른 도메인을 받는 것이 아니다([172]).  Hosts 가 없는 자리는 예전 그대로.
+    $expectHost = @()
+    if ($site.PSObject.Properties.Match('Hosts').Count -gt 0 -and $site.Hosts) {
+        foreach ($h in $site.Hosts) { $expectHost += ([string]$h).ToLowerInvariant() }
+    } else {
+        $expectHost = @(([string]$site.Host).ToLowerInvariant())
+    }
     $expect = @()
     if ($site.PSObject.Properties.Match('Paths').Count -gt 0 -and $site.Paths) {
         foreach ($one in $site.Paths) { $expect += ([string]$one).TrimEnd('/') }
@@ -63,7 +74,7 @@ function Test-BGExactLocation {
         $expect = @(([string]$site.Path).TrimEnd('/'))
     }
     return $Uri.Scheme -eq 'https' -and
-           $Uri.Host.ToLowerInvariant() -eq $site.Host -and
+           ($expectHost -contains $Uri.Host.ToLowerInvariant()) -and
            ($expect -contains $path)
 }
 
