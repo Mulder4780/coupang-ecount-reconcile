@@ -35505,12 +35505,14 @@ console.log(JSON.stringify(out));
 def t526_as_grade_report_capture_and_xlsx():
     """돌발AS 등급·권역 통계 — 추천을 확정과 섞지 않는다 (2026-09-09 형님 지시).
 
-    * 형님 지시: "대표한테 통계 보고를 해야되는데 캡처 기능 및 엑셀 저장 기능 등 추가해".
-      대표 요구(통화): "돌발 그 표시판에 이게 A인지 B인지 C인지 떠야 된다" ·
-      "B단계는 모아서 가면 되는 거야" — 그래서 등급과 **권역**을 같이 센다.
+    * 형님 지시 ①: "언제부터 언제까지인지 기간도 표시해주고"
+    * 형님 지시 ②: "A 긴급 건은 차량이 부딪쳐 파손되어서 작동 불가 상태로 분류된
+      것들 전부 넣어주고" — A긴급의 **정의**를 주셨다.
+    * 형님 지시 ③: "위에서 B일반이나 C전화로 해결되는 부분도 표시해서 정리해줘"
+      → 확정과 **나란히** 두는 것으로 이룬다(한 칸에 섞으면 안 된다).
     * ★★ 재는 것은 **추천이 확정으로 안 새는가** 하나가 제일 크다(`[169]`) —
       기계 짐작이 대표 보고에 확정으로 실리면 그것은 되돌릴 수 없다.
-    * ★ 취소된 건은 아무도 안 간다 — 통계에 세면 대표가 없는 일을 읽는다(`[243]`).
+    * ★ 취소된 건은 아무도 안 간다 — 통계에도 **기간에도** 세면 안 된다(`[243]`).
     * 글자로는 '취소가 정말 빠지나'도 '빈 칸이 없나'도 못 잰다 — 실행으로 잰다(`[295]`).
     """
     import json as _j
@@ -35535,7 +35537,8 @@ def t526_as_grade_report_capture_and_xlsx():
                         return live[i:k + 1]
         return ""
 
-    for _n in ("agStatRows", "agReportBlocks", "agSaveXlsx", "gradeCounts"):
+    for _n in ("agStatRows", "agReportBlocks", "agSaveXlsx", "gradeCounts",
+               "agPeriod", "agHintCounts"):
         assert _fn(_n), "[526] %s 를 못 찾았다 — 검사가 눈멀었다([169])" % _n
 
     # ── A. 그리는 자리를 새로 만들지 않았다(`[162]`) ────────────────────────
@@ -35548,34 +35551,53 @@ def t526_as_grade_report_capture_and_xlsx():
 
     # ── B. 툴바 단추는 돌발AS 에만(`[172]`) ────────────────────────────────
     #   정기점검에는 대응등급이 없다 — 붙이면 눌러도 아무 일이 없는 단추가 된다([348]).
-    _bar = live[live.find("openNewWork('${k}')"):][:1200]
-    _i_gate, _i_btn = _bar.find("k==='as'"), _bar.find("agSaveImage()")
+    _bar = live[live.find("openNewWork(\'${k}\')"):][:1200]
+    _i_gate, _i_btn = _bar.find("k===\'as\'"), _bar.find("agSaveImage()")
     assert 0 <= _i_gate < _i_btn, "[526] 등급·권역 단추가 as 갈래 밖에 있다([172])"
-    assert _bar.find("agSaveXlsx()") < _bar.find("wtSet('${k}','quick'", _i_btn), (
+    assert _bar.find("agSaveXlsx()") < _bar.find("wtSet(\'${k}\',\'quick\'", _i_btn), (
         "[526] 엑셀 단추가 as 갈래 밖으로 샜다")
 
-    # ── C. 실행으로 잰다(`[295]`) ──────────────────────────────────────────
+    # ── C. 차량 충돌은 **짝일 때만** A긴급이다(2026-09-09 형님 지시 ②) ─────
+    #   ★ 낱말 하나로 잡으면 거짓 A긴급이 쏟아진다([172]) — 실측 v632 에서
+    #     `지게차` 15건이 전부 "지게차 사용"(작업 도구)이었다.
+    import as_grade as _ag
+    assert _ag.suggest("간선차량 충돌사고")["등급"] == "A긴급"
+    assert _ag.suggest("간선차량 충격으로 조절좌 파손")["등급"] == "A긴급"
+    assert _ag.car_crash("(유료)지게차 사용 (유료)작업자 1공임") == "", (
+        "[526] '지게차 사용'을 차량 충돌로 읽는다 — 거짓 A긴급이 쏟아진다([172])")
+    assert _ag.car_crash("카트리지 교체 완료") == ""
+    assert _ag.car_crash("TL 충돌방지대 파손") == "", (
+        "[526] 부품 이름 '충돌방지대'를 차가 부딪친 것으로 읽는다([172])")
+    #   좁히는 것도 고장이다 — 진짜 충돌은 반드시 잡혀야 한다
+    assert _ag.car_crash("간선차량 충돌사고"), "[526] 진짜 차량 충돌을 못 잡는다([172])"
+
+    # ── D. 실행으로 잰다(`[295]`) ──────────────────────────────────────────
     ROWS = [
         {"프로젝트NO": "UJ1", "캠프명": "가캠프", "대응등급": "A긴급", "권역": "수도권",
-         "진행상태": "신규접수", "담당기사": "홍기사"},
+         "진행상태": "신규접수", "담당기사": "홍기사", "접수일자": "2026-01-02"},
         {"프로젝트NO": "UJ2", "캠프명": "나캠프", "대응등급": "B일반", "권역": "수도권",
-         "진행상태": "신규접수"},
+         "진행상태": "신규접수", "접수일자": "2026-05-10"},
         # 추천만 있고 확정은 없다 — 이 건이 이 검사의 핵심이다
         {"프로젝트NO": "UJ3", "캠프명": "다캠프", "권역": "영남", "추천등급": "B일반",
          "추천근거": "소음", "진행상태": "신규접수"},
-        # 취소 — 통계에서 빠져야 한다
+        # 취소 — 통계에서도 기간에서도 빠져야 한다
         {"프로젝트NO": "UJ4", "캠프명": "라캠프", "대응등급": "A긴급", "권역": "취소권역",
-         "진행상태": "취소"},
+         "진행상태": "취소", "접수일자": "2026-12-31"},
         # 등급도 권역도 없다 — 둘 다 미분류
-        {"프로젝트NO": "UJ5", "캠프명": "마캠프", "진행상태": "신규접수"},
+        {"프로젝트NO": "UJ5", "캠프명": "마캠프", "진행상태": "신규접수",
+         "접수일자": "2026-09-08"},
+        # 확정이 하나도 없는 등급의 추천 — 이 줄이 표에서 사라지면 안 된다([169])
+        {"프로젝트NO": "UJ6", "캠프명": "바캠프", "권역": "호남", "추천등급": "C전화",
+         "추천근거": "사용법", "진행상태": "신규접수", "접수일자": "2026-03-03"},
     ]
     js = chr(10).join([
         "const XLS=[];const SAID=[];",
         "function notice(m){SAID.push(String(m));}",
         "function uxEvent(){}",
-        "function todayISO(){return '2026-09-09';}",
+        "function todayISO(){return \'2026-09-09\';}",
         "function exportRowsXlsx(name,rows,opt){XLS.push({name:name,rows:rows,opt:opt});}",
         _fn("gradeVal"), _fn("regionVal"), _fn("gradeHint"), _fn("gradeCounts"),
+        _fn("agPeriod"), _fn("agHintCounts"),
         _fn("agStatRows"), _fn("agReportBlocks"), _fn("agSaveXlsx"),
         "var works={as:" + _j.dumps(ROWS, ensure_ascii=False) + "};",
         "const B=agReportBlocks();const N=agStatRows().length;",
@@ -35598,42 +35620,66 @@ def t526_as_grade_report_capture_and_xlsx():
     B, flat = o["B"], _j.dumps(o["B"], ensure_ascii=False)
 
     # ① 취소는 안 센다 — 대표가 아무도 안 가는 현장을 미처리로 읽는다([243])
-    assert o["N"] == 4, "[526] 취소를 뺀 건수가 4가 아니다: %s" % o["N"]
-    assert "총 4건" in flat, "[526] 머리에 적힌 건수가 취소를 세고 있다"
+    assert o["N"] == 5, "[526] 취소를 뺀 건수가 5가 아니다: %s" % o["N"]
+    assert "총 5건" in flat, "[526] 머리에 적힌 건수가 취소를 세고 있다"
     assert "취소권역" not in flat, "[526] 취소된 건의 권역이 표에 들어왔다"
     assert "UJ4" not in flat
 
-    # ② ★★ 추천을 확정과 섞지 않는다([169]) — UJ3 은 미분류로 세고 추천은 따로 적는다
+    # ② 기간을 적는다(2026-09-09 형님 지시 ①) · **취소는 기간에도 안 든다**
+    assert "기간 2026-01-02 ~ 2026-09-08" in flat, (
+        "[526] 기간을 안 적거나 취소된 건(2026-12-31)이 기간에 샜다: %s" % flat[:300])
+    assert "2026-12-31" not in flat
+    assert "4건 기준" in flat, (
+        "[526] 접수일이 빈 건이 있는데 몇 건 기준인지 안 적는다([169])")
+
+    # ③ ★★ 추천을 확정과 섞지 않는다([169]) — 확정 칸과 추천 칸이 따로다
     _grade = {}
     for kind, cells in [(x[0], x[1]) for x in B if x[0] == "trow"]:
-        if isinstance(cells, list) and len(cells) == 4:
-            _grade[cells[0]] = cells[1]
-    assert _grade.get("A긴급") == "1건" and _grade.get("B일반") == "1건", _grade
-    assert _grade.get("미분류") == "2건", (
-        "[526] 추천이 확정으로 세어졌다 — 미분류가 2건이어야 한다: %s" % _grade)
+        if isinstance(cells, list) and len(cells) == 5:
+            _grade[cells[0]] = (cells[1], cells[2])
+    assert _grade.get("A긴급", ("", ""))[0] == "1건", _grade
+    assert _grade.get("B일반", ("", ""))[0] == "1건", _grade
+    assert _grade.get("C전화", ("", ""))[0] == "0건", (
+        "[526] 확정 0건인 등급의 줄이 사라졌다 — 추천이 합계에만 남아 형님이"
+        " 물으신 'C전화로 해결되는 부분'이 안 보인다([169]): %s" % _grade)
+    assert _grade.get("C전화", ("", ""))[1] == "1건", _grade
+    assert _grade.get("미분류", ("", ""))[0] == "3건", (
+        "[526] 추천이 확정으로 세어졌다 — 미분류 확정이 2건이어야 한다: %s" % _grade)
+    assert _grade.get("B일반", ("", ""))[1] == "1건", (
+        "[526] 추천 건수가 따로 안 적힌다 — 형님 지시 ③이 안 이뤄진다: %s" % _grade)
+    assert _grade.get("A긴급", ("", ""))[1] in ("", 0), (
+        "[526] 추천이 없는 등급에 숫자가 붙었다: %s" % _grade)
+    _th = [x[1] for x in B if x[0] == "thead"]
+    assert _th and "저장 안 됨" in _j.dumps(_th[0], ensure_ascii=False), (
+        "[526] 추천 칸 머리글이 '저장 안 됨' 이라 말하지 않는다([169])")
     _bul = [x[1] for x in B if x[0] == "bullet"]
-    assert _bul and "1건" in _bul[0] and "추천" in _bul[0], (
+    assert _bul and "2건" in _bul[0] and "추천" in _bul[0], (
         "[526] 추천이 나온 건수를 따로 안 적는다 — 숨기면 '다 정해졌다'로 읽힌다([169])")
     assert "저장되지 않았고" in _bul[0], "[526] 추천이 저장되지 않는다는 말이 없다"
 
-    # ③ 권역 미분류는 맨 뒤 — 위에 오면 제일 큰 권역으로 읽힌다
+    # ④ 권역 미분류는 맨 뒤 — 위에 오면 제일 큰 권역으로 읽힌다
     _reg = [x[1][0] for x in B if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 6]
     assert _reg[:1] == ["수도권"], "[526] 권역이 건수 많은 순이 아니다: %s" % _reg
     assert _reg[-1] == "미분류", "[526] 권역 미분류가 맨 뒤가 아니다: %s" % _reg
     assert "없는 권역이라는 뜻이 아닙니다" in flat, (
         "[526] 권역 미분류의 뜻을 안 적는다 — 대표가 '권역이 없다'로 읽는다([169])")
+    assert "확정과 추천을 합친 것입니다" in flat, (
+        "[526] 권역 표가 확정+추천이라는 사실을 안 밝힌다([169])")
 
-    # ④ 자료가 없으면 0 이라 하지 않는다([169]) — 그림을 아예 안 만든다
+    # ⑤ 자료가 없으면 0 이라 하지 않는다([169]) — 그림을 아예 안 만든다
     assert o["EMPTY"] is None, "[526] 자료가 없는데 빈 통계를 그렸다([169])"
     assert len(o["XLS"]) == 1, "[526] 자료가 없는데 엑셀을 냈다"
     assert o["SAID"], "[526] 자료가 없을 때 아무 말도 안 한다([169])"
 
-    # ⑤ 엑셀 — 빈 칸을 안 남긴다([327]) · 추천 열이 '저장 안 됨' 이라 말한다
+    # ⑥ 엑셀 — 빈 칸을 안 남긴다([327]) · 추천 열이 '저장 안 됨' 이라 말한다
     xr = o["XLS"][0]["rows"]
-    assert len(xr) == 4, "[526] 엑셀에 취소가 들어갔다: %s" % len(xr)
+    assert len(xr) == 5, "[526] 엑셀에 취소가 들어갔다: %s" % len(xr)
     for row in xr:
         for k, v in row.items():
             assert str(v).strip(), "[526] 엑셀에 빈 칸이 있다(%s) — '없다'인지 '못 찾았다'인지 구별이 안 된다([327])" % k
+    _u1 = [x for x in xr if x["프로젝트NO"] == "UJ1"][0]
+    assert _u1["접수일"] == "2026-01-02", (
+        "[526] 엑셀 접수일이 안 채워진다 — 칸 이름은 접수일자 다([165]): %s" % _u1["접수일"])
     _u3 = [x for x in xr if x["프로젝트NO"] == "UJ3"][0]
     assert _u3["대응등급"] == "미분류", "[526] 엑셀에서 추천이 대응등급 칸에 샜다([169])"
     _hint_col = [c for c in o["XLS"][0]["opt"]["columns"] if "추천등급" in c]
@@ -35655,12 +35701,12 @@ def t526_as_grade_report_capture_and_xlsx():
     assert r2.returncode == 0, "[526] 자기시험 재료가 죽었다(문법?): %s" % (r2.stderr or "")[:200]
     _g2 = {}
     for x in _j.loads((r2.stdout or "{}").strip().splitlines()[-1])["B"]:
-        if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 4:
+        if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 5:
             _g2[x[1][0]] = x[1][1]
-    assert _g2.get("미분류") != "2건", (
+    assert _g2.get("미분류") != "3건", (
         "[526] 계기가 눈멀었다 — 추천을 확정으로 세는 옛 동작에서도 통과한다([272])")
 
-    print(chr(9989) + " [419] 돌발AS 등급·권역 통계 — 추천을 확정과 섞지 않는다 [526]")
+    print(chr(9989) + " [419] 돌발AS 등급·권역 통계 — 기간·차량충돌·추천 나란히 [526]")
 
 
 def t192_synthetic_check_is_harmless():

@@ -10296,6 +10296,30 @@ function osReportBlocks(){
    ★★ 추천을 확정과 **섞지 않는다**([169]).  미분류 줄 옆에 '추천 있음 N건'으로
       따로 적는다 — 섞으면 대표가 기계 짐작을 사람이 정한 것으로 읽는다.
    ★ 못 받았으면 0 이라 하지 않는다([169]) — 자료가 없으면 그림을 아예 안 만든다. */
+/* 접수일 목록(오름차순) — 기간을 적는 근거다 (2026-09-09 형님 지시).
+   ⚠ 칸 이름은 **접수일자** 다([165]).  옛 이름도 같이 받는다([172]).
+   ★ 날짜 모양이 아닌 값은 버린다 — 지어낸 기간이 대표 보고에 실리면 안 된다([169]). */
+function agPeriod(rows){
+  const out = [];
+  (rows||[]).forEach(r => {
+    const s = String((r && (r.접수일자 || r.접수일 || r.게시일)) || '').trim().slice(0,10);
+    if(s.length !== 10) return;
+    const y = s.slice(0,4), sep = s.charAt(4);
+    if(y < '2000' || y > '2099' || (sep !== '-' && sep !== '.' && sep !== '/')) return;
+    out.push(s.split('.').join('-').split('/').join('-'));
+  });
+  return out.sort();
+}
+/* 확정이 없는 건의 **추천** 건수 — 확정과 절대 안 더한다([169]). */
+function agHintCounts(rows){
+  const c = {'A긴급':0,'B일반':0,'C전화':0};
+  (rows||[]).forEach(r => {
+    if(gradeVal(r)) return;
+    const h = gradeHint(r);
+    if(c[h] !== undefined) c[h]++;
+  });
+  return c;
+}
 function agStatRows(){
   const rows = (typeof works !== 'undefined' && works.as) || [];
   return rows.filter(r => r && !String(r.진행상태||'').includes('취소'));
@@ -10307,36 +10331,65 @@ function agReportBlocks(){
   const pct = v => n ? Math.round(v*1000/n)/10 + '%' : '-';
   B.push(['h1','돌발AS 대응등급 · 권역 현황']);
   B.push(['sub','총 ' + n + '건 · 기준 ' + stamp]);
+  /* 기간 — 언제부터 언제까지인지 적는다 (2026-09-09 형님 지시).
+     ★ 못 읽으면 지어내지 않는다([169]) — 날짜가 하나도 없으면 그 사실을 적는다.
+     ⚠ 칸 이름은 **접수일자** 다([165]) — `접수일` 로 물으면 언제나 빈칸이고
+       오류도 안 난다(엑셀 쪽이 실제로 그 상태였다). */
+  const days = agPeriod(rows);
+  if(days.length) B.push(['sub','기간 ' + days[0] + ' ~ ' + days[days.length-1]
+        + (days.length < n ? ' · 접수일이 적힌 ' + days.length + '건 기준' : '')]);
+  else B.push(['sub','기간 — 접수일을 못 읽어 적지 못했습니다(자료가 없다는 뜻이 아닙니다)']);
 
   /* 등급 — gradeCounts 가 확정만 센다(추천은 안 센다). */
   const gc = gradeCounts(rows);
-  const hint = rows.filter(r => !gradeVal(r) && gradeHint(r)).length;
+  /* ★★ 추천은 **확정과 다른 칸**에 적는다([169]) — 한 칸에 섞으면 대표가
+     정해진 것으로 읽으시고 그건 되돌릴 수 없다.  형님 지시 "B일반이나 C전화로
+     해결되는 부분도 표시" 는 이렇게 **나란히** 두는 것으로 이룬다. */
+  const HC = agHintCounts(rows);
+  const hint = HC['A긴급'] + HC['B일반'] + HC['C전화'];
   B.push(['gap',6]); B.push(['h2','대응등급']);
-  B.push(['thead',['등급','건수','비율','뜻']]);
+  B.push(['thead',['등급','확정','추천(참고 · 저장 안 됨)','비율','뜻']]);
   const NOTE = {'A긴급':'즉시 출동','B일반':'모아서 간다','C전화':'전화로 해결',
                 '미분류':'아직 사람이 안 정함'};
-  gc.forEach(e => B.push(['trow',[e[0], e[1]+'건', pct(e[1]), NOTE[e[0]]||'']]));
-  B.push(['trow',['합계', n+'건','','']]);
+  gc.forEach(e => B.push(['trow',[e[0], e[1]+'건', (HC[e[0]] ? HC[e[0]]+'건' : ''),
+                                  pct(e[1]), NOTE[e[0]]||'']]));
+  /* ★ 확정이 0건이어도 **추천이 있으면 그 등급 줄을 만든다** — 안 그러면
+     gradeCounts 가 `미분류` 한 줄만 내고 추천이 합계에만 남아 A긴급·B일반이
+     화면에서 사라진다(실측 v632 · 형님이 물으신 바로 그 자리 · [169]).
+     ★ 확정 칸은 `0건` 이라 **적는다** — 빈칸으로 두면 '못 셌다'로 읽힌다. */
+  const shownGrades = new Set(gc.map(e => e[0]));
+  ['A긴급','B일반','C전화'].forEach(g => {
+    if(shownGrades.has(g) || !HC[g]) return;
+    B.push(['trow',[g, '0건', HC[g]+'건', pct(0), NOTE[g]||'']]);
+  });
+  B.push(['trow',['합계', n+'건', (hint ? hint+'건' : ''),'','']]);
   if(hint) B.push(['bullet','· 미분류 중 ' + hint + '건은 증상 글로 추천이 나와 있습니다 '
                           + '— 추천일 뿐이라 저장되지 않았고, 앱에서 고르시면 그때 확정됩니다.']);
 
   /* 권역 — B등급을 어떻게 묶을지가 이 표의 쓸모다. */
   const REG = new Map();
   rows.forEach(r => {
-    const k = regionVal(r) || '미분류', g = gradeVal(r) || '미분류';
+    /* ★ 권역 표는 **확정을 먼저 쓰고 없으면 추천**을 쓴다 — 확정이 0건인 동안
+       이 표가 통째로 비어 대표가 아무것도 못 보시기 때문이다(2026-09-09 형님 지시).
+       ★ 섞는 것이 아니라 **밝히는 것**이다([169]) — 머리글과 각주가 그렇게 말하고,
+         확정만 보시려면 바로 위 등급 표의 첫 칸을 보시면 된다. */
+    const k = regionVal(r) || '미분류',
+          g = gradeVal(r) || gradeHint(r) || '미분류';
     if(!REG.has(k)) REG.set(k, {전체:0,'A긴급':0,'B일반':0,'C전화':0,'미분류':0});
     const o = REG.get(k); o.전체++; if(o[g]!==undefined) o[g]++;
   });
   const keys = Array.from(REG.keys()).sort((a,b)=>{
     if(a==='미분류') return 1; if(b==='미분류') return -1;
     return REG.get(b).전체 - REG.get(a).전체; });
-  B.push(['gap',10]); B.push(['h2','권역 — 같은 권역끼리 묶어 갑니다 (B등급)']);
+  B.push(['gap',10]);
+  B.push(['h2','권역 — 같은 권역끼리 묶어 갑니다 (B등급) · 확정 + 추천']);
   B.push(['thead',['권역','전체','A긴급','B일반','C전화','미분류']]);
   keys.forEach(k => { const o = REG.get(k);
     B.push(['trow',[k, o.전체+'건', o['A긴급']||'', o['B일반']||'', o['C전화']||'', o['미분류']||'']]); });
 
   B.push(['gap',10]);
   B.push(['foot','등급은 사람이 고릅니다 — 기계가 매기지 않습니다. 미분류는 아직 안 정한 것입니다.']);
+  B.push(['foot','권역 표의 등급은 확정과 추천을 합친 것입니다 — 확정만 보시려면 위 등급 표의 첫 칸을 보십시오.']);
   B.push(['foot','권역 미분류는 캠프명·주소로 못 가른 것입니다 — 없는 권역이라는 뜻이 아닙니다.']);
   return B;
 }
@@ -10363,7 +10416,7 @@ function agSaveXlsx(){
     '추천근거': V(r.추천근거),
     '신청내용': V(r.신청내용),
     '진행상태': V(r.진행상태), '담당기사': V(r.담당기사),
-    '접수일': V(r.접수일 || r.게시일), '작업완료일': V(r.작업완료일),
+    '접수일': V(r.접수일자 || r.접수일 || r.게시일), '작업완료일': V(r.작업완료일),
   })), { columns: ['프로젝트NO','캠프명','권역','대응등급','대응유형','등급사유',
                    '추천등급(참고 · 저장 안 됨)','추천근거','신청내용','진행상태',
                    '담당기사','접수일','작업완료일'],
