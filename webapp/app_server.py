@@ -5517,10 +5517,41 @@ def _add_region(rows):
     return rows
 
 
+def _with_grade_meta(d):
+    """돌발AS 등급 설명 표를 works 응답에 얹는다 (2026-09-09 형님 지시).
+
+    형님 지시: "누구나 보면 알아볼 수 있는구조로 나오게 정리해줘".
+
+    ★ 화면이 낱말을 제 손으로 적지 않게 한다([162]) — as_grade.meta() 한 곳이
+      등급설명·유형·유형설명·사유필수를 정하고 화면은 **읽기만** 한다.
+      지금까지 화면에는 짧은 사본(`즉시 출동`)이 박혀 있어, as_grade 가 가진
+      자세한 설명(`즉시 출동 - 왜 즉시인지 사유를 적는다`)과 유형 넷이
+      **통째로 안 보였다**. 사본이 둘이면 낱말이 바뀌는 날 한쪽만 고쳐지면서
+      오류도 안 난다([165]).
+    ★ 못 만들면 안 얹는다([169]) — 화면이 그때 '자세한 설명을 못 받았다'고
+      말한다. 빈 표를 얹으면 화면은 설명이 없는 줄 모르고 빈칸을 그린다.
+    ★ **새 dict 로 얹는다** — cached_data 가 돌려준 객체를 그 자리에서 고치면
+      그 오염이 캐시에 남는다. 얕은 복사라 행 목록은 그대로 공유한다.
+    ★ 크기: 등급표는 1KB 미만이라 응답이 사실상 안 커진다(gzip 뒤 더 작다).
+    """
+    if not isinstance(d, dict):
+        return d
+    try:
+        if _AS_GRADE_META and _AS_GRADE_META.get("등급설명"):
+            return {**d, "등급표": _AS_GRADE_META}
+    except Exception:        # noqa: BLE001 - 설명 하나로 목록을 죽이지 않는다
+        pass
+    return d
+
+
 def get_works():
+    # ★ DEMO 갈래에도 똑같이 얹는다 - 안 그러면 데모에서만 설명이 사라지고
+    #   그 사실이 어느 화면에도 안 뜬다([169]).
     if DEMO:
-        return demo_works()
-    return _add_grade_hint(_add_region(cached_data("works", real_works)))
+        return _with_grade_meta(demo_works())
+    return _with_grade_meta(
+        _add_grade_hint(_add_region(cached_data("works", real_works))))
+
 
 
 def _fmtv(v):
