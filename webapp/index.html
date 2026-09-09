@@ -7025,7 +7025,7 @@ async function loadNotifications(){
              누르게 하는 것은 고친 것이 아니다(2026-09-09 형님 지시).
              ★ 서버가 `ids` 를 안 주는 옛 응답이면 예전처럼 한 건만([172]). */
           const ids=(Array.isArray(x.ids)&&x.ids.length?x.ids:(x.id?[x.id]:[]))
-            .map(v=>String(v||'')).filter(v=>v.indexOf('notify:')===0);
+            .map(v=>String(v||'')).filter(v=>v.startsWith('notify:'));
           const n=Number(x.count||ids.length||1);
           return `<div class="notice-item ${escNotice(x.severity)}">
           <b>${escNotice(x.title)}</b><span>${escNotice(x.detail)}</span>${
