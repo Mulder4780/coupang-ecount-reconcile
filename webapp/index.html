@@ -2279,6 +2279,15 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 .notice-panel.on{display:block}.notice-item{padding:10px;border-radius:10px;background:var(--panel);margin-bottom:7px}
 .notice-item.error{background:var(--danger-bg)}.notice-item.warning{background:var(--warn-bg)}.notice-item.info{background:var(--panel)}
 .notice-item b{display:block;font-size:0.875rem}.notice-item span{display:block;color:var(--brand);font-size:0.8125rem;margin-top:3px}
+/* 확인 단추 — 마크업만 넣고 규칙을 안 만들면 브라우저 기본 회색 글자가 되어
+   **누를 수 있는 줄 모른다**([310]).  2026-09-09 형님 캡처가 정확히 그 자리다.
+   ⚠ 굳은 색을 안 쓴다([332]) — 밝은 화면·어두운 화면이 각자 맞는 값을 받는다. */
+.notice-item .notice-ack{margin-top:9px;padding:7px 14px;min-height:34px;
+  border:1.5px solid var(--brand);border-radius:9px;background:var(--surface);
+  color:var(--brand);font-size:0.8125rem;font-weight:800;cursor:pointer;line-height:1.2}
+.notice-item .notice-ack:hover{background:var(--brand);color:var(--surface)}
+.notice-item .notice-ack:active{transform:scale(.97)}
+.notice-item .notice-ack:disabled{opacity:.55;cursor:default;transform:none}
 .install-card{position:fixed;right:16px;bottom:18px;z-index:1100;width:min(390px,calc(100vw - 32px));
   display:none;padding:16px;border-radius:16px;background:#0D1B46;color:#fff;box-shadow:0 18px 45px rgba(6,13,43,.36)}
 .install-card.on{display:block;animation:viewEnter .28s ease}.install-card h3{font-size:0.9375rem;margin-bottom:4px}
@@ -7010,11 +7019,20 @@ async function loadNotifications(){
     }
     const panel=$('noticePanel');
     if(panel) panel.innerHTML=notificationItems.length
-      ? notificationItems.map(x=>`<div class="notice-item ${escNotice(x.severity)}">
+      ? notificationItems.map(x=>{
+          /* ★ 묶음 전부를 한 번에 내린다 — 같은 갈래가 98장이면 하나씩 98번
+             누르게 하는 것은 고친 것이 아니다(2026-09-09 형님 지시).
+             ★ 서버가 `ids` 를 안 주는 옛 응답이면 예전처럼 한 건만([172]). */
+          const ids=(Array.isArray(x.ids)&&x.ids.length?x.ids:(x.id?[x.id]:[]))
+            .map(v=>String(v||'')).filter(v=>v.indexOf('notify:')===0);
+          const n=Number(x.count||ids.length||1);
+          return `<div class="notice-item ${escNotice(x.severity)}">
           <b>${escNotice(x.title)}</b><span>${escNotice(x.detail)}</span>${
-          String(x.id||'').startsWith('notify:')
-            ? `<button type="button" class="mini" onclick="ackNotice(event,'${escNotice(x.id)}')">확인</button>`
-            : ''}</div>`).join('')
+          ids.length
+            ? `<button type="button" class="notice-ack" data-ids="${escNotice(ids.join(','))}"
+                 onclick="ackNotice(event,this.dataset.ids)">확인${n>1?' ('+n+'건)':''}</button>`
+            : ''}</div>`;
+        }).join('')
       : '<div class="notice-item info"><b>새 알림이 없습니다.</b><span>입력과 자동 반영 상태가 정상입니다.</span></div>';
   }catch(e){}
 }
@@ -7023,12 +7041,24 @@ async function loadNotifications(){
    ★ 못 내렸으면 못 내렸다고 말한다 — 조용히 사라지면 확인된 줄 안다. */
 async function ackNotice(e,id){
   if(e){e.stopPropagation();e.preventDefault();}
+  /* 인자는 한 건(문자열)도 여러 건(쉼표로 이은 글자·배열)도 받는다.
+     ★ 하나만 주면 예전과 한 톨도 안 바뀐다([172]). */
+  const ids=(Array.isArray(id)?id:String(id||'').split(','))
+    .map(s=>String(s||'').trim()).filter(Boolean);
+  if(!ids.length) return;
+  /* ★★ 화면에서 **먼저 지우지 않는다**([169]) — 못 내렸는데 사라지면 확인된 줄
+     안다.  대신 누른 티를 내고([430]) 서버가 됐다고 하면 다시 그려 사라진다. */
+  const btn=e&&e.currentTarget, old=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='확인 중…'; }
   try{
     const r=await api('/api/notifications/ack',{method:'POST',
-      body:JSON.stringify({ids:[id]}),headers:{'Content-Type':'application/json'}});
+      body:JSON.stringify({ids:ids}),headers:{'Content-Type':'application/json'}});
     if(!r||r.ok===false) throw new Error((r&&r.error)||'확인 실패');
     await loadNotifications();
-  }catch(err){ toast('알림을 내리지 못했습니다 — '+String(err&&err.message||err).slice(0,80)); }
+  }catch(err){
+    if(btn){ btn.disabled=false; btn.textContent=old||'확인'; }
+    toast('알림을 내리지 못했습니다 — '+String(err&&err.message||err).slice(0,80));
+  }
 }
 function toggleNotifications(e){
   if(e) e.stopPropagation();

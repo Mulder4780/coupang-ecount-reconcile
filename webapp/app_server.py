@@ -10312,15 +10312,46 @@ def get_notifications(actor=None):
         notify.sweep_uploads()
         role = str((actor or {}).get("role") or "admin")
         slug = str((actor or {}).get("staff_slug") or "")
+        # ★ 같은 **갈래**는 한 장으로 묶는다 (2026-09-09 형님 지시
+        #   "확인 버튼 누르면 내용 사라지게").  notify.push 는 5분 창 안에서만
+        #   합치므로 그 밖에서 온 것은 각각 남는다 — 실측 그날 안 읽은 197건 중
+        #   193건이 같은 두 갈래였고, 그러면 확인을 눌러도 똑같은 카드가 계속
+        #   남아 **안 사라지는 것처럼 보인다**(실제로는 한 장씩 내려가고 있었다).
+        # ★ 묶는 근거는 **갈래**다([165]) — 제목 글자로 묶으면 문구가 바뀌는 날
+        #   조용히 안 묶이면서 오류도 안 난다.
+        # ★★ 숨기지 않는다([169]) — 몇 건인지 적고, 그 갈래 안에 내용이 여럿이면
+        #    그 사실까지 적는다(그래야 '오종현' 것이 't' 것에 가려지지 않는다).
+        # ★ `id` 는 그대로 둔다([172]) — 옛 화면도 안 깨진다.  내릴 목록은 `ids` 다.
+        _rank = getattr(notify, "_SEV_RANK", None) or {"info": 0, "warning": 1, "error": 2}
+        notice_group = []                        # [(갈래, [row…])] · feed 순서(최신순)를 지킨다
+        _seen = {}
         for row in notify.feed(role, slug):
-            n = int(row.get("건수") or 1)
-            detail = str(row.get("본문") or "")
-            if n > 1:                            # 합쳤으면 몇 건인지 말한다([169])
-                detail = (detail + " · " if detail else "") + f"최근 5분 {n}건"
+            _k = str(row.get("갈래") or "")
+            if _k and _k in _seen:
+                notice_group[_seen[_k]][1].append(row)
+                continue
+            if _k:
+                _seen[_k] = len(notice_group)
+            notice_group.append((_k, [row]))
+        for _k, _rows in notice_group:
+            head = _rows[0]                      # 가장 새 것이 대표다
+            n = sum(int(r.get("건수") or 1) for r in _rows)
+            detail = str(head.get("본문") or "")
+            if n > 1:
+                kinds = len({str(r.get("제목") or "") for r in _rows})
+                detail = ((detail + " · " if detail else "") + f"{n}건"
+                          + (f" · 내용 {kinds}가지" if kinds > 1 else ""))
+            sev = "info"
+            for r in _rows:                      # 가장 센 심각도가 이긴다
+                s = r.get("심각도") or "info"
+                if _rank.get(s, 0) > _rank.get(sev, 0):
+                    sev = s
             items.append({
-                "id": f"notify:{row.get('id')}",
-                "severity": row.get("심각도") or "info",
-                "title": row.get("제목") or "새 알림",
+                "id": f"notify:{head.get('id')}",
+                "ids": [f"notify:{r.get('id')}" for r in _rows],
+                "count": n,
+                "severity": sev,
+                "title": head.get("제목") or "새 알림",
                 "detail": detail[:220],
             })
     except Exception as exc:
