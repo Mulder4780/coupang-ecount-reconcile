@@ -35399,7 +35399,7 @@ def t525_as_grade_badge():
         raise AssertionError("중괄호가 안 맞는다: " + name)
 
     harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeCounts",
-                                       "regionVal", "regionTag")] + ["""
+                                       "regionVal", "regionTag", "gradeHint")] + ["""
 const out = {};
 out.a  = gradeTag({대응등급:'A긴급', 대응유형:'즉시출동'});
 out.b  = gradeTag({대응등급:'B일반', 대응유형:'지역묶음'});
@@ -35408,6 +35408,8 @@ out.n  = gradeTag({});
 out.x  = gradeTag({대응등급:'<script>x</script>'});
 out.cnt = gradeCounts([{대응등급:'B일반'},{대응등급:'A긴급'},{},{대응등급:'C전화'},{대응등급:'A긴급'}]);
 out.empty = gradeCounts([]);
+out.s  = gradeTag({추천등급:'A긴급', 추천유형:'즉시출동', 추천근거:'작동불능 - 리프트가 선다'});
+out.sc = gradeTag({대응등급:'C전화', 추천등급:'A긴급'});
 out.r      = regionTag({권역:'영남'});
 out.rnone  = regionTag({권역:'미분류'});
 out.rempty = regionTag({});
@@ -35464,6 +35466,13 @@ console.log(JSON.stringify(out));
     # 권역이 없어도 등급은 그대로다 — 좁히는 것도 고장이다([172]).
     assert "B일반" in o["b"] and "rgtag" not in o["b"], (
         "권역 없는 행에서 등급이 깨졌다: " + o["b"])
+
+    # (10) 추천은 **확정처럼 보이면 안 된다**(2026-09-09 형님 지시 "나중에 바꿀 수 있는
+    #      구조").  저장되는 값은 사람이 고른 것뿐이고, 이 배지는 아무것도 안 저장한다.
+    assert "추천" in o["s"] and "A긴급" in o["s"], "추천이 안 뜬다: " + o["s"]
+    assert "gtag none" in o["s"], "추천이 확정 등급처럼 보인다([169]): " + o["s"]
+    # (11) 사람이 이미 고른 등급을 추천이 덮지 않는다 - 덮으면 "사람이 정하기"가 무너진다
+    assert "C전화" in o["sc"] and "추천" not in o["sc"],         "확정 등급을 추천이 덮었다: " + o["sc"]
 
     # (10) ★ 화면이 낱말을 제 손으로 안 적는다([162]) — 정본은 as_grade 다.
     #      여기 적으면 사본이 둘이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.

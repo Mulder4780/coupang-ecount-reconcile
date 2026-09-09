@@ -5443,6 +5443,37 @@ def _hidden_plan_ids():
         return set()
 
 
+def _add_grade_hint(rows):
+    """돌발AS 행에 대응등급 **추천**을 파생으로 붙인다 (2026-09-09 형님 지시
+    "대표 등급 칸은 니가 추천해서 진행하고 나중에 바꿀 수 있는 구조로 하고").
+
+    ★★ `대응등급`(사람이 고른 확정 칸)은 **한 글자도 안 건드린다**.  추천은
+       `추천등급`·`추천유형`·`추천근거` 로 간다 — 섞으면 사람이 정한 것과 기계가
+       짐작한 것이 구별이 안 되고, 그러면 "미분류로 남기고 사람이 정하기"가
+       조용히 무너진다([169]).
+    ★ 이미 사람이 등급을 고른 행에는 추천을 아예 안 붙인다 — 붙이면 화면이
+      "이걸로 바꾸시겠습니까"를 계속 물어 정해 둔 값을 흔든다([172]).
+    ★ 판정은 as_grade.suggest 한 곳이다([162]) · 캐시 **뒤**에 붙인다([168]) ·
+      저장하지 않는다(DB_ONLY_ARCHIVE_FIELDS 에 안 올린다).
+    """
+    if _as_grade is None:
+        return rows
+    try:
+        for _r in (rows or {}).get("as") or []:
+            if not isinstance(_r, dict):
+                continue
+            if str(_r.get("대응등급") or "").strip():
+                continue                      # 사람이 이미 골랐다 - 안 건드린다
+            _s = _as_grade.suggest(_r.get("신청내용") or "")
+            if _s.get("등급") and _s["등급"] != _as_grade.GRADE_UNSET:
+                _r["추천등급"] = _s["등급"]
+                _r["추천유형"] = _s.get("유형") or ""
+                _r["추천근거"] = ((_s.get("낱말") or "") + " - " + (_s.get("왜") or "")).strip(" -")
+    except Exception:        # noqa: BLE001 - 파생 하나로 목록을 죽이지 않는다
+        pass
+    return rows
+
+
 def _add_region(rows):
     """돌발AS 행에 **권역**을 파생으로 붙인다 (2026-09-09 형님 지시 "권역으로 묶어서 관리").
 
@@ -5472,7 +5503,7 @@ def _add_region(rows):
 def get_works():
     if DEMO:
         return demo_works()
-    return _add_region(cached_data("works", real_works))
+    return _add_grade_hint(_add_region(cached_data("works", real_works)))
 
 
 def _fmtv(v):

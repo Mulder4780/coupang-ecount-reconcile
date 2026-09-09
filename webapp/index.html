@@ -15321,9 +15321,26 @@ function regionTag(r){
   return '<span class="rgtag' + (g === '미분류' ? ' none' : '')
        + '" title="권역 — 같은 권역끼리 묶어 갑니다">' + esc2(g) + '</span>';
 }
+/* 등급 **추천** — 2026-09-09 형님 지시 "니가 추천해서 진행하고 나중에 바꿀 수 있는
+   구조로".  서버가 신청내용에서 뽑아 `추천등급` 으로 실어 준다(as_grade.suggest).
+   ★★ 확정처럼 보이면 안 된다([169]) — 점선 테두리 그대로에 '추천' 글자를 앞에 둔다.
+      저장되는 값은 여전히 **사람이 고른 것**뿐이고, 이 배지는 아무것도 안 저장한다.
+   ★ 낱말을 화면이 안 적는다([162]) — 등급·유형·근거를 서버가 준 그대로 싣는다. */
+function gradeHint(r){ return String((r && r.추천등급) || '').trim(); }
 function gradeTag(r){
   const g = gradeVal(r);
-  if(!g) return '<span class="gtag none" title="아직 등급을 안 정했습니다 — 상세에서 고르세요">미분류</span>';
+  if(!g){
+    const sg = gradeHint(r);
+    if(sg){
+      const st = String((r && r.추천유형) || '').trim();
+      const why = String((r && r.추천근거) || '').trim();
+      return '<span class="gtag none" title="' + esc2('추천입니다 - 아직 확정이 아닙니다. '
+           + (why ? '근거: ' + why + '. ' : '') + '상세에서 고르시면 그때 저장됩니다')
+           + '">추천 ' + esc2(sg)
+           + (st ? '<span class="gtag-t">' + esc2(st) + '</span>' : '') + '</span>';
+    }
+    return '<span class="gtag none" title="아직 등급을 안 정했습니다 — 상세에서 고르세요">미분류</span>';
+  }
   const cls = g.charAt(0) === 'A' ? 'a' : g.charAt(0) === 'B' ? 'b' : g.charAt(0) === 'C' ? 'c' : 'none';
   const t = String((r && r.대응유형) || '').trim();
   return '<span class="gtag ' + cls + '">' + esc2(g)
