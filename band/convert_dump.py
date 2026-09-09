@@ -769,7 +769,20 @@ def _mark_redirect_deleted(band, merged, rounds):
     """
     if not rounds:
         return 0
+    # 실제로 받아 둔 최대 번호 **위**에는 묘비를 안 세운다 (2026-09-09 실사고).
+    #   `missing` 갈래는 2026-08-31 에 이미 이 문을 세웠는데(그 자리 주석에
+    #   5502~5506 / 3550~3553 실측이 적혀 있다) redirect 갈래만 안 따라왔다 —
+    #   한 곳에서 배운 것을 다른 곳이 몰랐다([300]).
+    #   실측: 8/31 에 아직 안 생긴 3550~3554 를 세 번 찔러 매번 리다이렉트가 났고
+    #   그것으로 묘비가 섰는데, 9/4 에 진짜 글이 그 번호로 올라와 영영 안 긁혔다
+    #   (형님이 밴드 캡처로 반증하셨다). 묘비가 서면 recheck_plan 도 recollect 도
+    #   그 번호를 다시 안 뽑는다 — **되돌릴 수 없다**.
+    #   위쪽 '없음' 근거는 제 그릇이 따로 있다(`reports/밴드_확인시각.json` · [131]) —
+    #   거기서는 근거가 낡으면 다시 물어보므로 되돌릴 수 있다.
+    #   최대 번호 **아래**는 한 글자도 안 바뀐다 — 그것이 이 묘비의 원래 목적이다.
+    top = _real_top(merged)
     n = 0
+    ahead = 0
     for no, whens in rounds.items():
         if len(whens) < REDIRECT_ROUNDS_FOR_DELETED:
             continue
@@ -781,6 +794,9 @@ def _mark_redirect_deleted(band, merged, rounds):
             continue
         if isinstance(cur, dict) and cur.get("deleted"):
             continue
+        if top and str(no).isdigit() and int(no) > top:
+            ahead += 1
+            continue                  # 앞찌르기 — 아직 안 생긴 번호다
         last = max(whens)
         merged[key] = {"deleted": True, "deleted_at": last,
                        "captured_at": max(int((cur or {}).get("captured_at") or 0), last),
@@ -788,6 +804,11 @@ def _mark_redirect_deleted(band, merged, rounds):
                        "why": f"서로 다른 회차 {len(whens)}번이 피드 리다이렉트로 확인 "
                               f"— 지워진 글(분담판 [13], 2026-08-07)"}
         n += 1
+    if ahead:
+        # 조용히 빼지 않는다([169]) — 뺀 것은 숫자로 말한다.
+        print(f"  · 아직 안 생긴 번호 {ahead}건은 묘비를 안 세웠다"
+              f"({band} · 실제 받아 둔 최대 {top} 위) "
+              f"— 없다는 증거는 밴드_확인시각.json 이 맡는다([131])")
     return n
 
 
