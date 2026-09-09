@@ -4264,6 +4264,22 @@ button[aria-busy="true"]::after{
        근거는 **밴드 접수 글 본문**이다 — ERP 거래처등록에는 캠프 전화번호가
        거의 없다(CU 356개 중 18개). 회차 `camp_contacts.py --write` 가 만들어 둔
        파일을 `/api/camps` 가 읽어 내려줄 뿐, 화면이 다시 계산하지 않는다. -->
+  <section class="view" id="v-sop">
+    <div class="hero-min"><h2>표준 업무 절차서</h2>
+      <p class="sub">작업 종류마다 <b>공구 · 순서 · 마무리</b>를 적어 두는 자리입니다.
+        돌발AS·정기점검 카드에서 바로 펼쳐 보고, 지정한 폴더로 <b>워드·PPT</b>를 만들 수 있습니다.<br>
+        · 부위는 <b>기계부 · 전장부 · 컨트롤박스부 · 마스터부 · 프레임부</b>로 나눕니다.<br>
+        · <b>유니웍스로 넘길 자료</b>도 여기서 만듭니다 — 절차서는 나중에 유니웍스에서 통합관리합니다.</p></div>
+    <div class="toolbar">
+      <button class="btn" onclick="sopExport('docx')">워드로 내보내기</button>
+      <button class="btn" onclick="sopExport('pptx')">PPT로 내보내기</button>
+      <button class="btn" onclick="sopExport('json')">유니웍스 넘김 자료</button>
+      <button class="btn" onclick="sopSetDir()">내보낼 폴더 지정</button>
+      <button class="icon-btn" onclick="renderSop(true)" title="새로고침" aria-label="새로고침">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
+    </div>
+    <div id="sopHost"></div>
+  </section>
   <section class="view" id="v-camps">
     <div class="hero-min"><h2>전국 쿠팡캠프</h2>
       <p class="sub" data-help-fold="camps-sub">정기점검 캠프와 <b>캠프 담당자</b>(쿠팡 쪽 사람)의 이름·전화번호·이메일입니다. 우리 기사(A/S 담당)와는 다른 사람입니다. 밴드 접수 글에 적힌 값을 캠프마다 가장 최근 것으로 모았습니다.<br>
@@ -5746,6 +5762,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button class="worktab-nav" data-v="pm" onclick="routeNav('pm')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>정기점검</button>
   <button class="worktab-nav" data-v="as" onclick="routeNav('as')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-wrench-adjustable"/></svg>돌발 AS</button>
   <button class="worktab-nav" data-v="camps" onclick="routeNav('camps')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-house-door-fill"/></svg>전국쿠팡캠프</button>
+  <button class="worktab-nav" data-v="sop" onclick="routeNav('sop')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>표준절차서</button>
   <!-- 리모컨은 AS 기사가 현장에 들고 나가는 물건이라 돌발 AS 바로 아래 둔다(2026-08-04 지시). -->
   <button class="worktab-nav" data-v="remote" onclick="routeNav('remote')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>리모컨</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
@@ -11063,6 +11080,7 @@ function routeNav(v){
   // "3시간 전"이 거짓이 되고, 그 사이 09:50 회차가 돌았을 수도 있다.
   if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
   if(v==='camps') renderCamps();
+  if(v==='sop') renderSop();
   /* 설정도 **열 때마다** 다시 읽는다. 여기 갈래가 없어서 예전에는 한 번 채운 값이
      그대로 낡은 채 남았다 — 오류가 안 나므로 아무도 몰랐다([165] 와 같은 모양). */
   if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel();
@@ -19955,6 +19973,78 @@ async function nwCampList(){
   dl.innerHTML = rows.map(r=>'<option value="'+esc2(r.캠프명||'')+'"></option>').join('');
 }
 
+/* 표준 업무 절차서 (2026-09-10 형님 지시).
+   ★ 여기서 판정하지 않는다([162]) — 서버(`sop_store`)가 준 것을 그리기만 한다.
+   ★ 0건이면 **왜 0건인지** 말한다([169]) — 못 받은 것과 아직 안 들어온 것은 다르다. */
+let SOP = null;
+async function renderSop(force){
+  const host = document.getElementById('sopHost'); if(!host) return;
+  if(!SOP || force){
+    host.innerHTML = '<p class="sub">불러오는 중…</p>';
+    try{ SOP = await api('/api/sop'); }
+    catch(e){
+      host.innerHTML = '<p class="sub">목록을 못 받았습니다 — <b>절차서가 없다는 뜻이 아닙니다.</b>'
+        + ' 잠시 뒤 새로고침해 주세요.</p>'; return;
+    }
+  }
+  const d = SOP || {};
+  const sum = d.요약 || {}, rows = d.절차서 || [];
+  let h = '';
+  if(d.ok === false){
+    h += '<p class="sub" style="color:var(--danger)">절차서 판을 못 읽었습니다 — '
+       + esc2(d.error || '') + '</p>';
+  }
+  h += '<p class="sub">담긴 절차서 <b>' + (sum.건수 || 0) + '건</b>'
+     + (sum.갱신 ? ' · 갱신 ' + esc2(sum.갱신) : '')
+     + ' · 내보낼 폴더 <code>' + esc2(sum.내보내기폴더 || '') + '</code></p>';
+  if(!rows.length){
+    h += '<div class="card"><p>아직 담긴 절차서가 <b>한 건도 없습니다.</b></p>'
+       + '<p class="sub">차동호 팀장이 작업별 절차(공구·순서·마무리)를 적어 주시면 담습니다.'
+       + ' 파일로 받으셨으면 <code>python sop_store.py --import-json &lt;파일&gt;</code> 로 넣습니다.</p></div>';
+  } else {
+    const per = sum.부위별 || {};
+    const keys = Object.keys(per);
+    if(keys.length) h += '<p class="sub">' + keys.map(function(k){
+      return esc2(k) + ' ' + per[k] + '건'; }).join(' · ') + '</p>';
+    h += '<div class="ui-cards">';
+    rows.forEach(function(r){
+      const 단계 = r.단계 || [], 공구 = r.공구 || [];
+      h += '<div class="card"><h3>' + esc2(r.id || '') + ' ' + esc2(r.제목 || '') + '</h3>'
+         + '<p class="sub">' + esc2(r.부위 || '부위 미기입') + ' · '
+         + esc2(r.작업종류 || '종류 미기입') + '</p>'
+         + '<p class="sub">공구: ' + (공구.length ? esc2(공구.join(', ')) : '(아직 안 적음)') + '</p>'
+         + '<p class="sub">작업 순서 ' + 단계.length + '단계'
+         + (r.출처 ? ' · 출처 ' + esc2(r.출처) : '') + '</p></div>';
+    });
+    h += '</div>';
+  }
+  host.innerHTML = h;
+}
+async function sopAct(body){
+  const r = await fetch('/api/sop/act', {method:'POST', cache:'no-store',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  let j = null; try{ j = await r.json(); }catch(e){}
+  if(!r.ok || !j || j.ok === false){
+    /* ★ 사유를 버리지 않는다([289]) — 왜 막혔는지 화면이 말해야 고칠 수 있다. */
+    throw new Error((j && j.error) || ('서버 응답 ' + r.status));
+  }
+  return j;
+}
+async function sopExport(fmt){
+  const 이름 = {docx:'워드', pptx:'PPT', json:'유니웍스 넘김 자료'}[fmt] || fmt;
+  try{
+    const j = await sopAct({동작:'내보내기', 갈래:fmt});
+    toast(이름 + ' ' + j.건수 + '건을 만들었습니다 — ' + j.경로);
+  }catch(e){ toast(이름 + '를 못 만들었습니다 — ' + e.message); }
+}
+async function sopSetDir(){
+  const now = ((SOP && SOP.요약) || {}).내보내기폴더 || '';
+  const v = prompt('절차서를 내보낼 폴더 경로를 적어 주세요.', now);
+  if(v === null) return;
+  try{ const j = await sopAct({동작:'폴더', 폴더:v});
+       toast('내보낼 폴더: ' + j.폴더); await renderSop(true); }
+  catch(e){ toast('폴더를 못 정했습니다 — ' + e.message); }
+}
 async function renderCamps(force){
   const host = $('campHost'); if(!host) return;
   if(CAMPS && !force){ renderCampList(); return; }

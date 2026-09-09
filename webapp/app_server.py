@@ -134,6 +134,8 @@ FEATURES = {
                  "설명": "돌발 AS 접수·처리상태·완료 확인"},
     "camps":    {"이름": "전국쿠팡캠프",  "묶음": "현장 업무",
                  "설명": "캠프 목록·담당자 연락처·ERP 거래처코드"},
+    "sop":      {"이름": "표준절차서",    "묶음": "현장 업무",
+                 "설명": "작업별 표준 업무 절차서 — 워드·PPT로 내보내고 유니웍스로 넘긴다"},
     "remote":   {"이름": "리모컨",        "묶음": "현장 업무",
                  "설명": "리모컨 불출·납품·재고"},
     "check":    {"이름": "확인 필요",     "묶음": "현장 업무",
@@ -11575,6 +11577,21 @@ self.addEventListener('fetch', e => {
                 return self._send(200, {"_live": False,
                                         "gen": "조직도 상태를 읽지 못했습니다",
                                         "error": str(exc)[:200], "zones": []})
+        if p == "/api/sop":
+            # 표준 업무 절차서 (2026-09-10 형님 지시).
+            # ★ 여기서 담지 않는다 — `sop_store` 하나가 담고 여기는 읽기만 한다([162]).
+            #   Z: 를 한 글자도 안 만진다([168]) — 회차와 다투면 이 화면이 몇 분씩 선다.
+            try:
+                import sop_store as _sop
+                _ss = _sop.summary()
+                _sr = _sop.pick(_sop.load())
+            except Exception as exc:
+                # ★ 못 읽은 것을 "0건"이라 하지 않는다([169]).
+                return self._send(200, {"ok": False,
+                                        "error": "%s: %s" % (type(exc).__name__, exc),
+                                        "요약": {}, "절차서": []})
+            return self._send(200, {"ok": True, "요약": _ss, "절차서": _sr})
+
         if p == "/api/camps":
             # 전국 쿠팡캠프 · 담당자 목록 (2026-08-18 유수비 대표 지시).
             # ★ 여기서 **다시 계산하지 않는다** — 회차(`camp_contacts.py --write`)가
@@ -12249,6 +12266,48 @@ self.addEventListener('fetch', e => {
             except Exception as e:
                 _notify_upload_rejected("업무센터 첨부", "", self._actor(), str(e)[:200])
                 return self._send(400, {"ok": False, "error": str(e)[:260]})
+        if p == "/api/sop/act":
+            # 절차서 담기·지우기·폴더 지정·내보내기 — 한 문이다([162]).
+            # ★ 권한은 `camps/save` 와 같은 문을 쓴다 — 갈리면 한쪽만 고쳐진다.
+            _act_ss = self._actor()
+            if _act_ss.get("role") == "staff":
+                if str(_act_ss.get("staff_slug") or "") not in STAFF_CENTERS:
+                    return self._send(403, {"ok": False, "error": "등록되지 않은 업무센터입니다"})
+            elif _act_ss.get("role") != "admin":
+                return self._send(403, {"ok": False, "error": "업무센터 권한이 필요합니다"})
+            _ln = int(self.headers.get("Content-Length", 0))
+            if _ln <= 0 or _ln > 400_000:
+                return self._send(400, {"ok": False, "error": "입력 용량을 확인해 주세요"})
+            try:
+                _body = json.loads(self.rfile.read(_ln).decode("utf-8"))
+            except Exception:
+                return self._send(400, {"ok": False, "error": "입력을 읽지 못했습니다"})
+            _do = str(_body.get("동작") or "")
+            try:
+                import sop_store as _sop
+                if _do == "저장":
+                    _id = _sop.put(_body.get("절차서") or {})
+                    return self._send(200, {"ok": True, "id": _id})
+                if _do == "삭제":
+                    _hit = _sop.remove(str(_body.get("id") or ""))
+                    return self._send(200, {"ok": _hit,
+                                            "error": "" if _hit else "그 번호를 못 찾았습니다"})
+                if _do == "폴더":
+                    return self._send(200, {"ok": True,
+                                            "폴더": _sop.set_out_dir(_body.get("폴더"))})
+                if _do == "내보내기":
+                    import sop_export as _sx
+                    _pth, _n = _sx.export(_body.get("갈래") or "docx",
+                                          _body.get("경로") or None,
+                                          부위=_body.get("부위") or None,
+                                          작업종류=_body.get("작업종류") or None)
+                    return self._send(200, {"ok": True, "경로": _pth, "건수": _n})
+            except Exception as exc:
+                # ★ 사유를 버리지 않는다([289]) — 왜 막혔는지 화면이 말해야 한다.
+                return self._send(400, {"ok": False,
+                                        "error": "%s: %s" % (type(exc).__name__, exc)})
+            return self._send(400, {"ok": False, "error": "모르는 동작: " + _do[:40]})
+
         if p == "/api/camps/save":
             # 전국 쿠팡캠프 담당자 **추가·수정·저장** (2026-08-18 지시).
             # 문은 `/api/staff/entry` 와 **같은 것**을 쓴다([162]) — 권한·멱등키·
