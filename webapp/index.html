@@ -23012,6 +23012,7 @@ const VIEW_RESET = {
             clear:()=>{ _rvSet('campQ',''); const b=$('campPmOnly'); if(b) b.checked=true;
                         _rvCall('renderCampList'); },
             reload:()=>_rvCall('renderCamps',true)},
+  sop:     {name:'표준절차서', reload:()=>_rvCall('renderSop',true)},
   sources: {name:'원본 자료',
             clear:()=>{ _rvSet('srcQ',''); _rvSet('dlwQ',''); _rvSet('dlwSince',''); _rvSet('dlwUntil','');
                         try{ SRC_G=''; SRC_M=''; SRC_Y=''; }catch(_){} },
