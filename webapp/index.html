@@ -20039,8 +20039,14 @@ async function sopExport(fmt){
 }
 async function sopSetDir(){
   const now = ((SOP && SOP.요약) || {}).내보내기폴더 || '';
-  const v = prompt('절차서를 내보낼 폴더 경로를 적어 주세요.', now);
-  if(v === null) return;
+  /* * 브라우저 기본 prompt 를 쓰지 않는다([202]) - 폰에서 'localhost says' 회색 상자가 뜬다.
+     이미 있는 askText 를 빌린다([162]) . 반드시 await 로 받는다 - 안 하면 Promise 가 늘 참이라
+     '취소'가 먹지 않는다(조용한 사고). */
+  const v = await askText('절차서를 내보낼 폴더 경로', now,
+    {title:'내보낼 폴더 지정', multiline:false, ok:'이 폴더로',
+     desc:'워드 . PPT . 유니웍스 자료를 이 폴더에 만듭니다. 폴더는 실제로 내보낼 때 만듭니다.'});
+  /* 취소는 null(바깥 클릭 . ESC) 또는 false(취소 단추)로 온다 - 둘 다 받는다([169]). */
+  if(typeof v !== 'string' || !v.trim()) return;
   try{ const j = await sopAct({동작:'폴더', 폴더:v});
        toast('내보낼 폴더: ' + j.폴더); await renderSop(true); }
   catch(e){ toast('폴더를 못 정했습니다 — ' + e.message); }
