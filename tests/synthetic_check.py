@@ -35538,7 +35538,7 @@ def t526_as_grade_report_capture_and_xlsx():
         return ""
 
     for _n in ("agStatRows", "agReportBlocks", "agSaveXlsx", "gradeCounts",
-               "agPeriod", "agHintCounts"):
+               "agPeriod", "agHintCounts", "agGradeMeta", "agUniLabel"):
         assert _fn(_n), "[526] %s 를 못 찾았다 — 검사가 눈멀었다([169])" % _n
 
     # ── A. 그리는 자리를 새로 만들지 않았다(`[162]`) ────────────────────────
@@ -35598,6 +35598,11 @@ def t526_as_grade_report_capture_and_xlsx():
         "function exportRowsXlsx(name,rows,opt){XLS.push({name:name,rows:rows,opt:opt});}",
         _fn("gradeVal"), _fn("regionVal"), _fn("gradeHint"), _fn("gradeCounts"),
         _fn("agPeriod"), _fn("agHintCounts"),
+        # ★ 새로 생긴 의존을 같이 떼어 온다([366]).  `AG_UNIWORKS_FROM` 은
+        #   최상위 const 라 `_fn` 으로는 못 오므로 **소스에서 그 줄을 뜬다** —
+        #   스텁으로 때우면 그날부터 이 검사는 실제 값을 안 잰다([366]).
+        live[live.index("const AG_UNIWORKS_FROM"):].split(chr(10))[0],
+        _fn("agGradeMeta"), _fn("agUniLabel"),
         _fn("agStatRows"), _fn("agReportBlocks"), _fn("agSaveXlsx"),
         "var works={as:" + _j.dumps(ROWS, ensure_ascii=False) + "};",
         "const B=agReportBlocks();const N=agStatRows().length;",
