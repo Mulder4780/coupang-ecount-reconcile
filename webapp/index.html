@@ -3568,6 +3568,12 @@ button[aria-busy="true"]::after{
     .gtag.c{border-color:var(--brand);color:var(--brand)}
     .gtag.none{border-style:dashed;font-weight:400}
     .gtag-t{font-weight:400;opacity:.8}
+    /* 권역 딱지 (2026-09-09 지시 "권역으로 묶어서 관리") — 대표 요구
+       "B단계는 모아서 가면 되는 거야". 어느 권역인지 보여야 묶는다. */
+    .rgtag{display:inline-flex;align-items:center;border:1px solid var(--line);
+      border-radius:999px;padding:1px 8px;font-size:11px;color:var(--ink-3);
+      white-space:nowrap}
+    .rgtag.none{border-style:dashed}
 </style>
 </head>
 <body>
@@ -15303,13 +15309,26 @@ function openAsPending(){
    ★ 등급은 **기계가 안 매긴다**(형님 지시 "미분류로 남기고 사람이 정하기") —
      화면이 빈칸을 보고 등급을 지어내면 그 순간 이 규칙이 무너진다. */
 function gradeVal(r){ return String((r && r.대응등급) || '').trim(); }
+/* 권역 딱지 — 값은 **서버가 실어 준 것**을 읽기만 한다([162]).
+   판정은 as_grade.region_of 한 곳이고, 화면이 지역을 제 손으로 가르면
+   사본이 둘이 되어 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+   ★ 서버가 아직 안 실어 줬으면(옛 서버·옛 캐시) **아무것도 안 그린다**([169]) —
+     빈칸을 보고 권역을 지어내지 않는다. */
+function regionVal(r){ return String((r && r.권역) || '').trim(); }
+function regionTag(r){
+  const g = regionVal(r);
+  if(!g) return '';
+  return '<span class="rgtag' + (g === '미분류' ? ' none' : '')
+       + '" title="권역 — 같은 권역끼리 묶어 갑니다">' + esc2(g) + '</span>';
+}
 function gradeTag(r){
   const g = gradeVal(r);
   if(!g) return '<span class="gtag none" title="아직 등급을 안 정했습니다 — 상세에서 고르세요">미분류</span>';
   const cls = g.charAt(0) === 'A' ? 'a' : g.charAt(0) === 'B' ? 'b' : g.charAt(0) === 'C' ? 'c' : 'none';
   const t = String((r && r.대응유형) || '').trim();
   return '<span class="gtag ' + cls + '">' + esc2(g)
-       + (t ? '<span class="gtag-t">' + esc2(t) + '</span>' : '') + '</span>';
+       + (t ? '<span class="gtag-t">' + esc2(t) + '</span>' : '') + '</span>'
+       + regionTag(r);   /* 어느 권역인지 같이 보인다 — 묶어 가려면 필요하다 */
 }
 /* 지금 목록에 실제로 있는 등급을 세어 돌려준다 — 낱말 목록을 화면이 안 적는다.
    ★ 이름순이면 A긴급 < B일반 < C전화 로 저절로 맞고 미분류는 맨 뒤다. */
@@ -15333,6 +15352,10 @@ function openListKpi(label, rule){
   else if(rule==='as-pending') rows=all.filter(asNotDone);     // '미실시' 라는 이름으로도 부른다
   else if(rule==='as-cancel') rows=all.filter(r=>String(r.진행상태||'').trim()==='취소');
   /* 등급으로 거르기 — 낱말을 여기 안 적는다([162]). 규칙에 담아 넘긴다. */
+  else if(String(rule||'').indexOf('as-region:')===0){
+    const want = rule.slice(10);
+    rows = all.filter(function(r){ return (regionVal(r) || '미분류') === want; });
+  }
   else if(String(rule||'').indexOf('as-grade:')===0){
     const want = rule.slice(9);
     rows = all.filter(function(r){ return (gradeVal(r) || '미분류') === want; });
@@ -15703,11 +15726,11 @@ function renderSettle(){
           ${r.긴급도==='긴급'?'<span style="color:var(--danger);font-weight:700">긴급</span>':''}
           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</span></div>
       </div>`).join('') || zeroNote('works','조건에 맞는 건이 없습니다');
-    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('등급','대응등급')}${thx('상태','진행상태')}</tr>` +
+    $('sgrid').innerHTML = `<tr>${thx('프로젝트NO','프로젝트NO')}${thx('접수ID','접수ID')}${thx('캠프','캠프명')}${thx('접수일','접수일자')}${thx('기사','담당기사')}${thx('유·무상','유상·무상·보험')}<th>내용</th>${thx('완료일','작업완료일')}<th>완료보고서</th><th>명세서반영</th><th>ERP반영</th><th>검증자·일</th>${thx('권역','권역')}${thx('등급','대응등급')}${thx('상태','진행상태')}</tr>` +
       rows.map((r,i)=>`<tr onclick="openSheet('as',${i},'${r.접수ID}')" style="cursor:pointer">
         <td><b class="prjno">${esc2(projectLabel(r))}</b></td><td>${r.접수ID||'-'}</td><td>${r.캠프명}</td><td>${r.접수일자||'-'}</td><td>${r.담당기사||'-'}</td>
         <td>${r['유상·무상·보험']||'-'}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.신청내용||''}</td>
-        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.거래명세서반영||'-'}</td><td>${r.ERP반영||r.ERP등록||'-'}</td><td>${r.검증자?(r.검증자+(r.검증일?' · '+r.검증일:'')):'-'}</td><td>${gradeTag(r)}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
+        <td>${r.작업완료일||'-'}</td><td>${r.완료보고서등록||'-'}</td><td>${r.거래명세서반영||'-'}</td><td>${r.ERP반영||r.ERP등록||'-'}</td><td>${r.검증자?(r.검증자+(r.검증일?' · '+r.검증일:'')):'-'}</td><td>${regionTag(r)||'-'}</td><td>${gradeTag(r)}</td><td>${chip(r.진행상태)}</td></tr>`).join('');
   } else if(mode==='check'){
     // 엑셀 07_불일치누락현황 — 검증 안 된·확인해야 할 항목 그대로
     const types = {};

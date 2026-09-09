@@ -5443,10 +5443,36 @@ def _hidden_plan_ids():
         return set()
 
 
+def _add_region(rows):
+    """돌발AS 행에 **권역**을 파생으로 붙인다 (2026-09-09 형님 지시 "권역으로 묶어서 관리").
+
+    근거(유수비 대표 통화): "B단계는 **모아서 가면 되는 거야**" — 어느 권역인지
+    보여야 묶을 수 있다.
+
+    ★ 판정은 as_grade.region_of 한 곳이다([162]) — 화면이 제 손으로 지역을 가르면
+      사본이 둘이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    ★ 캐시 **뒤에** 붙인다 — 캐시 판을 올리면 works·settle 이 통째로 다시
+      계산된다([168]). 캠프명에서 나오는 파생이라 캠프명이 안 바뀌면 안 바뀐다.
+    ★ 못 가르면 '미분류'다([169]) — 모르는 캠프를 아무 권역에나 넣으면 그 건은
+      엉뚱한 묶음에 실려 아무도 안 간다([172]).
+    ★ 저장하지 않는다 — 사람이 넣는 값이 아니라 캠프명에서 나오는 파생이라
+      DB_ONLY_ARCHIVE_FIELDS 에 안 올린다(올리면 보관본에 헛 칸이 는다).
+    """
+    if _as_grade is None:
+        return rows
+    try:
+        for _r in (rows or {}).get("as") or []:
+            if isinstance(_r, dict) and not _r.get("권역"):
+                _r["권역"] = _as_grade.region_of(_r.get("캠프명"))
+    except Exception:        # noqa: BLE001 - 파생 하나로 목록을 죽이지 않는다
+        pass
+    return rows
+
+
 def get_works():
     if DEMO:
         return demo_works()
-    return cached_data("works", real_works)
+    return _add_region(cached_data("works", real_works))
 
 
 def _fmtv(v):

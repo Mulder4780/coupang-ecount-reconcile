@@ -35332,6 +35332,39 @@ def t525_as_grade_badge():
         assert _c in _aw.DB_ONLY_ARCHIVE_FIELDS, (
             "DB_ONLY_ARCHIVE_FIELDS 에 '%s' 가 없다 — 보관본 회차가 통째로 죽는다" % _c)
 
+    # (2-b) ★ 권역 파생 — 형님 2026-09-09 지시 "3번은 권역으로 묶어서 관리".
+    #   대표 통화: "B단계는 **모아서 가면 되는 거야**" — 어느 권역인지 보여야 묶는다.
+    #   ⚠ 표만 만들고 부르는 곳이 없으면 없는 것과 같다([328]) — 실제로 그랬다
+    #     (as_grade.REGIONS·region_of 는 있는데 서버·화면 grep 0곳이었다).
+    import inspect as _insp
+    import webapp.app_server as _ap        # noqa: E402 - 검사 안에서 늦게 들여온다
+    _rows = {"as": [{"캠프명": "부산1MB(감전동)"}, {"캠프명": "아무개"},
+                    {"캠프명": "제주1MB", "권역": "영남"}],
+             "pm": [{"캠프명": "부산1MB"}]}
+    _out = _ap._add_region(_rows)
+    assert _out["as"][0].get("권역") == "영남", "권역이 안 붙는다"
+    # 못 가르면 미분류다([169]) — 아무 권역에나 넣으면 그 건은 엉뚱한 묶음에
+    # 실려 아무도 안 간다([172]).
+    assert _out["as"][1].get("권역") == "미분류", "모르는 캠프를 아무 권역에나 넣는다"
+    assert _out["as"][2].get("권역") == "영남", "이미 있는 값을 덮는다"
+    assert "권역" not in _out["pm"][0], "정기점검까지 넓혔다([172])"
+    # 코드가 있는 것과 그것이 도는 것은 다른 말이다([328]).
+    assert "_add_region" in _insp.getsource(_ap.get_works), (
+        "get_works 가 권역 파생을 안 부른다 — 만들어 놓고 부르는 곳이 없다")
+    # 판정은 as_grade 한 곳이다([162]).
+    _rb = _insp.getsource(_ap._add_region)
+    _q = chr(34) * 3
+    while _q in _rb:
+        _s = _rb.index(_q); _e = _rb.index(_q, _s + 3) + 3
+        _rb = _rb[:_s] + _rb[_e:]
+    _rb = _re.sub("#[^" + chr(10) + "]*", "", _rb)
+    for _w in _ag.REGIONS:
+        assert _w not in _rb, "서버가 권역 '%s' 를 직접 적는다([162])" % _w
+    # 파생이지 사람이 넣는 값이 아니다 — 저장·보관본 칸에 안 들어간다.
+    assert "권역" not in getattr(_ap, "_ALL_STAFF_ENTRY_FIELDS", set()), (
+        "파생값이 저장 대상에 들어갔다")
+    assert "권역" not in _aw.DB_ONLY_ARCHIVE_FIELDS, "파생값이 보관본 칸에 들어갔다"
+
     # ── (B) 화면 — node 로 실제로 그려 잰다 ──────────────────────────────
     src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
                    encoding="utf-8", newline="").read()
@@ -35365,7 +35398,8 @@ def t525_as_grade_badge():
                     return got
         raise AssertionError("중괄호가 안 맞는다: " + name)
 
-    harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeCounts")] + ["""
+    harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeCounts",
+                                       "regionVal", "regionTag")] + ["""
 const out = {};
 out.a  = gradeTag({대응등급:'A긴급', 대응유형:'즉시출동'});
 out.b  = gradeTag({대응등급:'B일반', 대응유형:'지역묶음'});
@@ -35374,6 +35408,11 @@ out.n  = gradeTag({});
 out.x  = gradeTag({대응등급:'<script>x</script>'});
 out.cnt = gradeCounts([{대응등급:'B일반'},{대응등급:'A긴급'},{},{대응등급:'C전화'},{대응등급:'A긴급'}]);
 out.empty = gradeCounts([]);
+out.r      = regionTag({권역:'영남'});
+out.rnone  = regionTag({권역:'미분류'});
+out.rempty = regionTag({});
+out.rx     = regionTag({권역:'<script>x</script>'});
+out.grg    = gradeTag({대응등급:'B일반', 대응유형:'지역묶음', 권역:'수도권'});
 console.log(JSON.stringify(out));
 """])
     f = os.path.join(_tf.gettempdir(), "t525_grade.js")
@@ -35410,17 +35449,34 @@ console.log(JSON.stringify(out));
     # (9) 빈 목록에서 없는 등급을 만들지 않는다
     assert o["empty"] == [], "빈 목록인데 등급을 지어낸다: " + json.dumps(o["empty"], ensure_ascii=False)
 
+    # (9-b) 권역 딱지 — "모아서 간다"를 하려면 어느 권역인지 보여야 한다.
+    assert "영남" in o["r"] and "rgtag" in o["r"], "권역 딱지가 안 뜬다: " + o["r"]
+    assert "rgtag none" in o["rnone"], "미분류 권역이 확정처럼 보인다: " + o["rnone"]
+    assert "rgtag none" not in o["r"], "확정 권역에 점선이 붙었다: " + o["r"]
+    # ★ 서버가 안 실어 줬으면 아무것도 안 그린다([169]) — 빈칸을 보고 지어내지 않는다.
+    assert o["rempty"] == "", "권역이 없는데 무언가 그린다: " + o["rempty"]
+    assert "<script>" not in o["rx"], "HTML 을 그대로 심는다: " + o["rx"]
+    for _k in ("r", "rnone", "grg"):
+        assert "#" not in o[_k], "굳은 색이 박혔다([332]): " + o[_k]
+    # 한 자리에서 그린다([162]) — 등급 배지 옆에 권역이 같이 온다.
+    for _w in ("B일반", "지역묶음", "수도권"):
+        assert _w in o["grg"], "등급 옆에 권역이 안 붙는다: " + o["grg"]
+    # 권역이 없어도 등급은 그대로다 — 좁히는 것도 고장이다([172]).
+    assert "B일반" in o["b"] and "rgtag" not in o["b"], (
+        "권역 없는 행에서 등급이 깨졌다: " + o["b"])
+
     # (10) ★ 화면이 낱말을 제 손으로 안 적는다([162]) — 정본은 as_grade 다.
     #      여기 적으면 사본이 둘이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
     #      ⚠ 규칙을 세기 전에 주석을 걷어낸다 — 이 저장소가 열두 번 밟은 자리다([301]-9).
     _body = src[src.index("function gradeVal("):src.index("function openListKpi(")]
     _code = _re.sub(r"/\*.*?\*/", "", _body, flags=_re.S)
     _code = _re.sub(r"//[^" + _NL + r"]*", "", _code)
-    for _w in ("A긴급", "B일반", "C전화", "즉시출동", "지역묶음", "경미", "전화해결"):
+    for _w in (("A긴급", "B일반", "C전화", "즉시출동", "지역묶음", "경미", "전화해결")
+               + tuple(_ag.REGIONS)):
         assert _w not in _code, (
             "화면이 낱말 '%s' 를 직접 적는다 — 정본(as_grade)의 사본이 둘이 된다([162])" % _w)
 
-    print("  [525] 돌발AS 대응등급 A/B/C — 배지·차례·사유필수·DB전용칸 \u2705")
+    print("  [525] 돌발AS 대응등급 A/B/C · 권역 — 배지·차례·사유필수·DB전용칸 \u2705")
 
 
 def t192_synthetic_check_is_harmless():
