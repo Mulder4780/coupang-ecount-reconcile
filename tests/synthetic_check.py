@@ -35610,7 +35610,12 @@ def t526_as_grade_report_capture_and_xlsx():
         "works={as:[]};",
         "const EMPTY=agReportBlocks();",
         "agSaveXlsx();",
-        "console.log(JSON.stringify({B:B,EMPTY:EMPTY,XLS:XLS,SAID:SAID,"
+        # ★ 근거가 하나도 없는 등급도 표에 남나 — 옛 코드는 그 줄을 안 만들어
+        #   받아 본 사람이 그 등급이 있는지조차 몰랐다(형님 캡처의 C전화).
+        #   위 재료는 세 등급이 다 근거를 가져 이 결함을 **한 번도 안 쟀다**([272]).
+        "works={as:" + _j.dumps([{"프로젝트NO": "X1", "캠프명": "가캠프", "대응등급": "A긴급", "권역": "수도권", "진행상태": "신규접수", "접수일자": "2026-09-01"}], ensure_ascii=False) + "};",
+        "const ONLYA=agReportBlocks();",
+        "console.log(JSON.stringify({B:B,EMPTY:EMPTY,ONLYA:ONLYA,XLS:XLS,SAID:SAID,"
         "N:N}));",
     ])
     from proc_guard import run_tree
@@ -35652,15 +35657,33 @@ def t526_as_grade_report_capture_and_xlsx():
         "[526] 추천이 확정으로 세어졌다 — 미분류 확정이 2건이어야 한다: %s" % _grade)
     assert _grade.get("B일반", ("", ""))[1] == "1건", (
         "[526] 추천 건수가 따로 안 적힌다 — 형님 지시 ③이 안 이뤄진다: %s" % _grade)
-    assert _grade.get("A긴급", ("", ""))[1] in ("", 0), (
-        "[526] 추천이 없는 등급에 숫자가 붙었다: %s" % _grade)
+    assert _grade.get("A긴급", ("", ""))[1] == "0건", (
+        "[526] 추천 0을 빈칸으로 뒀다 — 빈칸은 '못 셌다'로 읽힌다([169]): %s"
+        % _grade)
     _th = [x[1] for x in B if x[0] == "thead"]
-    assert _th and "저장 안 됨" in _j.dumps(_th[0], ensure_ascii=False), (
-        "[526] 추천 칸 머리글이 '저장 안 됨' 이라 말하지 않는다([169])")
+    assert _th, "[526] 표 머리글이 없다"
+    # ★ 머리글은 칸을 안 넘겨야 한다 — 2026-09-09 형님 캡처의 그 겹침이다.
+    #   '저장 안 됨' 이라는 말 자체는 아래 각주 검사가 잰다(159행) —
+    #   **어디에 적히나**를 얼리면 자리를 옮길 때마다 헛되이 깨진다([39]·[219]).
+    assert max(len(str(_h)) for _h in _th[0]) <= 8, (
+        "[526] 머리글이 길어 칸을 넘친다 — 형님 캡처의 겹침이 되살아났다: %s"
+        % _th[0])
     _bul = [x[1] for x in B if x[0] == "bullet"]
-    assert _bul and "2건" in _bul[0] and "추천" in _bul[0], (
-        "[526] 추천이 나온 건수를 따로 안 적는다 — 숨기면 '다 정해졌다'로 읽힌다([169])")
-    assert "저장되지 않았고" in _bul[0], "[526] 추천이 저장되지 않는다는 말이 없다"
+    # ★ **어디에 적히나**를 얼리지 않는다([39]·[219]) — 첫 불릿을 못 박아 뒀더니
+    #   설명 절을 앞에 세운 날 계약은 그대로인데 검사만 죽었다.
+    _hint_b = [b for b in _bul if "추천" in b and "저장되지 않" in b]
+    assert _hint_b, (
+        "[526] 추천이 저장되지 않는다는 말이 어디에도 없다([169]): %s" % _bul[:3])
+    assert _grade.get("합계", ("", ""))[1] == "2건", (
+        "[526] 추천이 나온 건수를 표가 안 적는다 — 숨기면 '다 정해졌다'로"
+        " 읽힌다([169]): %s" % _grade)
+
+    _ga = [x[1][0] for x in o["ONLYA"]
+           if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 5]
+    for _g in ("A긴급", "B일반", "C전화"):
+        assert _g in _ga, (
+            "[526] 근거가 하나도 없는 등급 줄이 표에서 사라졌다 — 받아 본 사람은"
+            " 그 등급이 있는지조차 모른다([169]): %s" % _ga)
 
     # ④ 권역 미분류는 맨 뒤 — 위에 오면 제일 큰 권역으로 읽힌다
     _reg = [x[1][0] for x in B if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 6]
