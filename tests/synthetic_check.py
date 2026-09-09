@@ -35294,6 +35294,135 @@ def t524_login_retries_like_the_rest_of_the_app():
             "[524] 계기가 눈멀었다 — 재시도를 없앴는데도 %d번 두드렸다" % g2["끊김_횟수"])
     print("  [524] 로그인이 끊긴 길을 다시 두드린다(잠금·PIN오류는 한 번 그대로) \u2705")
 
+def t525_as_grade_badge():
+    """돌발AS 대응등급 A/B/C — 배지·세기·저장 검사 (2026-09-09 지시).
+
+    근거(유수비 대표 2026-09-09 통화): "돌발 그 표시판에 이게 A인지 B인지 C인지
+    떠야 된다는 겁니다" · "어떠한 경우에 즉시출동인지 표시".
+    형님 지시: "미분류로 남기고 사람이 정하기" · "앱 DB에만 담고 나중에 엑셀에 담아".
+
+    ★ 글자로는 '정말 그려지나'를 못 잰다([295]) — node 로 **실제로 그려** 잰다.
+    ★ 함수는 실제 소스에서 뽑는다([366]) — 스텁으로 때우면 그날부터 아무것도 안 잰다.
+    """
+    import re as _re, io as _io, tempfile as _tf
+    import proc_guard as _pg                     # 창 없이 자식을 띄운다([270]·[272])
+
+    # ── (A) 서버 계약 둘 — 값싸고, 깨지면 조용히 크게 다친다 ──────────────
+    import as_grade as _ag
+
+    # (1) A긴급은 사유가 없으면 저장이 막힌다 — 대표 요구 그대로다.
+    #     막기만 하지 않고 무엇을 하면 되는지 같이 적는다([408]).
+    ok, why = _ag.check("A긴급", "즉시출동", "")
+    assert not ok, "A긴급인데 사유가 없어도 통과한다 — 대표 요구가 무너진다"
+    assert "사유" in why, "왜 막혔는지 안 알려 준다: " + str(why)
+    ok, _ = _ag.check("A긴급", "즉시출동", "리프트 작동불능")
+    assert ok, "사유를 적었는데도 막는다 — 좁히는 것도 고장이다([172])"
+    # 빈 등급은 정상이다(아직 안 정한 것) — 유형·사유를 강요하지 않는다.
+    ok, _ = _ag.check("", "", "")
+    assert ok, "아직 등급을 안 정한 것을 고장이라 부른다([169])"
+    ok, _ = _ag.check("", "즉시출동", "")
+    assert not ok, "등급 없이 유형만 있는데 통과한다 — 이 건이 A인지 B인지 알 수 없다"
+
+    # (2) ★ DB 전용 칸 표에 세 이름이 다 있어야 한다.
+    #     02시트에 대응 열이 없다(v632 실측 45열) — 안 올리면 보관본 회차가
+    #     `cannot archive unknown field` 로 통째로 죽는데 **저장은 성공하므로**
+    #     적은 사람은 모르고 회차만 조용히 실패한다([321] 이 겪은 그 자리).
+    import archive_worker as _aw
+    for _c in ("대응등급", "대응유형", "등급사유"):
+        assert _c in _aw.DB_ONLY_ARCHIVE_FIELDS, (
+            "DB_ONLY_ARCHIVE_FIELDS 에 '%s' 가 없다 — 보관본 회차가 통째로 죽는다" % _c)
+
+    # ── (B) 화면 — node 로 실제로 그려 잰다 ──────────────────────────────
+    src = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                   encoding="utf-8", newline="").read()
+    _NL = chr(10)
+
+    def _fn(name):
+        """`function name(` 부터 **중괄호 짝**까지 — 끝을 이름으로 찾지 않는다([39]).
+
+        ⚠ 문자열 인식을 **일부러 안 한다**. JS 정규식 리터럴(`/[&<>"']/g`)의
+          따옴표를 문자열 시작으로 읽으면 짝을 잃고 파일 끝까지 삼킨다 —
+          2026-09-09 실측으로 `esc2` 에서 1,153줄을 통째로 가져와
+          node 가 `document is not defined` 로 죽었다.
+          이 넷은 문자열 안에 짝 안 맞는 중괄호가 없으므로 중괄호만 세면 맞다.
+        ★ 그 대신 **너무 크면 실패시킨다** — 같은 함정이 다시 와도 그 자리에서
+          잡힌다. 조용히 엉뚱한 것을 재고도 쟀다고 말하지 않는다([169]).
+        """
+        m = _re.search(r"(?m)^(?:async\s+)?function\s+" + _re.escape(name) + r"\s*\(", src)
+        assert m, "함수를 못 찾았다: " + name
+        i = src.index("{", m.end() - 1)
+        d = 0
+        for j in range(i, len(src)):
+            if src[j] == "{":
+                d += 1
+            elif src[j] == "}":
+                d -= 1
+                if d == 0:
+                    got = src[m.start():j + 1]
+                    assert len(got) < 4000, (
+                        "'%s' 를 %d자나 뽑았다 — 중괄호 짝을 잃었다(정규식·주석 함정). "
+                        "이대로 두면 엉뚱한 것을 재고도 쟀다고 말한다" % (name, len(got)))
+                    return got
+        raise AssertionError("중괄호가 안 맞는다: " + name)
+
+    harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeCounts")] + ["""
+const out = {};
+out.a  = gradeTag({대응등급:'A긴급', 대응유형:'즉시출동'});
+out.b  = gradeTag({대응등급:'B일반', 대응유형:'지역묶음'});
+out.c  = gradeTag({대응등급:'C전화'});
+out.n  = gradeTag({});
+out.x  = gradeTag({대응등급:'<script>x</script>'});
+out.cnt = gradeCounts([{대응등급:'B일반'},{대응등급:'A긴급'},{},{대응등급:'C전화'},{대응등급:'A긴급'}]);
+out.empty = gradeCounts([]);
+console.log(JSON.stringify(out));
+"""])
+    f = os.path.join(_tf.gettempdir(), "t525_grade.js")
+    _io.open(f, "w", encoding="utf-8", newline="").write(harness)
+    r = _pg.run_tree(["node", f], timeout=180)
+    if r.returncode != 0 and "not recognized" in ((r.stderr or "") + (r.stdout or "")):
+        print("   [525] node 가 없어 화면 동작은 못 쟀다 — 통과라는 뜻이 아니다")
+        return
+    assert r.returncode == 0, (r.stdout or "") + (r.stderr or "")
+    o = json.loads((r.stdout or "").strip().splitlines()[-1])
+
+    # (3) 등급이 화면에 뜬다 — 대표 요구 "A인지 B인지 C인지 떠야 된다"
+    for _g, _cls, _k in (("A긴급", "gtag a", "a"), ("B일반", "gtag b", "b"),
+                         ("C전화", "gtag c", "c")):
+        assert _g in o[_k] and _cls in o[_k], "%s 배지가 안 뜬다: %s" % (_g, o[_k])
+    # (4) 유형도 같이 보인다 — A① 즉시출동 · B① 지역묶음(형님 손그림)
+    assert "즉시출동" in o["a"], "A 유형이 안 보인다: " + o["a"]
+    assert "지역묶음" in o["b"], "B 유형이 안 보인다: " + o["b"]
+    # (5) 빈칸을 등급으로 지어내지 않는다([169] · "미분류로 남기고 사람이 정하기").
+    #     그리고 미분류가 확정 등급처럼 보이면 안 된다 — 점선으로 갈라 보인다.
+    assert "미분류" in o["n"] and "gtag none" in o["n"], "빈칸을 미분류라 안 말한다: " + o["n"]
+    for _k in "abc":
+        assert "미분류" not in o[_k], "정해진 등급에 미분류가 붙었다: " + o[_k]
+    # (6) 값을 그대로 심지 않는다 — 화면 주입을 막는다
+    assert "<script>" not in o["x"], "HTML 을 그대로 심는다: " + o["x"]
+    # (7) 굳은 색을 안 쓴다([332]) — 그린 HTML 에 색코드가 박히면 테마가 깨진다
+    for _k in ("a", "b", "c", "n"):
+        assert "#" not in o[_k], "굳은 색이 박혔다: " + o[_k]
+    # (8) 세는 차례 — A < B < C, 미분류는 맨 뒤(조용히 빼지 않는다 · [169])
+    assert [x[0] for x in o["cnt"]] == ["A긴급", "B일반", "C전화", "미분류"], \
+        "등급 차례가 A·B·C·미분류가 아니다: " + json.dumps(o["cnt"], ensure_ascii=False)
+    _d = dict(o["cnt"])
+    assert _d["A긴급"] == 2 and _d["미분류"] == 1, "건수가 틀렸다: " + json.dumps(o["cnt"], ensure_ascii=False)
+    # (9) 빈 목록에서 없는 등급을 만들지 않는다
+    assert o["empty"] == [], "빈 목록인데 등급을 지어낸다: " + json.dumps(o["empty"], ensure_ascii=False)
+
+    # (10) ★ 화면이 낱말을 제 손으로 안 적는다([162]) — 정본은 as_grade 다.
+    #      여기 적으면 사본이 둘이 되고, 갈린 뒤에는 어느 쪽이 맞는지 아무도 모른다.
+    #      ⚠ 규칙을 세기 전에 주석을 걷어낸다 — 이 저장소가 열두 번 밟은 자리다([301]-9).
+    _body = src[src.index("function gradeVal("):src.index("function openListKpi(")]
+    _code = _re.sub(r"/\*.*?\*/", "", _body, flags=_re.S)
+    _code = _re.sub(r"//[^" + _NL + r"]*", "", _code)
+    for _w in ("A긴급", "B일반", "C전화", "즉시출동", "지역묶음", "경미", "전화해결"):
+        assert _w not in _code, (
+            "화면이 낱말 '%s' 를 직접 적는다 — 정본(as_grade)의 사본이 둘이 된다([162])" % _w)
+
+    print("  [525] 돌발AS 대응등급 A/B/C — 배지·차례·사유필수·DB전용칸 \u2705")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -50275,6 +50404,7 @@ if __name__ == "__main__":
     t522_timeout_says_share_state()
     t523_round_does_not_yield_to_itself()
     t524_login_retries_like_the_rest_of_the_app()
+    t525_as_grade_badge()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
