@@ -26,6 +26,10 @@ import glob
 import os
 import subprocess
 import sys
+import time
+import io
+import json
+import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -41,6 +45,45 @@ KIND_LABEL = {
     "receivable": "거래처별채권", "collect": "수금현황", "quote": "견적서",
     "purchase": "구매조회", "unknown": "기타",
 }
+
+
+# ── 진도 자국 ──────────────────────────────────────────────────────────
+# 2026-09-09 실사고: 이 단계가 29분을 쓰고 시간초과(1800s)로 끊겼는데
+# **어디에 썼는지 물을 데가 없었다**. 자식 stdout 은 파이프에 물리면 블록
+# 버퍼라 죽을 때 버퍼째 사라지고([427]), 그래서 남은 것이 종료코드뿐이었다.
+# ★ 죽어도 남는다. 그게 요점이다([180]).
+TRACE = os.path.join(ROOT, "reports", ".erp_pdf_진행.json")
+_TRACE_EVERY_S = 5.0   # 상한은 개수가 아니라 **시간**으로 정한다([437])
+_TRACE = {"때": "", "시작": "", "구간": "", "구간초": 0.0,
+          "원본": 0, "본파일": 0, "대상": 0,
+          "분류초": 0.0, "폴더초": 0.0, "대조초": 0.0, "pid": os.getpid()}
+_SEG_T0 = [0.0]
+_LAST = [0.0]
+
+
+def _note(force=False):
+    """자국 하나로 이 단계를 죽이지 않는다 — 못 남겨도 PDF 는 계속 만든다."""
+    now = time.time()
+    if not force and now - _LAST[0] < _TRACE_EVERY_S:
+        return
+    _LAST[0] = now
+    _TRACE["때"] = datetime.datetime.now().isoformat(timespec="seconds")
+    _TRACE["구간초"] = round(now - _SEG_T0[0], 1)
+    try:
+        tmp = TRACE + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_TRACE, f, ensure_ascii=False)
+        os.replace(tmp, TRACE)          # 반쪽 파일을 안 남긴다([171])
+    except Exception:
+        pass
+
+
+def _seg(name):
+    if not _TRACE["시작"]:
+        _TRACE["시작"] = datetime.datetime.now().isoformat(timespec="seconds")
+    _SEG_T0[0] = time.time()
+    _TRACE["구간"] = name
+    _note(True)
 
 
 def _sources():
@@ -119,18 +162,39 @@ def _convert(pairs):
 
 
 def run(force=False, quiet=False):
+    # ★ 세 갈래를 갈라 잰다 — 조치가 갈래마다 다르다([289]).
+    #   분류초 = _target() 안 inbox_scan.classify_cached (캐시가 빗나가면 Z: 워크북을 연다)
+    #   폴더초 = os.makedirs · 대조초 = exists + getmtime
+    _seg("원본 목록 만들기(glob)")
     srcs = _sources()
+    _TRACE["원본"] = len(srcs)
+    _seg("고를 것 가리기")
     pairs = []
-    for src in srcs:
+    for i, src in enumerate(srcs):
+        t = time.time()
         dst = _target(src)
+        _TRACE["분류초"] = round(_TRACE["분류초"] + time.time() - t, 1)
+        t = time.time()
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        if not force and os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        _TRACE["폴더초"] = round(_TRACE["폴더초"] + time.time() - t, 1)
+        t = time.time()
+        skip = (not force and os.path.exists(dst)
+                and os.path.getmtime(dst) >= os.path.getmtime(src))
+        _TRACE["대조초"] = round(_TRACE["대조초"] + time.time() - t, 1)
+        _TRACE["본파일"] = i + 1
+        _note()
+        if skip:
             continue
         pairs.append((src, dst))
+    _TRACE["대상"] = len(pairs)
+    _seg("PDF 변환(Excel 띄우기)")
     made = _convert(pairs)
+    _seg("끝")
     ok = sum(1 for _, d in pairs if os.path.exists(d))
     if not quiet:
         print(f"ERP PDF 사본 — 원본 {len(srcs)}개 · 대상 {len(pairs)}개 · 생성 {ok}개")
+        print(f"  구간초 — 분류 {_TRACE['분류초']} · 폴더 {_TRACE['폴더초']}"
+              f" · 대조 {_TRACE['대조초']} (자국 {TRACE})")
         for _, d in pairs[:8]:
             mark = "✓" if os.path.exists(d) else "✗"
             print(f"  {mark} {os.path.basename(d)}")
