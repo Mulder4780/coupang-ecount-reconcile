@@ -8671,6 +8671,11 @@ function renderWorkTab(k){
   $(k+'Toolbar').insertAdjacentHTML('beforeend',
     // 신규 등록 — 예전에는 류지영 업무센터로 로그인해야만 있는 길이었다(2026-08-10 지시).
     `<button class="abtn primary wt-new" onclick="openNewWork('${k}')">+ 신규 ${k==='pm'?'점검':'접수'} 등록</button>`+
+    /* 대표 보고 — 등급·권역 통계 캡처·엑셀 (2026-09-09 형님 지시).
+       ★ 돌발AS 에만 붙인다([172]) — 정기점검에는 대응등급이 없다.
+       ★ 그리는 자리는 osSaveImage 하나다([162]) — 사본을 안 만든다. */
+    (k==='as' ? `<button class="abtn" onclick="agSaveImage()" title="대표 보고용 등급·권역 통계 이미지">등급·권역 캡처</button>`
+              + `<button class="abtn" onclick="agSaveXlsx()" title="건별 엑셀 — 추천은 참고 칸에 따로 담습니다">등급·권역 엑셀</button>` : '')+
     `<button class="abtn ${st.quick==='late'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='late'?"''":"'late'"})">지연 ${nLate}</button>`+
     `<button class="abtn ${st.quick==='day'?'primary':''}" onclick="wtSet('${k}','quick',${st.quick==='day'?"''":"'day'"})">기준일 ${nDue}</button>`+
     `<button class="abtn ${st.board?'primary':''}" onclick="wtSet('${k}','board',${!st.board})">${st.board?'목록으로':'기사별 보드'}</button>`+
@@ -10249,8 +10254,98 @@ function osReportBlocks(){
      뒤가 조용히 잘리는데 받아 본 사람은 그것이 전부인 줄 안다.
    ★ 색은 테마 토큰을 안 쓴다([375]) - 흰 종이에 그리는 그림이라 어두운 화면에서
      토큰을 쓰면 보고서가 깨진다. 글꼴만 uiFont() 로 화면과 맞춘다([126]). */
-async function osSaveImage(){
-  const B=osReportBlocks();
+/* 대표 보고용 **대응등급·권역 통계** (2026-09-09 형님 지시
+   "대표한테 통계 보고를 해야되는데 캡처 기능 및 엑셀 저장 기능 등 추가해").
+
+   대표 요구(2026-09-09 통화): "돌발 그 표시판에 이게 A인지 B인지 C인지 떠야 된다는
+   겁니다" · "B단계는 모아서 가면 되는 거야" — 그래서 등급과 **권역**을 같이 센다.
+
+   ★ 세는 자리는 gradeCounts·regionVal 한 곳이다([162]) — 화면 배지와 이 표가 서로
+     다른 숫자를 말하면 대표 보고가 그 자리에서 못 믿을 것이 된다.
+   ★★ 추천을 확정과 **섞지 않는다**([169]).  미분류 줄 옆에 '추천 있음 N건'으로
+      따로 적는다 — 섞으면 대표가 기계 짐작을 사람이 정한 것으로 읽는다.
+   ★ 못 받았으면 0 이라 하지 않는다([169]) — 자료가 없으면 그림을 아예 안 만든다. */
+function agStatRows(){
+  const rows = (typeof works !== 'undefined' && works.as) || [];
+  return rows.filter(r => r && !String(r.진행상태||'').includes('취소'));
+}
+function agReportBlocks(){
+  const rows = agStatRows();
+  if(!rows.length) return null;
+  const B = [], n = rows.length, stamp = new Date().toLocaleString('ko-KR');
+  const pct = v => n ? Math.round(v*1000/n)/10 + '%' : '-';
+  B.push(['h1','돌발AS 대응등급 · 권역 현황']);
+  B.push(['sub','총 ' + n + '건 · 기준 ' + stamp]);
+
+  /* 등급 — gradeCounts 가 확정만 센다(추천은 안 센다). */
+  const gc = gradeCounts(rows);
+  const hint = rows.filter(r => !gradeVal(r) && gradeHint(r)).length;
+  B.push(['gap',6]); B.push(['h2','대응등급']);
+  B.push(['thead',['등급','건수','비율','뜻']]);
+  const NOTE = {'A긴급':'즉시 출동','B일반':'모아서 간다','C전화':'전화로 해결',
+                '미분류':'아직 사람이 안 정함'};
+  gc.forEach(e => B.push(['trow',[e[0], e[1]+'건', pct(e[1]), NOTE[e[0]]||'']]));
+  B.push(['trow',['합계', n+'건','','']]);
+  if(hint) B.push(['bullet','· 미분류 중 ' + hint + '건은 증상 글로 추천이 나와 있습니다 '
+                          + '— 추천일 뿐이라 저장되지 않았고, 앱에서 고르시면 그때 확정됩니다.']);
+
+  /* 권역 — B등급을 어떻게 묶을지가 이 표의 쓸모다. */
+  const REG = new Map();
+  rows.forEach(r => {
+    const k = regionVal(r) || '미분류', g = gradeVal(r) || '미분류';
+    if(!REG.has(k)) REG.set(k, {전체:0,'A긴급':0,'B일반':0,'C전화':0,'미분류':0});
+    const o = REG.get(k); o.전체++; if(o[g]!==undefined) o[g]++;
+  });
+  const keys = Array.from(REG.keys()).sort((a,b)=>{
+    if(a==='미분류') return 1; if(b==='미분류') return -1;
+    return REG.get(b).전체 - REG.get(a).전체; });
+  B.push(['gap',10]); B.push(['h2','권역 — 같은 권역끼리 묶어 갑니다 (B등급)']);
+  B.push(['thead',['권역','전체','A긴급','B일반','C전화','미분류']]);
+  keys.forEach(k => { const o = REG.get(k);
+    B.push(['trow',[k, o.전체+'건', o['A긴급']||'', o['B일반']||'', o['C전화']||'', o['미분류']||'']]); });
+
+  B.push(['gap',10]);
+  B.push(['foot','등급은 사람이 고릅니다 — 기계가 매기지 않습니다. 미분류는 아직 안 정한 것입니다.']);
+  B.push(['foot','권역 미분류는 캠프명·주소로 못 가른 것입니다 — 없는 권역이라는 뜻이 아닙니다.']);
+  return B;
+}
+async function agSaveImage(){
+  const B = agReportBlocks();
+  if(!B){ notice('돌발AS 자료를 못 받아 이미지를 만들지 않았습니다 — 건이 없다는 뜻이 아닙니다.'); return; }
+  await osSaveImage(B, '돌발AS_등급권역_'+todayISO()+'.png', '대표 보고 이미지를 저장했습니다');
+}
+function agSaveXlsx(){
+  const rows = agStatRows();
+  if(!rows.length){ notice('내보낼 돌발AS 가 없습니다.'); return; }
+  const stamp = new Date().toLocaleString('ko-KR');
+  /* ★ 엑셀은 **건별**로 낸다 — 대표가 눌러서 그 건을 찾을 수 있어야 한다.
+     캡처는 요약이고 엑셀은 근거다.  빈 칸을 안 남긴다([327]) — 엑셀에서 빈 칸은
+     '없다'인지 '못 찾았다'인지 구별이 안 된다. */
+  const V = v => { const s = String(v==null?'':v).trim(); return s || '모름'; };
+  exportRowsXlsx('돌발AS_등급권역', rows.map(r => ({
+    '프로젝트NO': V(r.프로젝트NO), '캠프명': V(r.캠프명),
+    '권역': regionVal(r) || '미분류',
+    '대응등급': gradeVal(r) || '미분류',
+    '대응유형': V(r.대응유형),
+    '등급사유': V(r.등급사유),
+    '추천등급(참고 · 저장 안 됨)': gradeHint(r) || '없음',
+    '추천근거': V(r.추천근거),
+    '신청내용': V(r.신청내용),
+    '진행상태': V(r.진행상태), '담당기사': V(r.담당기사),
+    '접수일': V(r.접수일 || r.게시일), '작업완료일': V(r.작업완료일),
+  })), { columns: ['프로젝트NO','캠프명','권역','대응등급','대응유형','등급사유',
+                   '추천등급(참고 · 저장 안 됨)','추천근거','신청내용','진행상태',
+                   '담당기사','접수일','작업완료일'],
+         meta: { title: '돌발AS 대응등급 · 권역 현황',
+                 sub: '총 ' + rows.length + '건 · 기준 ' + stamp
+                      + ' · 등급은 사람이 고른 것만 담았습니다(추천은 참고 칸)' } });
+  uxEvent('tap','as-grade-xlsx');
+}
+async function osSaveImage(B0, fname, msg){
+  /* 블록을 **인자로 받는다** — 그리는 자리를 새로 만들면 사본이 둘 되고,
+     갈린 뒤에는 어느 그림이 맞는지 아무도 모른다([162]).
+     ★ 안 주면 예전과 한 톨도 안 바뀐다([172]). */
+  const B=B0||osReportBlocks();
   if(!B){ notice('통계를 못 받아 이미지를 만들지 않았습니다 — 미처리가 없다는 뜻이 아닙니다.'); return; }
   const W=920, PAD=28, FONT=uiFont(), CX=[28,330,430,540,660,790];
   const m=document.createElement('canvas').getContext('2d');
@@ -10301,8 +10396,8 @@ async function osSaveImage(){
   });
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
   if(!blob){ notice('이미지 생성 실패'); return; }
-  saveOrOpen(blob,'미처리통계_'+todayISO()+'.png');
-  toast('미처리 통계 이미지를 저장했습니다'); uxEvent('tap','open-stats-capture');
+  saveOrOpen(blob, fname || ('미처리통계_'+todayISO()+'.png'));
+  toast(msg || '미처리 통계 이미지를 저장했습니다'); uxEvent('tap','open-stats-capture');
 }
 /* 엑셀도 같은 순서다 - `meta.sub` 에 그 말을 실어 파일 **맨 위**에 적는다([327]).
    파일 이름은 카톡으로 넘어가며 잘리므로 이름만으로는 근거가 못 된다. */
