@@ -5464,11 +5464,21 @@ def _add_grade_hint(rows):
                 continue
             if str(_r.get("대응등급") or "").strip():
                 continue                      # 사람이 이미 골랐다 - 안 건드린다
-            _s = _as_grade.suggest(_r.get("신청내용") or "")
+            # ★ 여러 칸을 순서대로 훑는다 - 접수 글이 먼저다(as_grade.HINT_COLS).
+            #   실측 v632: 신청내용 한 칸이면 113건, 이 표면 242건([67]).
+            _s = _as_grade.suggest_row(_r)
             if _s.get("등급") and _s["등급"] != _as_grade.GRADE_UNSET:
                 _r["추천등급"] = _s["등급"]
                 _r["추천유형"] = _s.get("유형") or ""
                 _r["추천근거"] = ((_s.get("낱말") or "") + " - " + (_s.get("왜") or "")).strip(" -")
+                # ★ **어느 칸에서 나왔나**를 같이 담는다([169]).  `실제작업상세` 처럼
+                #   작업이 끝난 뒤 적는 글에서 나온 추천을 접수 시점 판단으로 읽으면
+                #   안 되기 때문이다 - 화면이 이 값을 보고 그 사실을 말한다.
+                _r["추천출처"] = _s.get("칸") or ""
+                # ★ 화면이 칸 이름을 적지 않게 **여기서 가른다**([162]).
+                #   화면은 이 값을 세기만 한다.
+                if _as_grade.HINT_COL_WHEN.get(_s.get("칸") or "") == "작업 뒤":
+                    _r["추천작업뒤"] = True
     except Exception:        # noqa: BLE001 - 파생 하나로 목록을 죽이지 않는다
         pass
     return rows
