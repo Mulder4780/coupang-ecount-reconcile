@@ -43894,7 +43894,21 @@ def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
     assert "GetForegroundWindow" in guard and "ProcessName -ne 'chrome'" in guard
     assert "OmniboxViewViews" in guard and "ValuePattern" in guard, \
         "웹페이지 입력칸을 주소창으로 오인할 수 있다"
-    assert "Host.ToLowerInvariant() -eq $site.Host" in guard
+    # ★ 호스트 비교는 **계약**으로 잰다([219]) — 옛 글자
+    #   `Host.ToLowerInvariant() -eq $site.Host` 를 못 박아 뒀더니, 옆 세션이
+    #   2026-09-09 실측으로 가드를 고치자(크롬이 'www.' 를 숨겨 band.us 로도 온다 ·
+    #   커밋 cb344184) **계약은 한 톨도 안 깨졌는데 이 검사만 죽었다**.
+    #   재려는 것 셋: 대소문자를 맞춰 대나 · 주소창 호스트를 보나 ·
+    #   허용 목록 밖 도메인을 안 받나(넓힌 것이 밴드 두 표기뿐인가 · [172]).
+    assert "ToLowerInvariant()" in guard, "호스트를 대소문자 맞춰 비교하지 않는다"
+    assert "$Uri.Host" in guard, "주소창 호스트를 안 본다"
+    _hosts = _re269.findall(r"Host\s*=\s*'([^']+)'", guard)
+    _hosts += [_h for _m in _re269.findall(r"Hosts\s*=\s*@\(([^)]*)\)", guard)
+               for _h in _re269.findall(r"'([^']+)'", _m)]
+    _hosts = sorted(set(_h.lower() for _h in _hosts))
+    assert _hosts, "허용 호스트를 한 개도 못 읽었다"
+    assert all(_h == "band.us" or _h == "www.band.us" or _h == "loginab.ecount.com"
+               for _h in _hosts), "허용 호스트에 밴드·ERP 밖 도메인이 있다: " + repr(_hosts)
     assert "$path -eq $expectPath" in guard and "$Uri.Scheme -eq 'https'" in guard
 
     for src, name in ((inject, "inject_here"), (find_tab, "inject_find_tab"),
