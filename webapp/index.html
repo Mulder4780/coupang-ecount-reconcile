@@ -8531,6 +8531,7 @@ function wtState(k){
   const base=/^2026-\d{2}-\d{2}$/.test(String(cur.base||'')) ? cur.base : wtToday();
   WT[k]=Object.assign({q:'',st:'',tech:'',board:false,quick:'',dateMode:'',
     span:'',from:'',to:'',
+    grade:'',region:'',
     base,sortBy:cfg.dateCol,sortOrder:'desc'},cur,{base});
   if(WT[k].quick==='today') WT[k].quick='day';
   if(!cfg.sorts.some(x=>x[0]===WT[k].sortBy)) WT[k].sortBy=cfg.dateCol;
@@ -8598,6 +8599,35 @@ function wtSpanRange(k){
   if(!from) return null;
   return {from,to,days:n,label:(WT_SPANS.find(x=>x[0]===st.span)||['','',0])[1]};
 }
+/* 등급·권역 필터의 **선택지**를 자료에서 뽑는다 (2026-09-09 형님 지시).
+   ★ 낱말을 화면이 적지 않는다([162]) - 지금 목록에 실제로 있는 값만 나온다.
+   ★ 돌발AS 가 아니거나 판정 함수가 없으면 **빈 배열**을 돌려주고, 그러면
+     부르는 쪽이 select 를 아예 안 그린다([172]·[310] - 눌러도 아무 일이 없는
+     손잡이를 만들지 않는다).
+   ★ 배열 하나를 감싸 돌려주는 이유: 부르는 쪽이 `.map(...).join('')` 로
+     **있으면 그리고 없으면 안 그린다**를 한 줄로 쓴다. */
+function wtGradeOpts(k,rows){
+  if(k!=='as' || typeof gradeVal!=='function') return [];
+  const m=new Map();
+  (rows||[]).forEach(r=>{
+    const c=gradeVal(r), h=(typeof gradeHint==='function'?gradeHint(r):'');
+    const g=(c||h)||'미분류', e=m.get(g)||{c:0,h:0};
+    if(c) e.c++; else if(h) e.h++;
+    m.set(g,e);
+  });
+  const out=[...m.entries()].sort((x,y)=>
+    x[0]==='미분류'?1 : y[0]==='미분류'?-1 : (x[0]<y[0]?-1:1));
+  return out.length?[out]:[];
+}
+function wtRegionOpts(k,rows){
+  if(k!=='as' || typeof regionVal!=='function') return [];
+  const m=new Map();
+  (rows||[]).forEach(r=>{ const g=regionVal(r)||'미분류'; m.set(g,(m.get(g)||0)+1); });
+  /* 건수 많은 순 - 수도권처럼 큰 권역이 먼저 온다.  미분류는 맨 뒤다. */
+  const out=[...m.entries()].sort((x,y)=>
+    x[0]==='미분류'?1 : y[0]==='미분류'?-1 : y[1]-x[1]);
+  return out.length?[out]:[];
+}
 function wtFiltered(k){
   const cfg=WT_CFG[k], st=wtState(k), q=st.q.toLowerCase(), sp=wtSpanRange(k);
   return cfg.rows().filter(r=>{
@@ -8610,6 +8640,19 @@ function wtFiltered(k){
     return true;
   }).filter(r=>{
     if(st.st && wtStatus(k,r)!==st.st) return false;
+    /* 등급·권역으로 거른다 (2026-09-09 형님 지시).
+       ★ 확정이 없으면 **추천으로** 거른다 - 지금 확정이 0건이라 확정만 보면
+         언제나 빈 목록이고 그것은 고장으로 읽힌다([169]).
+       ★ 판정은 gradeVal·gradeHint·regionVal 한 곳에서 온다([162]) - 화면이
+         등급 낱말을 제 손으로 적으면 사본이 둘이 되어 갈린다.
+       ★ 그 함수를 못 찾으면 **안 거른다**([169]) - 모름을 '거름'으로 치면
+         목록이 통째로 비어 자료가 없는 것처럼 보인다. */
+    if(st.grade && typeof gradeVal==='function'){
+      if(((gradeVal(r)||gradeHint(r))||'미분류')!==st.grade) return false;
+    }
+    if(st.region && typeof regionVal==='function'){
+      if((regionVal(r)||'미분류')!==st.region) return false;
+    }
     if(st.tech==='__none' ? String(r.담당기사||'').trim() :
        (st.tech && !String(r.담당기사||'').includes(st.tech))) return false;
     if(q && ![r.프로젝트NO,r.캠프명,r.담당기사,r[cfg.idCol],r.신청내용]
@@ -8675,6 +8718,16 @@ function renderWorkTab(k){
     `<input class="wt-search" aria-label="검색" placeholder="검색: 프로젝트NO·캠프·기사·내용" value="${esc2(st.q)}" oninput="wtSet('${k}','q',this.value)">`+
     `<select aria-label="상태 필터" onchange="wtSet('${k}','st',this.value)"><option value="">상태 전체</option>${stats.map(s=>`<option ${st.st===s?'selected':''}>${esc2(s)}</option>`).join('')}</select>`+
     `<select aria-label="담당기사 필터" onchange="wtSet('${k}','tech',this.value)"><option value="">기사 전체</option><option value="__none" ${st.tech==='__none'?'selected':''}>미배정만</option>${techs.map(t=>`<option ${st.tech===t?'selected':''}>${esc2(t)}</option>`).join('')}</select>`+
+    /* 등급·권역 필터 - **돌발AS 에만** 붙는다([172]).  정기점검에는 대응등급이 없어
+       옵션이 빈 배열이 되고 그러면 select 자체를 안 그린다.
+       ★ 라벨이 확정과 추천을 **갈라 적는다**([169]) - 한 칸에 섞으면 아직 아무도
+         안 정한 것을 정해진 것으로 읽는다. */
+    wtGradeOpts(k,all).map(g=>
+      `<select aria-label="대응등급 필터" onchange="wtSet('${k}','grade',this.value)"><option value="">등급 전체</option>${g.map(([v,e])=>
+      `<option value="${esc2(v)}" ${st.grade===v?'selected':''}>${esc2(v)} ${e.c}건${e.h?' · 추천 '+e.h:''}</option>`).join('')}</select>`).join('')+
+    wtRegionOpts(k,all).map(g=>
+      `<select aria-label="권역 필터" onchange="wtSet('${k}','region',this.value)"><option value="">권역 전체</option>${g.map(([v,n])=>
+      `<option value="${esc2(v)}" ${st.region===v?'selected':''}>${esc2(v)} ${n}건</option>`).join('')}</select>`).join('')+
     `<select class="wt-date-filter" aria-label="기준일 범위" onchange="wtSet('${k}','dateMode',this.value)">
       <option value="" ${!st.dateMode?'selected':''}>예정일 전체</option>
       <option value="day" ${st.dateMode==='day'?'selected':''}>기준일 당일</option>
@@ -8765,7 +8818,7 @@ function wtSetBase(k,value){
 function wtReset(k){
   const cur=wtState(k), cfg=WT_CFG[k];
   WT[k]={q:'',st:'',tech:'',board:cur.board,quick:'',dateMode:'',
-    span:'',from:'',to:'',base:cur.base,
+    span:'',from:'',to:'',base:cur.base,grade:'',region:'',
     sortBy:cfg.dateCol,sortOrder:'desc'};
   WT_RENDER_LIMIT[k]=WT_RENDER_STEP; wtSave(); renderWorkTab(k);
 }
