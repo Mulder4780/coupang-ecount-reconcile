@@ -10235,6 +10235,20 @@ def t145_redirect_deleted_needs_two_rounds():
     assert keep["10"]["created_at"] == 123 and not keep["10"].get("deleted"), \
         "받아 둔 진짜 글에 묘비를 덮어씌운다 — 되돌릴 수 없다"
 
+    # ⑥-2 실제로 받아 둔 최대 번호 **위**에는 묘비를 안 세운다 (2026-09-09 실사고).
+    #   8/31 에 아직 안 생긴 3550~3554 를 세 번 찔러 매번 리다이렉트가 났고 그것으로
+    #   묘비가 섰는데, 9/4 에 진짜 글이 그 번호로 올라와 영영 안 긁혔다(형님이 밴드
+    #   캡처로 반증하셨다). `missing` 갈래는 2026-08-31 에 이미 이 문을 세웠는데
+    #   redirect 갈래만 안 따라왔다([300]).
+    ahead = {"3551": {"created_at": 1, "content": "진짜 글"}}
+    assert C._mark_redirect_deleted("b", ahead, {3560: {1000, 2000}}) == 0, \
+        "아직 안 생긴 번호(받아 둔 최대 위)에 묘비를 세운다 — 그 번호로 진짜 글이 올라온다"
+    assert "3560" not in ahead, "앞찌르기 번호에 자국을 남겼다"
+    #   최대 번호 **아래**는 한 글자도 안 바뀐다 — 좁히는 것도 고장이다([172]).
+    below = {"3551": {"created_at": 1, "content": "진짜 글"}}
+    assert C._mark_redirect_deleted("b", below, {3540: {1000, 2000}}) == 1, \
+        "받아 둔 최대 아래인데 묘비를 안 세운다 — 이 묘비의 원래 목적이 사라진다"
+
     # ⑦ 묘비를 세우면 다음 계획의 '구멍'에서 실제로 빠지는가(이게 [13]의 목적이다).
     spec2 = importlib.util.spec_from_file_location(
         "_rp_t145", os.path.join(ROOT, "band", "recheck_plan.py"))
