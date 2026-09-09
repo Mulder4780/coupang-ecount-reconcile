@@ -35706,6 +35706,69 @@ def t526_as_grade_report_capture_and_xlsx():
     assert _g2.get("미분류") != "3건", (
         "[526] 계기가 눈멀었다 — 추천을 확정으로 세는 옛 동작에서도 통과한다([272])")
 
+    # ── 밴드·카톡 글 추천 갈래 (2026-09-09 형님 지시 "카톡·밴드 텍스트 참고") ──
+    # 실측 v632: 관리대장 `신청내용` 은 대부분 서류 메모라 등급이 잘 안 나오고
+    # **진짜 증상은 밴드 접수 글**에 있다 — 추천 242 → 485건([67]).
+    # ★ 글자로는 '정말 먼저 보는가'를 못 잰다 — **불러서** 잰다([295]).
+    import importlib
+    _ag = importlib.import_module("as_grade")
+
+    # (a) 밴드 글은 **접수** 글이다 — 화면이 '작업 뒤'라 말하면 그 자체가 거짓이다([169])
+    assert _ag.HINT_COL_WHEN.get(_ag.BAND_HINT_KEY) == "접수", (
+        "[526] 밴드·카톡 글을 '작업 뒤'로 적었다 — "
+        "그것은 접수 글이다([169])")
+
+    # (b) 관리대장 접수 칸이 밴드보다 **먼저**다 — 우리 원장에 적힌 값이 원래 근거다
+    _b1 = _ag.suggest_row({"신청내용": "리모컨 교체"},
+                          extra="도어락 파손")
+    assert _b1["칸"] == "신청내용", (
+        "[526] 접수 칸이 밴드보다 먼저여야 한다: %s" % _b1["칸"])
+
+    # (c) 밴드 글이 **작업 뒤 칸보다 먼저**다 — 이것이 이 갈래의 핵심이다.
+    #     `실제작업상세` 는 작업이 끝난 뒤 적는 글이라 접수 시점 등급이 아니다.
+    _b2 = _ag.suggest_row({"실제작업상세": "리모컨 교체"},
+                          extra="도어락 파손")
+    assert _b2["칸"] == _ag.BAND_HINT_KEY, (
+        "[526] 밴드 글이 작업 뒤 칸보다 먼저여야 한다: %s" % _b2["칸"])
+    assert _b2["등급"] == "A긴급", "[526] 밴드 글 등급이 안 따라왔다"
+
+    # (d) `extra` 가 없으면 **예전 그대로**다([172] — 좁히는 것도 고장이다).
+    #     ★ 이것이 곧 "밴드 색인을 못 읽었을 때"의 길이다 — `_add_grade_hint` 는
+    #       색인이 죽으면 `_sym = {}` 라 `extra` 에 빈 문자열을 넘긴다.
+    _b3 = _ag.suggest_row({"실제작업상세": "리모컨 교체"})
+    assert _b3["칸"] == "실제작업상세", (
+        "[526] extra 없는 길이 예전과 다르다: %s" % _b3["칸"])
+    _b4 = _ag.suggest_row({"실제작업상세": "리모컨 교체"}, extra="")
+    assert _b4["칸"] == "실제작업상세", "[526] 빈 extra 가 칸을 바꿨었다"
+
+    # (e) 아무 근거도 없으면 미분류이고 칸이 빈 문자열이다 — 지어내지 않는다([169])
+    _b5 = _ag.suggest_row({}, extra="")
+    assert _b5["칸"] == "" and _b5["등급"] == _ag.GRADE_UNSET, (
+        "[526] 근거가 없는데 등급을 지어냈다([169])")
+
+    # (f) 계기 자기시험([272]) — 밴드를 **맨 뒤**에 두던 옛 동작이면 (c)가 잡히나.
+    #     ★ 진짜 as_grade.py 는 한 글자도 안 건드린다([247]) — 소스를 읽어 exec 로만 잰다.
+    _agp = os.path.join(ROOT, "as_grade.py")
+    with open(_agp, encoding="utf-8") as _fh:
+        _asrc = _fh.read()
+    _old_seq = (
+        '    seq = [(c, row.get(c) or "") for c in HINT_COLS if HINT_COL_WHEN.get(c) == "접수"]\n'
+        '    if extra:\n'
+        '        seq.append((BAND_HINT_KEY, extra))\n'
+        '    seq += [(c, row.get(c) or "") for c in HINT_COLS if HINT_COL_WHEN.get(c) != "접수"]\n')
+    _new_seq = (
+        '    seq = [(c, row.get(c) or "") for c in HINT_COLS]\n'
+        '    if extra:\n'
+        '        seq.append((BAND_HINT_KEY, extra))\n')
+    _bad_src = _asrc.replace(_old_seq, _new_seq, 1)
+    assert _bad_src != _asrc, "[526] 자기시험 재료가 안 바뀌었다 — 아무것도 안 재다([272])"
+    _bad_ns = {"__file__": _agp, "__name__": "as_grade_t526bad"}
+    exec(compile(_bad_src, _agp, "exec"), _bad_ns)
+    _bb = _bad_ns["suggest_row"]({"실제작업상세": "리모컨 교체"},
+                                 extra="도어락 파손")
+    assert _bb["칸"] != _ag.BAND_HINT_KEY, (
+        "[526] 계기가 눈멘다 — 밴드를 맨 뒤에 두는 옛 동작에서도 통과한다([272])")
+
     print(chr(9989) + " [419] 돌발AS 등급·권역 통계 — 기간·차량충돌·추천 나란히 [526]")
 
 
