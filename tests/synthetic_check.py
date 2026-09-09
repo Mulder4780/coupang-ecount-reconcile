@@ -43909,7 +43909,13 @@ def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
     assert _hosts, "허용 호스트를 한 개도 못 읽었다"
     assert all(_h == "band.us" or _h == "www.band.us" or _h == "loginab.ecount.com"
                for _h in _hosts), "허용 호스트에 밴드·ERP 밖 도메인이 있다: " + repr(_hosts)
-    assert "$path -eq $expectPath" in guard and "$Uri.Scheme -eq 'https'" in guard
+    # https 는 그대로 얼린다 - 되돌아가면 안 되는 사실이다([39]).
+    assert "$Uri.Scheme -eq 'https'" in guard, "https 가 아닌 주소를 받는다"
+    # * 경로 비교도 **계약**으로 잰다([219]) - 옆 세션이 호스트와 같이 목록으로
+    #   넓혔다(`$path -eq $expectPath` -> `$expect -contains $path` · 커밋 cb344184).
+    #   재려는 것은 '주소창 경로를 허용 목록과 대 보나' 이지 그때 쓴 연산자가 아니다.
+    assert "$path =" in guard, "주소창 경로를 안 만든다"
+    assert (("-contains $path" in guard) or ("$path -eq" in guard)), "주소창 경로를 허용 목록과 대 보지 않는다"
 
     for src, name in ((inject, "inject_here"), (find_tab, "inject_find_tab"),
                       (collect, "collect_step"), (focus, "focus_collect_tab")):
