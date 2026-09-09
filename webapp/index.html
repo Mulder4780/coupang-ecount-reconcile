@@ -2282,7 +2282,8 @@ body.ryu-mode .tabbar button[data-v="report"]{display:none}
 /* 확인 단추 — 마크업만 넣고 규칙을 안 만들면 브라우저 기본 회색 글자가 되어
    **누를 수 있는 줄 모른다**([310]).  2026-09-09 형님 캡처가 정확히 그 자리다.
    ⚠ 굳은 색을 안 쓴다([332]) — 밝은 화면·어두운 화면이 각자 맞는 값을 받는다. */
-.notice-item .notice-ack{margin-top:9px;padding:7px 14px;min-height:34px;
+.notice-item .notice-ack{display:inline-flex;align-items:center;justify-content:center;
+  margin-top:9px;padding:7px 14px;min-height:34px;white-space:nowrap;
   border:1.5px solid var(--brand);border-radius:9px;background:var(--surface);
   color:var(--brand);font-size:0.8125rem;font-weight:800;cursor:pointer;line-height:1.2}
 .notice-item .notice-ack:hover{background:var(--brand);color:var(--surface)}
