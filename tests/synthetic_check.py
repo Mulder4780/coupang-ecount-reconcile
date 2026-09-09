@@ -35488,6 +35488,167 @@ console.log(JSON.stringify(out));
     print("  [525] 돌발AS 대응등급 A/B/C · 권역 — 배지·차례·사유필수·DB전용칸 \u2705")
 
 
+def t526_as_grade_report_capture_and_xlsx():
+    """돌발AS 등급·권역 통계 — 추천을 확정과 섞지 않는다 (2026-09-09 형님 지시).
+
+    * 형님 지시: "대표한테 통계 보고를 해야되는데 캡처 기능 및 엑셀 저장 기능 등 추가해".
+      대표 요구(통화): "돌발 그 표시판에 이게 A인지 B인지 C인지 떠야 된다" ·
+      "B단계는 모아서 가면 되는 거야" — 그래서 등급과 **권역**을 같이 센다.
+    * ★★ 재는 것은 **추천이 확정으로 안 새는가** 하나가 제일 크다(`[169]`) —
+      기계 짐작이 대표 보고에 확정으로 실리면 그것은 되돌릴 수 없다.
+    * ★ 취소된 건은 아무도 안 간다 — 통계에 세면 대표가 없는 일을 읽는다(`[243]`).
+    * 글자로는 '취소가 정말 빠지나'도 '빈 칸이 없나'도 못 잰다 — 실행으로 잰다(`[295]`).
+    """
+    import json as _j
+    import tempfile
+
+    live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+
+    def _fn(name):
+        """JS 함수 한 덩어리 — `_t303_enclosing_func` 은 파이썬 전용이라 여기선 못 쓴다."""
+        for head in ("async function " + name + "(", "function " + name + "("):
+            i = live.find(head)
+            if i < 0:
+                continue
+            depth, started = 0, False
+            for k in range(i, len(live)):
+                if live[k] == "{":
+                    depth += 1
+                    started = True
+                elif live[k] == "}":
+                    depth -= 1
+                    if started and depth == 0:
+                        return live[i:k + 1]
+        return ""
+
+    for _n in ("agStatRows", "agReportBlocks", "agSaveXlsx", "gradeCounts"):
+        assert _fn(_n), "[526] %s 를 못 찾았다 — 검사가 눈멀었다([169])" % _n
+
+    # ── A. 그리는 자리를 새로 만들지 않았다(`[162]`) ────────────────────────
+    assert "osSaveImage(B," in _fn("agSaveImage"), (
+        "[526] 캡처가 osSaveImage 를 안 빌린다 — 그리는 자리가 둘이 되면"
+        " 갈린 뒤에 어느 그림이 맞는지 아무도 모른다([162])")
+    _os = _fn("osSaveImage")
+    assert "B0||osReportBlocks()" in _os.replace(" ", ""), (
+        "[526] osSaveImage 가 인자를 안 주면 예전 그대로여야 한다([172])")
+
+    # ── B. 툴바 단추는 돌발AS 에만(`[172]`) ────────────────────────────────
+    #   정기점검에는 대응등급이 없다 — 붙이면 눌러도 아무 일이 없는 단추가 된다([348]).
+    _bar = live[live.find("openNewWork('${k}')"):][:1200]
+    _i_gate, _i_btn = _bar.find("k==='as'"), _bar.find("agSaveImage()")
+    assert 0 <= _i_gate < _i_btn, "[526] 등급·권역 단추가 as 갈래 밖에 있다([172])"
+    assert _bar.find("agSaveXlsx()") < _bar.find("wtSet('${k}','quick'", _i_btn), (
+        "[526] 엑셀 단추가 as 갈래 밖으로 샜다")
+
+    # ── C. 실행으로 잰다(`[295]`) ──────────────────────────────────────────
+    ROWS = [
+        {"프로젝트NO": "UJ1", "캠프명": "가캠프", "대응등급": "A긴급", "권역": "수도권",
+         "진행상태": "신규접수", "담당기사": "홍기사"},
+        {"프로젝트NO": "UJ2", "캠프명": "나캠프", "대응등급": "B일반", "권역": "수도권",
+         "진행상태": "신규접수"},
+        # 추천만 있고 확정은 없다 — 이 건이 이 검사의 핵심이다
+        {"프로젝트NO": "UJ3", "캠프명": "다캠프", "권역": "영남", "추천등급": "B일반",
+         "추천근거": "소음", "진행상태": "신규접수"},
+        # 취소 — 통계에서 빠져야 한다
+        {"프로젝트NO": "UJ4", "캠프명": "라캠프", "대응등급": "A긴급", "권역": "취소권역",
+         "진행상태": "취소"},
+        # 등급도 권역도 없다 — 둘 다 미분류
+        {"프로젝트NO": "UJ5", "캠프명": "마캠프", "진행상태": "신규접수"},
+    ]
+    js = chr(10).join([
+        "const XLS=[];const SAID=[];",
+        "function notice(m){SAID.push(String(m));}",
+        "function uxEvent(){}",
+        "function todayISO(){return '2026-09-09';}",
+        "function exportRowsXlsx(name,rows,opt){XLS.push({name:name,rows:rows,opt:opt});}",
+        _fn("gradeVal"), _fn("regionVal"), _fn("gradeHint"), _fn("gradeCounts"),
+        _fn("agStatRows"), _fn("agReportBlocks"), _fn("agSaveXlsx"),
+        "var works={as:" + _j.dumps(ROWS, ensure_ascii=False) + "};",
+        "const B=agReportBlocks();const N=agStatRows().length;",
+        "agSaveXlsx();",
+        "works={as:[]};",
+        "const EMPTY=agReportBlocks();",
+        "agSaveXlsx();",
+        "console.log(JSON.stringify({B:B,EMPTY:EMPTY,XLS:XLS,SAID:SAID,"
+        "N:N}));",
+    ])
+    from proc_guard import run_tree
+    with tempfile.TemporaryDirectory() as td:
+        f = os.path.join(td, "t526.js")
+        with open(f, "w", encoding="utf-8", newline="") as fh:
+            fh.write(js)
+        r = run_tree(["node", f], timeout=60, drain_timeout=10)
+    assert r.returncode == 0, "[526] 하네스가 죽었다: %s" % (r.stderr or "")[:300]
+    o = _j.loads((r.stdout or "{}").strip().splitlines()[-1])
+
+    B, flat = o["B"], _j.dumps(o["B"], ensure_ascii=False)
+
+    # ① 취소는 안 센다 — 대표가 아무도 안 가는 현장을 미처리로 읽는다([243])
+    assert o["N"] == 4, "[526] 취소를 뺀 건수가 4가 아니다: %s" % o["N"]
+    assert "총 4건" in flat, "[526] 머리에 적힌 건수가 취소를 세고 있다"
+    assert "취소권역" not in flat, "[526] 취소된 건의 권역이 표에 들어왔다"
+    assert "UJ4" not in flat
+
+    # ② ★★ 추천을 확정과 섞지 않는다([169]) — UJ3 은 미분류로 세고 추천은 따로 적는다
+    _grade = {}
+    for kind, cells in [(x[0], x[1]) for x in B if x[0] == "trow"]:
+        if isinstance(cells, list) and len(cells) == 4:
+            _grade[cells[0]] = cells[1]
+    assert _grade.get("A긴급") == "1건" and _grade.get("B일반") == "1건", _grade
+    assert _grade.get("미분류") == "2건", (
+        "[526] 추천이 확정으로 세어졌다 — 미분류가 2건이어야 한다: %s" % _grade)
+    _bul = [x[1] for x in B if x[0] == "bullet"]
+    assert _bul and "1건" in _bul[0] and "추천" in _bul[0], (
+        "[526] 추천이 나온 건수를 따로 안 적는다 — 숨기면 '다 정해졌다'로 읽힌다([169])")
+    assert "저장되지 않았고" in _bul[0], "[526] 추천이 저장되지 않는다는 말이 없다"
+
+    # ③ 권역 미분류는 맨 뒤 — 위에 오면 제일 큰 권역으로 읽힌다
+    _reg = [x[1][0] for x in B if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 6]
+    assert _reg[:1] == ["수도권"], "[526] 권역이 건수 많은 순이 아니다: %s" % _reg
+    assert _reg[-1] == "미분류", "[526] 권역 미분류가 맨 뒤가 아니다: %s" % _reg
+    assert "없는 권역이라는 뜻이 아닙니다" in flat, (
+        "[526] 권역 미분류의 뜻을 안 적는다 — 대표가 '권역이 없다'로 읽는다([169])")
+
+    # ④ 자료가 없으면 0 이라 하지 않는다([169]) — 그림을 아예 안 만든다
+    assert o["EMPTY"] is None, "[526] 자료가 없는데 빈 통계를 그렸다([169])"
+    assert len(o["XLS"]) == 1, "[526] 자료가 없는데 엑셀을 냈다"
+    assert o["SAID"], "[526] 자료가 없을 때 아무 말도 안 한다([169])"
+
+    # ⑤ 엑셀 — 빈 칸을 안 남긴다([327]) · 추천 열이 '저장 안 됨' 이라 말한다
+    xr = o["XLS"][0]["rows"]
+    assert len(xr) == 4, "[526] 엑셀에 취소가 들어갔다: %s" % len(xr)
+    for row in xr:
+        for k, v in row.items():
+            assert str(v).strip(), "[526] 엑셀에 빈 칸이 있다(%s) — '없다'인지 '못 찾았다'인지 구별이 안 된다([327])" % k
+    _u3 = [x for x in xr if x["프로젝트NO"] == "UJ3"][0]
+    assert _u3["대응등급"] == "미분류", "[526] 엑셀에서 추천이 대응등급 칸에 샜다([169])"
+    _hint_col = [c for c in o["XLS"][0]["opt"]["columns"] if "추천등급" in c]
+    assert _hint_col and "저장 안 됨" in _hint_col[0], (
+        "[526] 추천 열 이름이 '저장 안 됨' 이라 말하지 않는다 — 대표가 확정으로 읽는다([169])")
+    assert _u3[_hint_col[0]] == "B일반", _u3
+
+    # ── 계기 자기시험(`[272]`) — 섞는 옛 동작을 넣으면 정말 잡히나 ─────────
+    _bad = js.replace("const gc = gradeCounts(rows);",
+                      "const gc = gradeCounts(rows.map(r=>gradeVal(r)?r:"
+                      "Object.assign({},r,{대응등급:gradeHint(r)})));")
+    assert _bad != js, "[526] 자기시험 재료가 안 바뀌었다 — 아무것도 안 잰다([272])"
+    with tempfile.TemporaryDirectory() as td:
+        f2 = os.path.join(td, "t526bad.js")
+        with open(f2, "w", encoding="utf-8", newline="") as fh:
+            fh.write(_bad)
+        r2 = run_tree(["node", f2], timeout=60, drain_timeout=10)
+    # ⚠ 죽으면 '문법이 깨진 것'과 '고장을 잡은 것'이 구별되지 않는다([371]) — 살아야 한다
+    assert r2.returncode == 0, "[526] 자기시험 재료가 죽었다(문법?): %s" % (r2.stderr or "")[:200]
+    _g2 = {}
+    for x in _j.loads((r2.stdout or "{}").strip().splitlines()[-1])["B"]:
+        if x[0] == "trow" and isinstance(x[1], list) and len(x[1]) == 4:
+            _g2[x[1][0]] = x[1][1]
+    assert _g2.get("미분류") != "2건", (
+        "[526] 계기가 눈멀었다 — 추천을 확정으로 세는 옛 동작에서도 통과한다([272])")
+
+    print(chr(9989) + " [419] 돌발AS 등급·권역 통계 — 추천을 확정과 섞지 않는다 [526]")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -50496,6 +50657,7 @@ if __name__ == "__main__":
     t523_round_does_not_yield_to_itself()
     t524_login_retries_like_the_rest_of_the_app()
     t525_as_grade_badge()
+    t526_as_grade_report_capture_and_xlsx()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
