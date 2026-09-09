@@ -43879,12 +43879,18 @@ def t269_devtools_only_on_three_foreground_chrome_pages_at_noon():
     chain = open(os.path.join(ROOT, "band", "browser_chain.py"), encoding="utf-8").read()
     installer = open(os.path.join(ROOT, "install_browser_chain_schedule.ps1"), encoding="utf-8").read()
 
-    for url in (
-        "https://www.band.us/band/90610953/post",
-        "https://www.band.us/band/84789192/post",
-        "https://loginab.ecount.com/ec5/view/erp",
-    ):
-        assert url in guard, "허용 3페이지에서 빠짐: " + url
+    # ★ 주소를 여기 못 박지 않는다([39]·[219]) - 가드가 정본이고 여기서 **읽는다**([162]).
+    #   2026-09-09 실측: 크롬이 ERP 주소를 ec5 가 아니라 ec56 으로 준다는 것이 밝혀져
+    #   옆 세션이 가드를 고쳤는데, 값을 못 박아 둔 이 검사만 죽어 그날 관문이 통째로
+    #   빨갰다.  관문은 daily_run 의 0단계라 그러면 **그날 대조가 통째로 안 돈다**.
+    #   계약은 "허용은 정확히 3페이지이고 밴드 둘·ERP 하나이며 https 다" 이지 그 글자가 아니다.
+    import re as _re269
+    urls = _re269.findall(r"Url\s*=\s*'([^']+)'", guard)
+    assert len(urls) == 3, "허용 페이지가 정확히 3개가 아니다: " + repr(urls)
+    assert sum(1 for u in urls if "band.us" in u) == 2, "밴드 2페이지가 아니다: " + repr(urls)
+    assert sum(1 for u in urls if "ecount.com" in u) == 1, "ERP 1페이지가 아니다: " + repr(urls)
+    for url in urls:
+        assert url.startswith("https://"), "https 가 아니다: " + url
     assert "GetForegroundWindow" in guard and "ProcessName -ne 'chrome'" in guard
     assert "OmniboxViewViews" in guard and "ValuePattern" in guard, \
         "웹페이지 입력칸을 주소창으로 오인할 수 있다"
