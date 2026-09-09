@@ -96,12 +96,27 @@ def _child_budget_key(args):
 
 
 def _child_env(args, timeout):
-    """표에 있는 자식에게만 예산을 얹은 env 를 준다 — 아니면 `None`(그대로 물려줌)."""
+    """표에 있는 자식에게만 예산을 얹은 env 를 준다 - 아니면 `None`(그대로 물려줌).
+
+    ★ 자율복구는 **정의상 무인 경로**다.  그래서 일일대조를 부를 때는 "나는
+      자동 경로다" 표시를 심는다(2026-09-09 형님 지시: "내가 지시할 때만 대조작업
+      진행해").  판정은 operation_window 한 곳이다([162]) - 여기서 다시 판정하면
+      스케줄러 쪽과 언젠가 갈리고, 갈린 뒤엔 어느 쪽이 맞는지 아무도 모른다.
+    ★ 좁게 심는다([172]) - `daily_run.py` 를 부를 때만이다.  넓히면 그 표시를
+      읽는 자식이 늘어난 날 엉뚱한 것까지 같이 멈춘다.
+    """
+    env = None
     key = _child_budget_key(args)
-    if not key:
-        return None
-    env = dict(os.environ)
-    env[key] = str(max(60, int(timeout) - CHILD_BUDGET_MARGIN_S))
+    if key:
+        env = dict(os.environ)
+        env[key] = str(max(60, int(timeout) - CHILD_BUDGET_MARGIN_S))
+    if any(str(a).endswith("daily_run.py") for a in (args or ())):
+        try:
+            from operation_window import AUTO_ROUND_KEY
+        except Exception:
+            AUTO_ROUND_KEY = "COUPANG_AUTO_ROUND"
+        env = dict(env if env is not None else os.environ)
+        env[AUTO_ROUND_KEY] = "1"
     return env
 
 
