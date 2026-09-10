@@ -35964,9 +35964,10 @@ def t528_camp_urgency_chain():
     # (4) 체인에 실제로 걸렸나([328]) — 함수만 있고 안 부르면 없는 것과 같다
     srv = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
                    encoding="utf-8", newline="").read()
-    head = srv.split("def _add_camp_urgency")[0]
-    jae("체인 배선", "_add_camp_urgency(" in head, True)
-    jae("INPUT_SPEC 에 안 올림(저장 금지)", Q + "name" + Q + ": " + Q + "캠프긴급도" + Q in srv, False)
+    calls = (srv.count("_add_camp_urgency(")
+             - srv.count("def _add_camp_urgency("))
+    jae("체인 배선(정의 줄은 안 센다 · [463])", calls >= 1, True)
+    jae("INPUT_SPEC 에 안 올림(저장 금지)", chr(34) + "name" + chr(34) + ": " + chr(34) + "캠프긴급도" + chr(34) in srv, False)
     aw = _io.open(os.path.join(ROOT, "archive_worker.py"),
                   encoding="utf-8", newline="").read()
     jae("보관본 표에도 안 올림", "캠프긴급도" in aw, False)
