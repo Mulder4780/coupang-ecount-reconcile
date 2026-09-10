@@ -2645,6 +2645,12 @@ def get_staff_records(staff_slug, *, store=None):
     payload["staff"] = STAFF_CENTERS.get(staff_slug, {"name": "관리자"})["name"]
     payload["staff_slug"] = staff_slug
     payload["permissions"] = permissions
+    # 대응등급 표(A긴급·B일반·C전화)와 그 뜻 - 화면이 낱말을 제 손으로 적지
+    # 않게 여기서 실어 준다([162]).  실측 2026-09-10: 이것이 없어 화면 필터가
+    # "지금 목록에 있는 값"만 만들었고, 그래서 C전화가 0건이라는 이유로
+    # 선택지 자체가 사라져 형님이 "C등급이 표시 안 되어 있다"고 하셨다.
+    # ★ 못 읽었으면 빈 목록 그대로 간다([169]) - 화면이 예전 길로 물러난다.
+    payload["grade_meta"] = _AS_GRADE_META
     try:
         db_updated = datetime.fromtimestamp(os.path.getmtime(str(
             (store or __import__("app_store").default_store()).db_path

@@ -3578,6 +3578,12 @@ button[aria-busy="true"]::after{
     .gtag.c{border-color:var(--brand);color:var(--brand)}
     .gtag.none{border-style:dashed;font-weight:400}
     .gtag-t{font-weight:400;opacity:.8}
+    /* 등급이 무슨 뜻인지 배지 옆에 한 줄 (2026-09-10 형님 지시).
+       ★ 굳은 색을 안 쓴다([332]) - 테마 토큰이다.
+       ★ 좁은 화면에서는 숨긴다 - 목록이 그만큼 길어지면 아무도 안 읽는다([236]). */
+    .gtag-why{color:var(--ink-3);font-size:0.75rem;font-weight:400;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch}
+    @media (max-width:899px){ .gtag-why{display:none} }
     /* 권역 딱지 (2026-09-09 지시 "권역으로 묶어서 관리") — 대표 요구
        "B단계는 모아서 가면 되는 거야". 어느 권역인지 보여야 묶는다. */
     .rgtag{display:inline-flex;align-items:center;border:1px solid var(--line);
@@ -8626,6 +8632,12 @@ function wtSpanRange(k){
 function wtGradeOpts(k,rows){
   if(k!=='as' || typeof gradeVal!=='function') return [];
   const m=new Map();
+  /* ★ 표에 있는 등급은 **0건이어도 늘 보인다**(2026-09-10 형님 지시 "A,B,C 다
+     표시되게").  예전에는 목록에 실제로 있는 값만 만들어서, C전화가 확정 0 ·
+     추천 0 이면 선택지 자체가 사라졌다 - 그러면 사람은 그 등급이 앱에 없는 줄 안다([169]).
+     ★ 낱말은 서버 표에서 온다([162]) · 못 받으면 예전 그대로 목록에서만 모은다. */
+  const meta=(typeof gradeMeta==='function')?gradeMeta():null;
+  if(meta) meta['등급'].forEach(g=>m.set(g,{c:0,h:0}));
   (rows||[]).forEach(r=>{
     const c=gradeVal(r), h=(typeof gradeHint==='function'?gradeHint(r):'');
     const g=(c||h)||'미분류', e=m.get(g)||{c:0,h:0};
@@ -15678,6 +15690,20 @@ function campUrgTag(r){
        + ' - 우리 대응등급이 아닙니다. 등급을 고르실 때 참고하십시오')
        + '">캠프 ' + esc2(v) + '</span>';
 }
+/* 대응등급 표 - **서버가 준 것만** 읽는다([162]).  화면이 A긴급·B일반·C전화를
+   제 손으로 적으면 사본이 둘이 되고, 유수비 대표가 낱말을 바꾸시는 날 한쪽만 고쳐진다.
+   ★ 못 받았으면 null 을 돌려주고, 부르는 쪽은 **예전 길**(목록에 있는 값만)로
+     물러난다([169]) - 모름을 근거로 없는 등급을 지어내지 않는다. */
+function gradeMeta(){
+  const m = (typeof RYU !== 'undefined' && RYU && RYU.grade_meta) || null;
+  if(!m || !Array.isArray(m['등급']) || !m['등급'].length) return null;
+  return m;
+}
+/* 그 등급이 무슨 뜻인가 - 표의 '등급설명' 그대로다(화면이 안 적는다). */
+function gradeWhy(g){
+  const m = gradeMeta();
+  return (m && m['등급설명'] && m['등급설명'][g]) ? String(m['등급설명'][g]) : '';
+}
 function gradeTag(r){ return gradeTagCore(r) + campUrgTag(r); }
 function gradeTagCore(r){
   const g = gradeVal(r);
@@ -15695,8 +15721,15 @@ function gradeTagCore(r){
   }
   const cls = g.charAt(0) === 'A' ? 'a' : g.charAt(0) === 'B' ? 'b' : g.charAt(0) === 'C' ? 'c' : 'none';
   const t = String((r && r.대응유형) || '').trim();
-  return '<span class="gtag ' + cls + '">' + esc2(g)
+  /* ★ 낱말만 있으면 처음 보는 사람은 A 가 무슨 뜻인지 모른다(2026-09-10 형님 지시
+     "옆에 설명도 추가").  설명은 **서버 표 그대로**이고([162]) 못 받았으면
+     아무 말도 안 한다([169]) - 뜻을 화면이 지어내지 않는다.
+     좁은 화면에서는 옆글을 숨긴다(.gtag-why) - 그래도 눌러 보면 title 이 남는다. */
+  const why = gradeWhy(g);
+  return '<span class="gtag ' + cls + '"' + (why ? ' title="' + esc2(why) + '"' : '') + '>'
+       + esc2(g)
        + (t ? '<span class="gtag-t">' + esc2(t) + '</span>' : '') + '</span>'
+       + (why ? '<span class="gtag-why">' + esc2(why) + '</span>' : '')
        + regionTag(r);   /* 어느 권역인지 같이 보인다 — 묶어 가려면 필요하다 */
 }
 /* 지금 목록에 실제로 있는 등급을 세어 돌려준다 — 낱말 목록을 화면이 안 적는다.
