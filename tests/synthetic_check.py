@@ -35800,6 +35800,232 @@ def t526_as_grade_report_capture_and_xlsx():
     print(chr(9989) + " [419] 돌발AS 등급·권역 통계 — 기간·차량충돌·추천 나란히 [526]")
 
 
+
+def t527_band_urgency_parse():
+    """밴드 접수 양식의 '● 긴급도'(캠프가 말한 급함)를 파서가 읽는가.
+
+    ★ 진짜 밴드 캐시를 안 훑는다([211]) — 관문이 실데이터에 매이면 캐시 상태에
+      따라 초록·빨강을 오간다. 대신 양식은 실측된 접수 글 그대로 짓는다([165]).
+    ★ 재는 것은 둘이다 — 그 줄을 읽나 · **나머지 칸을 한 톨도 안 건드리나**.
+      이 반환값을 읽는 곳이 여럿이다(cancel_watch·cross_signal·완료색인).
+    """
+    import copy as _copy
+    import band_extract as BE
+
+    _nl = chr(10)
+    body = _nl.join([
+        "♣ ［ 돌발유료 A/S 안내 ]",
+        "",
+        "● A/S 일자 : 2026.00.00 (요일)",
+        "● A/S 담당 :",
+        "",
+        "● 프로젝트NO : UJ2601500",
+        "● 캠프이름 : 인천2MB(운연동)",
+        "● 캠프주소 : 인천시 남동구 운연동 258-9",
+        "● 신청내용 : 도어 센서 이상",
+    ])
+    post = {"content": body, "created_at": 1788000000000, "author": "합성"}
+    base = BE.parse_post("5455", post, "84789192")
+    assert base, "합성 접수 글을 파서가 아예 못 읽었다 — 양식이 바뀌었는지 먼저 본다"
+    assert base.get("프로젝트NO") == "UJ2601500", (
+        "합성 글이 접수 양식으로 안 읽힌다 — 이 검사의 재료가 사고를 재현 못 한다([272])")
+
+    def with_line(txt):
+        q = _copy.deepcopy(post)
+        q["content"] = body + _nl + txt
+        return BE.parse_post("5455", q, "84789192")
+
+    bad = []
+
+    def jae(name, got, want):
+        if got != want:
+            bad.append("%s: got=%r want=%r" % (name, got, want))
+
+    # (1) 협조요청문 그대로 적었을 때
+    for w in ("긴급", "보통", "낮음"):
+        jae(w, with_line("● 긴급도 : " + w).get("캠프긴급도"), w)
+
+    # (2) 없으면 빈 칸 · 빈 값도 빈 칸 — 지어내지 않는다([169])
+    jae("그 줄이 없는 글", base.get("캠프긴급도"), "")
+    jae("값이 빈 줄", with_line("● 긴급도 :").get("캠프긴급도"), "")
+
+    # (3) 양식을 안 고치고 그대로 둔 값도 원문 그대로 — 낱말을 안 지어낸다([166])
+    raw = "긴급 / 보통 / 낮음 (유니웍스에 반영예정)"
+    jae("목록 밖 값", with_line("● 긴급도 : " + raw).get("캠프긴급도"), raw)
+
+    # (4) ★ 기존 칸이 한 톨도 안 바뀌었나
+    after = with_line("● 긴급도 : 긴급")
+    diff = [k for k in base if base.get(k) != after.get(k)]
+    jae("캠프긴급도 말고 달라진 칸",
+        [k for k in diff if k not in ("캠프긴급도", "본문", "본문잘림")], [])
+    jae("캠프긴급도 값", (base.get("캠프긴급도"), after.get("캠프긴급도")), ("", "긴급"))
+
+    # (5) 캠프주소를 잘못 잡지 않나 — 좁히는 것도 넓히는 것도 고장이다([172])
+    jae("캠프주소", after.get("캠프주소"), base.get("캠프주소"))
+
+    # (6) 계기 자기시험([272]) — 그 정규식을 없애면 (1)이 정말 잡히나.
+    #     모듈 속성은 프로세스 전체의 것이라 finally 로 되돌린다([371]).
+    _re_keep = BE.RE_URGENCY
+    try:
+        BE.RE_URGENCY = re.compile("이런낱말은접수양식에없다")
+        selftest = with_line("● 긴급도 : 긴급").get("캠프긴급도")
+    finally:
+        BE.RE_URGENCY = _re_keep
+    assert selftest != "긴급", (
+        "긴급도 정규식을 없애도 값이 나온다 — 이 검사는 아무것도 안 재고 있다([272])")
+
+    assert not bad, "긴급도 파싱 계약이 깨졌다: " + " · ".join(bad)
+    print(chr(9989) + " [527] 밴드 접수 양식의 '● 긴급도' 를 파서가 읽는다")
+
+
+def t528_camp_urgency_chain():
+    """'캠프가 말한 급함'이 색인 → 행 → 화면까지 가는가 — 실행으로 잰다([295]).
+
+    ★ 진짜 밴드 캐시·진짜 색인 파일에는 한 글자도 안 쓴다([247]) — 전부 목이고
+      `finally` 로 되돌린다([371]).
+    ★ 저장하는 값이 아니다 — INPUT_SPEC·보관본 표에 올라오면 실패한다.
+      캠프가 적어 보낸 말이지 우리가 고르는 대응등급이 아니다.
+    """
+    import io as _io
+    import shutil as _shutil
+    sys.path.insert(0, os.path.join(ROOT, "webapp"))
+    import app_server as A
+    import band_extract as BE
+
+    bad = []
+
+    def jae(name, got, want):
+        if got != want:
+            bad.append("%s: got=%r want=%r" % (name, got, want))
+
+    REC = [  # 접수 글(이른 날) · 완료 글(늦은 날 · 긴급도 없음)
+        {"프로젝트NO": "UJ2601500", "게시일": "2026-09-05", "밴드": "84789192",
+         "캠프긴급도": "긴급", "본문": "도어 센서 교체", "진행상태": "", "업무유형": "돌발AS"},
+        {"프로젝트NO": "UJ2601500", "게시일": "2026-09-08", "밴드": "84789192",
+         "캠프긴급도": "", "본문": "완료했습니다", "진행상태": "작업완료", "업무유형": "돌발AS"},
+        # ★ 등급 낱말이 안 잡히는 글 — 예전 구조(증상에 얹기)면 여기서 사라진다
+        {"프로젝트NO": "UJ2601501", "게시일": "2026-09-06", "밴드": "84789192",
+         "캠프긴급도": "낮음", "본문": "확인 부탁드립니다", "진행상태": "", "업무유형": "돌발AS"},
+        {"프로젝트NO": "UJ2601502", "게시일": "2026-09-06", "밴드": "84789192",
+         "캠프긴급도": "", "본문": "그냥 글", "진행상태": "", "업무유형": "돌발AS"},
+    ]
+
+    # (1) 색인이 제 칸으로 담나 — 증상과 따로
+    tmp = tempfile.mkdtemp(prefix="csos-t528-")
+    os.makedirs(os.path.join(tmp, "reports"), exist_ok=True)
+    os.makedirs(os.path.join(tmp, "band", "cache"), exist_ok=True)
+    _root, _load, _ev = A.ROOT, BE.load_records, dict(A._BAND_EV)
+    try:
+        A.ROOT = tmp                       # 색인 파일이 임시 폴더로 간다([247])
+        BE.load_records = lambda *a, **k: list(REC)
+        A._BAND_EV["d"], A._BAND_EV["at"] = None, 0
+        idx = A._band_completion_index() or {}
+        cu = idx.get("캠프긴급도") or {}
+        jae("UJ2601500", (cu.get("UJ2601500") or {}).get("값"), "긴급")
+        jae("가장 이른 글이 이긴다(때)", (cu.get("UJ2601500") or {}).get("때"), "2026-09-05")
+        jae("★ 등급 낱말이 없는 글도 담김", (cu.get("UJ2601501") or {}).get("값"), "낮음")
+        jae("긴급도 없는 글은 안 담김", "UJ2601502" in cu, False)
+        jae("증상 색인과 별개", "캠프긴급도" in idx and "증상" in idx, True)
+    finally:
+        A.ROOT, BE.load_records = _root, _load
+        A._BAND_EV.clear()
+        A._BAND_EV.update(_ev)
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+    # (2) 행에 파생으로 붙나 — as_grade 와 무관하게
+    _bci, _ag = A._band_completion_index, A._as_grade
+    try:
+        A._band_completion_index = lambda: {"캠프긴급도": {
+            "UJ2601500": {"값": "긴급", "때": "2026-09-05"},
+            "UJ2601501": {"값": "낮음", "때": "2026-09-06"}}}
+        A._as_grade = None                 # as_grade 가 죽어도 이 값은 실린다([169])
+        rows = {"as": [
+            {"프로젝트NO": "UJ2601500", "대응등급": ""},
+            {"프로젝트NO": "UJ2601501", "대응등급": "B일반"},   # 이미 고른 행
+            {"프로젝트NO": "UJ2609999", "대응등급": ""},        # 색인에 없는 건
+        ], "pm": [{"점검ID": "x"}]}
+        out = A._add_camp_urgency(rows)
+        jae("등급 미정 행", out["as"][0].get("캠프긴급도"), "긴급")
+        jae("★ 이미 등급 고른 행에도 붙음", out["as"][1].get("캠프긴급도"), "낮음")
+        jae("색인에 없는 건", out["as"][2].get("캠프긴급도"), None)
+        jae("pm 은 안 건드림", out["pm"][0], {"점검ID": "x"})
+        jae("대응등급을 안 건드림", [r.get("대응등급") for r in out["as"]], ["", "B일반", ""])
+
+        # (3) 색인을 못 읽어도 목록을 안 죽인다([169])
+        def _boom():
+            raise RuntimeError("색인 실패")
+
+        A._band_completion_index = _boom
+        r2 = {"as": [{"프로젝트NO": "UJ2601500"}]}
+        jae("못 읽으면 그대로", A._add_camp_urgency(r2)["as"][0].get("캠프긴급도"), None)
+    finally:
+        A._band_completion_index, A._as_grade = _bci, _ag
+
+    # (4) 체인에 실제로 걸렸나([328]) — 함수만 있고 안 부르면 없는 것과 같다
+    srv = _io.open(os.path.join(ROOT, "webapp", "app_server.py"),
+                   encoding="utf-8", newline="").read()
+    head = srv.split("def _add_camp_urgency")[0]
+    jae("체인 배선", "_add_camp_urgency(" in head, True)
+    jae("INPUT_SPEC 에 안 올림(저장 금지)", Q + "name" + Q + ": " + Q + "캠프긴급도" + Q in srv, False)
+    aw = _io.open(os.path.join(ROOT, "archive_worker.py"),
+                  encoding="utf-8", newline="").read()
+    jae("보관본 표에도 안 올림", "캠프긴급도" in aw, False)
+
+    # (5) 화면 — node 로 실제로 그려 본다([295]). 글자로는 '정말 그려지나'를 못 잰다.
+    node = _shutil.which(chr(110) + chr(111) + chr(100) + chr(101))
+    if not node:
+        print("  [528] node 없음 — 구조만 확인 (화면 검사 건너뜀)")
+    else:
+        h = _io.open(os.path.join(ROOT, "webapp", "index.html"),
+                     encoding="utf-8", newline="").read()
+
+        def cut(name):
+            i = h.index("function " + name + "(")
+            d = 0
+            j = h.index("{", i)
+            for k in range(j, len(h)):
+                if h[k] == "{":
+                    d += 1
+                elif h[k] == "}":
+                    d -= 1
+                    if d == 0:
+                        return h[i:k + 1]
+            raise AssertionError("화면 함수를 못 잘랐다: " + name)
+
+        js = chr(10).join([
+            "function esc2(s){return s==null?'':String(s);}",
+            "function gradeVal(r){return String((r&&r.대응등급)||'').trim();}",
+            "function regionTag(r){return '';}",
+            cut("campUrgTag"), cut("gradeHint"), cut("gradeTag"), cut("gradeTagCore"),
+            "const R=[{프로젝트NO:'a',캠프긴급도:'긴급'},{프로젝트NO:'b'},"
+            "{프로젝트NO:'c',대응등급:'A긴급',캠프긴급도:'낮음'},"
+            "{프로젝트NO:'d',캠프긴급도:'긴급 / 보통 / 낮음 (유니웍스에 반영예정)'}];",
+            "console.log(JSON.stringify(R.map(r=>gradeTag(r))));",
+        ])
+        with tempfile.TemporaryDirectory(prefix="csos-t528-js-") as jd:
+            jp = os.path.join(jd, "h.js")
+            _io.open(jp, "w", encoding="utf-8", newline="").write(js)
+            pr = subprocess.Popen(
+                [node, jp], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                out, err = pr.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                pr.kill()
+                out, err = b"", b"timeout"
+        txt = (out or b"").decode("utf-8", "replace").strip()
+        assert txt, ("node 가 아무것도 안 돌려줬다: "
+                     + (err or b"").decode("utf-8", "replace")[-400:])
+        got = json.loads(txt.splitlines()[-1])
+        jae("값 있으면 배지", "캠프 긴급" in got[0], True)
+        jae("값 없으면 안 그림", "캠프 " in got[1], False)
+        jae("★ 등급 고른 행에도 그림", "캠프 낮음" in got[2] and "A긴급" in got[2], True)
+        jae("목록 밖 값도 원문 그대로", "긴급 / 보통 / 낮음" in got[3], True)
+        jae("대응등급이 아니라고 적음", "대응등급" in got[0] and "아닙니다" in got[0], True)
+
+    assert not bad, "캠프 긴급도 체인이 깨졌다: " + " · ".join(bad)
+    print(chr(9989) + " [528] 캠프가 말한 급함이 색인 → 행 → 화면까지 간다")
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -50809,6 +51035,8 @@ if __name__ == "__main__":
     t524_login_retries_like_the_rest_of_the_app()
     t525_as_grade_badge()
     t526_as_grade_report_capture_and_xlsx()
+    t527_band_urgency_parse()
+    t528_camp_urgency_chain()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
