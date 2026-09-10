@@ -294,14 +294,58 @@ def regressed(changes, band_posts=None):
         was = _state(old_s, no, band)
         now = None
         if band_posts is not None:
-            p = (band_posts.get(band) or {}).get(no)
-            if p is not None:
+            posts = band_posts.get(band)
+            if posts:                    # 그 밴드 캐시를 **실제로 읽었을 때만**
+                p = posts.get(no)
+                if p is None:
+                    # 캐시에 그 글이 없다 - 잘린 요약으로 '되돌아갔다'고 우기지 않는다.
+                    continue
                 now = _state(p.get("content") or "", no, band)
+            # posts 가 비면 그 밴드를 못 읽은 것이다 - 아래 요약으로 최선을 다한다([169]).
         if now is None:
             now = _state(new_s, no, band)
         if was == "작업완료" and now and now != "작업완료":
             out.append({"글": key, "작성일": c.get("작성일"),
                         "was": was, "now": now})
+    return out
+
+
+def _still_regressed(rows, d=None):
+    """자국에 적힌 되돌아감을 **지금 캐시**로 다시 본다 (2026-09-10 실사고).
+
+    ★ 옛 자국은 **잘린 요약**(180자 - `datalake.REV_NOTE_MAX`)으로 판정됐을 수 있다.
+      그러면 완료 양식 머리가 잘려 나가거나 뒤 양식의 '안내' 머리가 첫 것이 되어
+      **멀쩡한 완료 글이 완료 아님으로 뒤집힌다**.  그 P1 이 매일 인계 맨 위를
+      차지해 **진짜 경보를 덮는다**([170]).  실측 2026-09-10: 5건이 전부 그것이었다
+      (지금 캐시로 재면 0건인데 잘린 요약으로 재면 5건).
+    ★ **지금 캐시가 '작업완료'라 말할 때만** 내린다 - 지어낼 것이 없다.
+    ★ **못 읽으면 그대로 둔다**([169]) - 모름을 '괜찮다'로 치지 않는다.
+    ★ **조용히 빼지 않는다**([169]) - 내린 건수를 자국에 적는다.
+    """
+    if not rows:
+        return rows
+    try:
+        import band_extract as BE
+    except Exception:
+        return rows                      # 못 재면 그대로 둔다
+    bands = sorted({str(r.get("글", "")).partition("/")[0] for r in rows} - {""})
+    posts_by_band = _cache_posts(bands)
+    out, cleared = [], []
+    for r in rows:
+        band, _, no = str(r.get("글") or "").partition("/")
+        p = (posts_by_band.get(band) or {}).get(no)
+        now = None
+        if p is not None:
+            try:
+                now = (BE.parse_post(no, p, band) or {}).get("진행상태")
+            except Exception:
+                now = None
+        if now == "작업완료":
+            cleared.append(str(r.get("글") or ""))
+            continue
+        out.append(r)
+    if cleared and isinstance(d, dict):
+        d["되돌아감_되살아난것"] = cleared
     return out
 
 
@@ -316,6 +360,7 @@ def _ensure_regressed(d):
     if not isinstance(d, dict):
         return d
     if d.get("되돌아감") is not None:
+        d["되돌아감"] = _still_regressed(d.get("되돌아감"), d)
         return d
     ch = d.get("변경상세") or []
     if not ch:
