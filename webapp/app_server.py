@@ -5493,6 +5493,44 @@ def _add_grade_hint(rows):
     return rows
 
 
+def _add_camp_urgency(rows):
+    """돌발AS 행에 **캠프가 말한 급함**을 파생으로 붙인다 (2026-09-09 A/S팀 협조요청문).
+
+    협조요청문: *"신청내용만으로는 급한 정도를 알 수 없어 유선 확인이 반복되고
+    있습니다 … ● 긴급도 : 긴급 / 보통 / 낮음"*.
+
+    ★★ **우리 대응등급이 아니다.** `대응등급`(A긴급·B일반·C전화)은 유수비 대표
+       2026-09-09 통화로 정한 **우리 AS팀의 대응**이고, 이 값은 **캠프 담당자가
+       적어 보낸 급함**이다. 02시트 `긴급도` 열(낱말이 `보통`·`높음`)과도 또
+       다르다. 셋을 한 칸에 담으면 그 구별을 잃는다(형님 2026-09-09 결정:
+       낱말은 캠프가 쓰는 그대로 두고 앱이 따로 담는다).
+    ★ **등급을 안 매긴다.** 캠프가 '긴급'이라 해도 그것이 A긴급이라는 뜻이
+      아니다 — 추천은 as_grade 가 증상 글에서 뽑고, 이 값은 **사람이 등급을
+      고를 때 보는 근거**로만 쓴다. 섞으면 위 구별이 조용히 무너진다([169]).
+    ★ **이미 등급을 고른 행에도 붙인다** — 캠프가 뭐라 했는지는 등급과 무관하게
+      참이다. (`_add_grade_hint` 는 고른 행을 건너뛴다 — 거기 얹으면 안 되는 이유다.)
+    ★ **as_grade 와 무관하다** — 그 import 가 실패해도 이 값은 그대로 실린다([169]).
+    ★ 저장하지 않는다 — INPUT_SPEC 에도 DB_ONLY_ARCHIVE_FIELDS 에도 안 올린다
+      (`추천등급`·`권역` 과 같은 자리다).
+    """
+    try:
+        _cu = (_band_completion_index() or {}).get("캠프긴급도") or {}
+    except Exception:                          # noqa: BLE001
+        _cu = {}
+    if not _cu:
+        return rows
+    try:
+        for _r in (rows or {}).get("as") or []:
+            if not isinstance(_r, dict):
+                continue
+            _v = _cu.get(str(_r.get("프로젝트NO") or "").strip()) or {}
+            if str(_v.get("값") or "").strip():
+                _r["캠프긴급도"] = str(_v["값"]).strip()
+    except Exception:        # noqa: BLE001 - 파생 하나로 목록을 죽이지 않는다
+        pass
+    return rows
+
+
 def _add_region(rows):
     """돌발AS 행에 **권역**을 파생으로 붙인다 (2026-09-09 형님 지시 "권역으로 묶어서 관리").
 
@@ -5552,7 +5590,8 @@ def get_works():
     if DEMO:
         return _with_grade_meta(demo_works())
     return _with_grade_meta(
-        _add_grade_hint(_add_region(cached_data("works", real_works))))
+        _add_camp_urgency(
+            _add_grade_hint(_add_region(cached_data("works", real_works)))))
 
 
 
@@ -7549,7 +7588,7 @@ _BAND_EV_TTL = 300
 # 색인 모양을 바꾸면 **이 숫자를 손으로 올린다.** 지문은 원본이 바뀌었나만 보므로,
 # 규칙이 바뀌어도 원본이 그대로면 옛 캐시가 영원히 이긴다(같은 사고 네 번째 —
 # `inbox_scan.RULES_VERSION` 과 같은 자리다).
-_BAND_EV_VER = 11  # 2026-09-10: 접수 양식의 '● 긴급도'(캠프가 말한 급함)를 담는다
+_BAND_EV_VER = 12  # 2026-09-10: '● 긴급도'(캠프가 말한 급함)를 색인에 담는다
 #  ⚠ as_grade 규칙(config/as_grade_rules.json)을 고치면 **이 숫자를 손으로 올린다** -
 #    지문은 원본이 바뀌었나만 보므로 규칙만 바뀌면 옛 추천이 영원히 이긴다.
 #: ⚠ 파싱 규칙을 고치면 **이 숫자를 손으로 올린다** — 원본이 안 바뀌면 지문이 안
@@ -7692,6 +7731,8 @@ def _band_completion_index():
 
     out = {"완료": {}, "완료종류": {"as": {}, "pm": {}},
            "언급": set(), "카톡": {}, "증상": {}, "최신": "", "읽음": False,
+           # 캠프가 말한 급함 — 증상 등급과 **따로** 담는다(아래 이유).
+           "캠프긴급도": {},
            "밴드수집": {}, "수집최신": "", "언급밴드": {},
            "밴드중단": _band_collect_stopped(),
            "지문": fp, "판": _BAND_EV_VER}
@@ -7727,6 +7768,22 @@ def _band_completion_index():
                             "등급": _sg["등급"], "유형": _sg.get("유형") or "",
                             "낱말": _sg.get("낱말") or "", "왜": _sg.get("왜") or "",
                             "글": _sym_body[:400], "때": _sym_when}
+            # ★★ **캠프가 말한 급함** — 2026-09-09 A/S팀 협조요청문으로 접수
+            #    양식에 `● 긴급도 : 긴급 / 보통 / 낮음` 한 줄이 늘었다.
+            #    (band_extract.RE_URGENCY 가 읽어 `캠프긴급도` 로 넘겨 준다.)
+            #    ★ **증상 등급과 따로 담는다**([162]·[169]). 위 `증상` 은 as_grade 가
+            #      등급 낱말을 찾았을 때만 만들어진다 — 거기 얹으면 낱말이 안 잡힌
+            #      글의 긴급도가 **조용히 사라진다**(오류도 안 나고 화면도 멀쩡하다).
+            #    ★ **가장 이른 글이 이긴다** — 접수 양식에 적는 값이고 나중 글
+            #      (완료·서류)에는 이 줄이 없다. 증상과 같은 규칙이다.
+            #    ★ 낱말을 판정하지 않는다([166]) — 원문 그대로 담는다.
+            _cu = str(r.get("캠프긴급도") or "").strip()
+            if _cu:
+                _cu_when = norm_date(r.get("게시일"))
+                _cu_prev = out["캠프긴급도"].get(pj)
+                if _cu_prev is None or (
+                        _cu_when and _cu_prev.get("때") and _cu_when < _cu_prev["때"]):
+                    out["캠프긴급도"][pj] = {"값": _cu, "때": _cu_when}
             when = norm_date(r.get("작업일")) or norm_date(r.get("게시일"))
             if when > out["최신"]:
                 out["최신"] = when
