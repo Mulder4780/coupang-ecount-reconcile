@@ -74,6 +74,25 @@ def _save(doc):
         pass                                   # 자국 하나로 회차를 안 죽인다
 
 
+def _row_key(r):
+    """저장 열쇠를 만든다 — **한 곳**이다([162]).
+
+    ★ 서버(`_staff_store_row`)는 `key_col`(접수ID) **또는 `_business_key`**
+      (프로젝트NO)로 찾는다.  그런데 예전에는 여기서 `접수ID` 하나만 물어
+      **답이 있는 46건이 조용히 빠졌다**(2026-09-10 실측 · 46건 전부
+      프로젝트NO 로 찾히고 전부 유일했다).  오류도 안 나고 미리보기는
+      "열쇠 없음"이라 말해서 아무도 몰랐다([165]·[300]).
+
+    ★ **접수ID 가 먼저다**([172]) — 그것이 있으면 지금 동작이 한 톨도 안 바뀐다.
+    ★ 둘 다 없으면 빈 문자열이다 — **지어내지 않는다**([169]).
+    ★ 프로젝트NO 가 앱 DB에 여러 건이면 서버가 거절한다(`len(matches) != 1`).
+      여기서 그 판정을 **베끼지 않는다**([162]) — 베끼면 사본이 둘 되어 갈린다.
+      거절되면 실패 건수와 사유가 그대로 남는다.
+    """
+    return (str(r.get("접수ID") or "").strip()
+            or str(r.get("프로젝트NO") or "").strip())
+
+
 def pick(rows, skip_after_work=False):
     """반영할 행을 고른다.  돌려주는 것은 `(고른 것, 왜 뺐나)`."""
     import as_grade as G
@@ -91,7 +110,7 @@ def pick(rows, skip_after_work=False):
         if skip_after_work and r.get("추천작업뒤"):
             why["작업 뒤 글"] += 1
             continue
-        if not str(r.get("접수ID") or "").strip():
+        if not _row_key(r):
             # ★ 열쇠가 없으면 저장할 자리를 못 찾는다 — 지어내지 않는다([169]).
             why["열쇠 없음"] += 1
             continue
@@ -115,7 +134,7 @@ def _body(r):
     if r.get("추천작업뒤"):
         tail += " (" + G.AFTER_WORK_NOTE + ")"
     reason = "기계 추천 일괄 반영(2026-09-10 형님 지시) · " + why + tail
-    key = str(r.get("접수ID") or "").strip()
+    key = _row_key(r)
     return {
         "category": "as",
         "key": key,
