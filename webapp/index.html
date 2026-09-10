@@ -269,6 +269,15 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   .dp-note{display:none}
   .dp-step{max-width:none}
 }
+/* 폰에서 이 띠 하나가 화면 절반을 먹었다 (2026-09-10 형님 캡처 · 실측 375px 383px).
+   제목(nowrap 75px)과 단추(flex:0 0 auto 162px)가 안 줄어드는데 한 줄을 붙들어
+   칩이 들어갈 자리가 98px 뿐이라 여덟 개가 **한 줄에 하나씩** 흘렀다.
+   .dp-flow 가 제 줄을 가지면 355px 을 다 쓴다 — 실측 383px -> 190px (8줄 -> 3줄).
+   ★ 감추지 않는다([169]) — 칩 여덟은 그대로 있고 접기 단추도 그대로다([236]).
+   ★ 600px 이상은 한 글자도 안 바뀐다([172]) — 그 폭은 이미 2~3줄이라 멀쩡하다. */
+@media (max-width:599px){
+  .dp-flow{flex:1 1 100%;min-width:100%}
+}
 .appbar{position:sticky;top:0;z-index:20;background:var(--navy-900);color:#fff;
   padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;display:flex;align-items:center;gap:14px;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 8px rgba(10,20,48,.35)}
