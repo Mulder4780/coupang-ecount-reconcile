@@ -233,6 +233,15 @@ def steps():
 def run_steps(skip=()):
     """★ `subprocess.run(timeout=)` 을 쓰지 않는다 — 윈도우에서 영원히 안 끝날 수 있다([175])."""
     import proc_guard
+    # ★ 자동 관문 중단이면 합성검증만 건너뛴다 (2026-09-10 지시).
+    #   `steps()` 모양은 한 글자도 안 바꾼다 — 그 목록을 글자로 재는 검사가
+    #   이 표시 파일에 매이면 안 된다([211]). 이미 있는 `skip` 문을 쓴다([162]).
+    try:
+        import gate_switch as _GATE_SW
+        if _GATE_SW.stopped()[0]:
+            skip = tuple(skip) + ("합성검증",)
+    except Exception:
+        pass
     began = datetime.now()
     out = []
     for name, argv, limit in steps():

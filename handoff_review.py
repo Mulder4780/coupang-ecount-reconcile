@@ -218,6 +218,15 @@ def _synthetic_check() -> tuple[bool, str]:
     # Windows subprocess.run(timeout=...)은 SMB 대기에 걸린 자식의 communicate()에서
     # 다시 무기한 멈출 수 있다. 자식 트리와 출력 드레인까지 유한한 공용 실행기를 쓴다.
     # 합성 플래그와 보고서 경로도 자식 환경에서 강제해 호출자의 셸 설정에 좌우되지 않게 한다.
+    # ★ 자동 관문 중단이면 이 검토도 건너뛴다 (2026-09-10 지시).
+    #   안 그러면 Sol 이 ledger/code/band/publish 점유를 영영 못 잡는다([172]).
+    try:
+        import gate_switch as _GATE_SW
+        _off, _why = _GATE_SW.stopped()
+    except Exception:
+        _off, _why = False, ""
+    if _off:
+        return True, "합성 검증 건너뜀 — 자동 관문 중단(%s)" % (_why or "형님 지시")
     with tempfile.TemporaryDirectory(prefix="csos-handoff-synthetic-") as sandbox:
         env = dict(os.environ)
         env["CSOS_SYNTHETIC"] = "1"

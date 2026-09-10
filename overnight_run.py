@@ -91,6 +91,14 @@ def _note(rec):
 
 def green():
     """합성검증이 초록인가. 건너뛰지 않는다 — 이것이 실데이터 작업의 관문이다."""
+    # ★ 자동 관문 중단이면 통과로 치고 대조를 돌린다 (2026-09-10 지시).
+    #   안 그러면 이 회차가 영영 대조에 못 간다([172]).
+    try:
+        import gate_switch as _GATE_SW
+        if _GATE_SW.stopped()[0]:
+            return True, ""
+    except Exception:
+        pass
     rc, out = _run([os.path.join("tests", "synthetic_check.py")], 1800, tag="검증")
     ok = (rc == 0) and ("ALL GREEN" in out)
     bad = ""

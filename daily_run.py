@@ -878,9 +878,26 @@ def _run_pipeline():
     #   실측이 이 값의 절반을 넘으면 그때는 늘릴 것이 아니라 **검증을 나눌 때**다.
     # ⚠ 회차 예산(`ROUND_BUDGET_MIN` 150분)보다 훨씬 작아야 한다. 관문 하나가 예산을
     #   다 먹으면 완주해도 남는 단계가 없다([180]).
-    s = _run_gate()
+    # ★ 자동 관문 중단 스위치 (2026-09-10 형님 지시: '합성 검증 전체 중단시켜,
+    #   내가 지시할때만 진행해'). 판정은 `gate_switch` 한 곳이고([162]) 여기는
+    #   읽기만 한다. `_run_gate` 자체는 한 글자도 안 건드린다 — 그 함수를 부르는
+    #   검사가 열 곳이 넘어서, 거기에 문을 달면 그 검사들이 이 표시 파일에
+    #   매여 형님이 켜고 끌 때마다 초록·빨강을 오간다([211]).
+    # ★★ 중단이면 **통과로 치고 다음 단계로 간다** — 이 단계는 0단계라 여기서
+    #   멈추면 그날 대조가 통째로 안 돈다(접수취소·객관완료·청구상태·오기입·
+    #   사실대조·캠프 담당자). 끄는 것이 회차를 죽이면 고치려던 것보다 나쁘다([172]).
+    # ⚠ 스위치를 못 읽으면 **예전 그대로 돈다**([169]) — 잘못 막으면 관문이
+    #   영영 없어지면서 조용하다.
+    try:
+        import gate_switch as _GATE_SW
+        _gate_off = bool(_GATE_SW.stopped()[0])
+    except Exception:
+        _GATE_SW, _gate_off = None, False
+    s = _GATE_SW.skip_result() if _gate_off else _run_gate()
     steps.append(s)
-    if not s["ok"] or "ALL GREEN" not in s["out"]:
+    if s.get("skipped_by_switch"):
+        note_progress("합성검증(중단·건너뜀)", "끝")
+    elif not s["ok"] or "ALL GREEN" not in s["out"]:
         # ★ **왜 막혔는지를 남긴다** — 이 단계는 자율복구 대기열에 안 들어가므로
         #   자국이 없으면 exit 1 만 남고 아무도 이유를 못 찾는다(2026-08-18 실사고).
         _leave_gate_trace(s)
