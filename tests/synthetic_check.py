@@ -35036,15 +35036,22 @@ def t520_ai_handoff_not_sent_when_instructions_too_long():
     AD = importlib.import_module("agent_dispatch")
     PRJ = os.path.dirname(str(AD.ROOT))
 
-    # (1) 지금 그대로면 막힌다 - 이것이 사고의 재현이다
-    a = AD.instruction_tokens("claude", str(AD.ROOT))
+    # (1) 한도를 넘으면 막는다 - **합성으로** 잰다([211] 관문을 실데이터에 매지 않는다).
+    #     2026-09-10 에 지시문을 1.1MB -> 160KB 로 줄이자(사고 248건을 INCIDENTS.md 로)
+    #     이 자리가 **진짜 크기**를 보고 있어 죽었다.  재려는 것은 "넘으면 막나"이지
+    #     "지금 넘나"가 아니다([219] 얼릴 것은 계약이지 그때의 상태가 아니다).
+    _big = tempfile.mkdtemp(prefix="t520_big_")
+    _need = int(AD.PROMPT_TOKEN_LIMIT * AD._BYTES_PER_TOKEN) + 1000
+    open(os.path.join(_big, "CLAUDE.md"), "w", encoding="utf-8").write("x" * _need)
+    a = AD.instruction_tokens("claude", _big)
     assert a is not None and a > AD.PROMPT_TOKEN_LIMIT, \
-        "[520] cwd=ecount 에서 지시문이 한도를 안 넘는다고 나온다: %r" % a
+        "[520] 지시문이 한도를 넘는데 안 넘는다고 나온다: %r" % a
 
-    # (2) 한 칸 위(사본 한 벌)면 안 막힌다 - 줄면 저절로 간다
-    b = AD.instruction_tokens("claude", PRJ)
+    # (2) **실제** 지시문은 지금 한도 아래다 - 줄면 저절로 다시 간다([172] 좁히는 것도 고장이다).
+    #     이것이 깨지면 AI 인계가 통째로 막힌다 - 그때는 지시문을 다시 줄일 때다.
+    b = AD.instruction_tokens("claude", str(AD.ROOT))
     assert b is not None and b <= AD.PROMPT_TOKEN_LIMIT, \
-        "[520] 사본 한 벌인데도 막는다(좁히는 것도 고장이다): %r" % b
+        "[520] 실제 지시문이 한도를 넘는다(AI 인계가 막힌다): %r" % b
 
     # (3) codex 는 한 글자도 안 건드렸다([172])
     c = AD.instruction_tokens("codex", str(AD.ROOT))
