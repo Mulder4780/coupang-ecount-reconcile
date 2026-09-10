@@ -2188,6 +2188,14 @@ def blockers(st, for_sol=False):
         out.append(("Terra 작업분의 Sol 사전 검토가 필요합니다 (%s)" %
                     st["terra_sol_review"].get("reason", "검토 미완료"),
                     "python handoff_review.py --review-sol"))
+    # 밴드 완료 근거가 사라진 것 — 원래 blockers 몫인데 2026-09-01 에 to_md 안으로
+    # 잘못 들어가 되돌아감이 생기는 날 인계가 통째로 죽었다(NameError: out).
+    _rc = st.get("밴드재수집") or {}
+    _rg = _rc.get("되돌아감") or []
+    if _rg:
+        out.append(("[P1] 밴드 글 %d건이 **완료 -> 완료 아님으로 되돌아갔다** — 밴드 쪽 완료 근거가 사라졌다(원장·앱DB가 받쳐 주는지 따로 본다): %s"
+                    % (len(_rg), ", ".join(r.get("글", "") for r in _rg[:6])),
+                    "python band/recollect.py --print"))
     return out
 
 
@@ -2203,12 +2211,6 @@ def to_md(st, for_sol=False):
     rc = st.get("밴드재수집") or {}
     if rc:
         chg, new = rc.get("바뀐글") or [], rc.get("새글") or []
-        _rg = rc.get("되돌아감")
-        if _rg:
-            out.append(("[P1] 밴드 글 %d건이 **완료 -> 완료 아님으로 되돌아갔다** — 밴드 쪽 완료 근거가 사라졌다(원장·앱DB가 받쳐 주는지 따로 본다): %s"
-                        % (len(_rg), ", ".join(r.get("글", "") for r in _rg[:6])),
-                        "python band/recollect.py --print"))
-
         L += ["## ★ 밴드 글이 바뀌었다 — 최근 %d일 재수집 (%s)"
               % (rc.get("창일수", 30), rc.get("회차", "")), "",
               "- **고쳐진 글 %d건** · 새로 들어온 글 %d건. "
