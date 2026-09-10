@@ -15675,7 +15675,7 @@ function campUrgTag(r){
   const v = String((r && r.캠프긴급도) || '').trim();
   if(!v) return '';
   return '<span class="gtag none" title="' + esc2('캠프 담당자가 접수 양식에 적어 보낸 급함입니다'
-       + ' - 우리 대응등급(A긴급·B일반·C전화)이 아닙니다. 등급을 고르실 때 참고하십시오')
+       + ' - 우리 대응등급이 아닙니다. 등급을 고르실 때 참고하십시오')
        + '">캠프 ' + esc2(v) + '</span>';
 }
 function gradeTag(r){ return gradeTagCore(r) + campUrgTag(r); }

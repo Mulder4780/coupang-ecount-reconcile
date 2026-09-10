@@ -35412,7 +35412,7 @@ def t525_as_grade_badge():
                     return got
         raise AssertionError("중괄호가 안 맞는다: " + name)
 
-    harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeCounts",
+    harness = _NL.join([_fn(n) for n in ("esc2", "gradeVal", "gradeTag", "gradeTagCore", "campUrgTag", "gradeCounts",
                                        "regionVal", "regionTag", "gradeHint")] + ["""
 const out = {};
 out.a  = gradeTag({대응등급:'A긴급', 대응유형:'즉시출동'});
