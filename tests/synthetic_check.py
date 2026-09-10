@@ -10502,6 +10502,42 @@ def t152_band_recollect_window():
     ps = open(os.path.join(ROOT, "install_recollect_schedule.ps1"), encoding="utf-8").read()
     assert "recollect.py --run" in ps and '"08:00"' in ps, \
         "08:00 트리거나 실행 인자가 스케줄러 설치본에 없다"
+    # -- 2026-09-10 실사고: 잘린 요약으로 '되돌아갔다'고 우기지 않는다 --------------
+    #   실측 - 같은 글 5건이 **지금 캐시로는 작업완료**인데 잘린 요약(180자
+    #   `datalake.REV_NOTE_MAX`)으로 재면 '접수·예정' 이 나와 매일 P1 이 떴다.
+    #   거짓 경보는 진짜 경보를 덮는다([170]).  (b)가 곧 계기 자기시험이다([272]) -
+    #   옛 동작(캐시에 없어도 요약으로 판정)으로 되돌리면 (b)가 1건이 되어 잡힌다.
+    _DONE = "♣ ［ 돌발유료 A/S 완료 ]" + chr(10) + "● 프로젝트NO : UJ9000001" + chr(10)
+    _PLAN = "♣ ［ 돌발유료 A/S 안내 ]" + chr(10) + "● 프로젝트NO : UJ9000001" + chr(10)
+    _rows = [{"글": "90610953/7001", "작성일": "2026-08-24",
+              "어떻게": "본문 바뀜 · [본문] " + _DONE + " -> " + _PLAN}]
+    _live = {"90610953": {"7001": {"content": _DONE}}}
+    # (a) 지금 캐시가 '작업완료'라 말하면 되돌아감이 아니다
+    assert RC.regressed(_rows, _live) == [], RC.regressed(_rows, _live)
+    # (b) 캐시를 물어봤는데 그 글이 없으면 - 잘린 요약으로 우기지 않는다([169])
+    assert RC.regressed(_rows, {"90610953": {"9999": {"content": _DONE}}}) == []
+    # (c) 캐시를 아예 안 물어봤으면 예전 그대로다 - 좁히는 것도 고장이다([172])
+    assert len(RC.regressed(_rows, None) or []) == 1
+    # (d) 그 밴드를 못 읽었으면(빈 목록) 요약 폴백 - 모름을 '괜찮다'로 안 친다([169])
+    assert len(RC.regressed(_rows, {"90610953": {}}) or []) == 1
+    # (e) 진짜 되돌아감은 그대로 잡는다
+    assert len(RC.regressed(_rows, {"90610953": {"7001": {"content": _PLAN}}}) or []) == 1
+    # (f)(g) 자국에 적힌 되돌아감을 지금 캐시로 다시 본다 - 진짜 캐시는 안 만진다([211][247])
+    _cp = RC._cache_posts
+    try:
+        RC._cache_posts = lambda bands: _live
+        _d = {"변경상세": _rows,
+              "되돌아감": [{"글": "90610953/7001", "was": "작업완료", "now": "접수·예정"}]}
+        RC._ensure_regressed(_d)
+        assert _d["되돌아감"] == [], _d["되돌아감"]
+        assert _d.get("되돌아감_되살아난것") == ["90610953/7001"], _d.get("되돌아감_되살아난것")
+        RC._cache_posts = lambda bands: {}      # 못 읽으면 그대로 둔다([169])
+        _d2 = {"변경상세": _rows,
+               "되돌아감": [{"글": "90610953/7001", "was": "작업완료", "now": "접수·예정"}]}
+        RC._ensure_regressed(_d2)
+        assert len(_d2["되돌아감"]) == 1, _d2["되돌아감"]
+    finally:
+        RC._cache_posts = _cp                   # 모듈 속성은 프로세스 전체의 것이다([371])
     print("  [152] 밴드 재수집 08:00 — 30일 창·바뀐 것만·인계 맨 위·유령밴드 차단 ✅")
 
 
