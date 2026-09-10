@@ -7060,6 +7060,26 @@ def _issue_truth_rows(rows):
     except Exception:
         cancelled_settlements = {}
 
+    # ── 밴드가 없어도 카톡·ERP 로 확인되면 닫는다 (2026-09-10 형님 지시) ──
+    #
+    # 형님 지시: "밴드는 없어도 되니까 카톡이나 erP에서 확인되면 완료처리 해버려".
+    # ★ 그 지시가 지금 구조와 정확히 맞물린다 - 밴드 자동 수집은 2026-09-01 형님
+    #   지시로 **멈췄다**([460] `collect_switch`).  그러니 `밴드대조_*.csv` 는 앞으로
+    #   갱신되지 않고 `밴드 게시 미확인` 은 **구조적으로 영영 안 풀린다** - 아무리
+    #   기다려도 그 5건은 목록에 남는다.
+    # ★ 판정을 새로 만들지 않는다([162]) - 캘린더가 이미 쓰는
+    #   `_band_completion_index()` 를 **그대로 빌린다**.  예전에는 이 자리가 그 색인을
+    #   한 번도 안 봐서, 같은 프로젝트가 **캘린더에서는 완료인데 확인필요에서는
+    #   미확인**으로 남았다 - 형님이 "어디는 반영되고 어디는 반영 안되고" 라
+    #   하신 바로 그 자리다([300] 한 곳에서 배운 것을 다른 곳이 모른다).
+    # ★ 못 읽으면 **한 건도 안 닫는다**([169]) - 모름을 근거로 닫으면 안 간 현장이
+    #   목록에서 조용히 사라진다(되돌릴 수 없는 쪽 · [172]).
+    try:
+        _bidx = _band_completion_index() or {}
+    except Exception:
+        _bidx = {}
+    band_done_idx = _bidx.get("완료") or {}
+    band_closed = []
     out, removed_done, removed_bad_key, removed_cancelled = [], 0, 0, 0
     cancel_conflict_added = set()
     for raw in rows or []:
@@ -7086,6 +7106,21 @@ def _issue_truth_rows(rows):
             )
             out.append(row)
             continue
+        # ★ 밴드 게시글이 없어도 **카톡·ERP 가 완료를 말하면 닫는다**(형님 지시).
+        #   이 갈래의 원래 물음은 "작업완료인데 게시글이 있나" 하나이고, 카톡 완료
+        #   보고와 ERP 수금·발행 근거는 그 물음에 **직접 답한다**.
+        #   ⚠ 여기서 넓히지 않는다([172]) - `세금계산서 ERP 연결자료 필요` 는 그대로
+        #     둔다.  실측 14건 중 7건이 카톡 완료 근거를 갖지만, **작업이 끝난 것과
+        #     계산서가 나간 것은 다른 사실**이라 그것으로 발행을 확언할 수 없다.
+        if issue.startswith("밴드 게시 미확인"):
+            _pj = str(row.get("프로젝트NO") or "").strip().upper()
+            _res = resolutions.get(issue_id) or resolutions.get(_pj) or {}
+            if _pj and _pj in band_done_idx:
+                band_closed.append((issue_id or _pj, "카톡·밴드 완료 보고"))
+                continue
+            if _res.get("status"):
+                band_closed.append((issue_id or _pj, "ERP " + str(_res.get("status"))))
+                continue
         resolved = str((resolutions.get(issue_id) or {}).get("status") or "")
         if category == "정산" and issue_id.startswith("JS-") and resolved.startswith("완료("):
             removed_done += 1
@@ -7119,6 +7154,27 @@ def _issue_truth_rows(rows):
                                       if row.get("내용·근거") else ""))[:500]
         out.append(row)
 
+    # ★ **조용히 지우지 않는다**([169]).  화면은 `truth` 를 안 읽으므로(실측 0곳)
+    #   여기서 빼기만 하면 '원래 없던 것'으로 보인다 - 그러면 나중에 "그 5건 어디
+    #   갔나"를 물을 근거가 아무 데도 없다.  이 파일이 `ERP-KEY` 에서 이미 쓰는
+    #   시스템 행 관용구를 **그대로 빌린다**([162]).
+    if band_closed:
+        _kinds = {}
+        for _i, _srcname in band_closed:
+            _kinds[_srcname] = _kinds.get(_srcname, 0) + 1
+        _detail = " · ".join("%s %d건" % (k, v) for k, v in sorted(_kinds.items()))
+        _ids = ", ".join(i for i, _s in band_closed[:8] if i)
+        out.append({
+            "구분": "시스템", "ID": "BAND-DONE",
+            "문제유형": "밴드 게시 미확인 - 카톡·ERP로 확인되어 닫음",
+            "담당자": "류지영", "근거상태": "완료 확인됨",
+            "내용·근거": (
+                "%d건을 목록에서 내렸습니다(%s). 밴드 자동 수집은 2026-09-01 지시로 "
+                "멈춰 있어 게시글로는 확인되지 않습니다 - **밴드에 글이 없다는 뜻이지 "
+                "작업을 안 했다는 뜻이 아닙니다**. 닫은 건: %s%s"
+                % (len(band_closed), _detail, _ids,
+                   " 외" if len(band_closed) > 8 else "")),
+        })
     if key_state.get("key_looks_wrong") and removed_bad_key:
         counts = key_state.get("counts") or {}
         out.append({
@@ -7132,6 +7188,7 @@ def _issue_truth_rows(rows):
             ),
         })
     return out, {"objective_done_hidden": removed_done,
+                 "band_missing_closed": len(band_closed),
                  "unreliable_erp_hidden": removed_bad_key,
                  "cancelled_billing_hidden": removed_cancelled,
                  "cancelled_billing_conflicts": len(cancel_conflict_added),
