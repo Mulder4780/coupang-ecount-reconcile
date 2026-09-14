@@ -1079,12 +1079,25 @@ def kakao_source_paths(dedupe_content=True):
             base = os.path.dirname(os.path.abspath(__file__))
             history = json.load(open(os.path.join(REPORT_DIR, "카톡_반영회차.json"),
                                      encoding="utf-8"))
+            # ★ **맨 앞 회차가 아니라 '가장 새 내보내기'를 받은 회차**를 쓴다
+            #   (2026-09-14 실사고). 10:06 회차가 오늘 원본 3개를 받았는데 10:08·10:17
+            #   회차가 8월 옛 원본을 **다시** 처리해 맨 앞을 차지했다 — 그러자 선택기가
+            #   8/25 파일을 골라 완료 근거가 8/31 에 굳었고, 돌발AS 미처리 48건이 전부
+            #   '완료 확인 대기'가 되어 경보가 0 이 됐다. 오류도 안 나고 개수도 그럴듯했다([165]).
+            # ★ 가르는 근거는 파일 이름의 내보내기 시각(`KakaoTalk_YYYYMMDD_HHMM`)이다 —
+            #   회차 시각은 재처리로 뒤집힌다. 날짜를 못 읽는 이름뿐이면 **예전처럼 맨 앞**이다([172]).
+            # ★ Z: 확인 횟수는 그대로다 — 이름 목록 하나만 고르는 것이 바뀐다([168]).
+            best_stamp = None
             for run in history if isinstance(history, list) else []:
                 names = [os.path.basename(str(name)) for name in (run.get("받은파일") or [])
                          if str(name).lower().endswith(".txt")]
-                if names:
-                    recent_names = names
-                    break
+                if not names:
+                    continue
+                stamps = [m.group(1) + m.group(2) for m in
+                          (re.search(r"KakaoTalk_(\d{8})_(\d{4})", n) for n in names) if m]
+                stamp = max(stamps) if stamps else ""
+                if best_stamp is None or stamp > best_stamp:
+                    recent_names, best_stamp = names, stamp
         except (OSError, ValueError, TypeError):
             pass
 
