@@ -36137,7 +36137,13 @@ def t192_synthetic_check_is_harmless():
     # Windows에서 영원히 멈출 수 있는 subprocess.run(timeout=)을 쓰지 않아야 한다.
     seen = {}
     old_runner = handoff_review.run_tree
+    # ★ 관문 자동 실행 스위치(gate_switch)는 실제 상태다 — 꺼져 있으면 _synthetic_check 가
+    #   '건너뜀'을 돌려줘 이 검사가 스위치에 매인다([211]). 여기서 재는 것은 스위치가
+    #   아니라 러너 계약이므로 '안 꺼짐'으로 못 박고 finally 로 되돌린다([371]).
+    import gate_switch as _gsw
+    old_stopped = _gsw.stopped
     try:
+        _gsw.stopped = lambda: (False, "")
         def fake_runner(command, **kwargs):
             seen["command"] = command
             seen.update(kwargs)
@@ -36147,6 +36153,7 @@ def t192_synthetic_check_is_harmless():
         ok, summary = handoff_review._synthetic_check()
     finally:
         handoff_review.run_tree = old_runner
+        _gsw.stopped = old_stopped
     assert ok and "ALL GREEN" in summary
     assert seen["env"].get("CSOS_SYNTHETIC") == "1"
     assert seen["env"].get("COUPANG_REPORT_DIR") != handoff_review.REPORT_DIR
