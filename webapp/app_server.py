@@ -12782,22 +12782,22 @@ def system_audit_loop():
     while True:
         started = time.monotonic()
         try:
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            result = subprocess.run(
+            # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 매달리면 이 스레드가 영영
+            #   멈춰 진단이 **조용히 낡는다**(화면은 옛 진단을 멀쩡히 보여 준다 · [169]).
+            #   바로 아래 publish_loop 와 같은 run_tree 를 빌린다([162]).
+            from proc_guard import run_tree
+            result = run_tree(
                 [PY, os.path.join(ROOT, "system_audit.py")],
                 cwd=ROOT,
                 env={**ENV, "COUPANG_UNATTENDED": "1"},
-                capture_output=True,
-                text=True,
                 timeout=120,
-                creationflags=flags,
             )
-            if result.returncode != 0:
+            if result.timed_out:
+                runner["log"].append("[시스템 진단] 120초 시간초과 · 앱 업무는 계속합니다")
+            elif result.returncode != 0:
                 runner["log"].append(
                     "[시스템 진단] 실패 코드 %s · %s" %
                     (result.returncode, ((result.stderr or result.stdout or "")[-160:])))
-        except subprocess.TimeoutExpired:
-            runner["log"].append("[시스템 진단] 120초 시간초과 · 앱 업무는 계속합니다")
         except Exception as exc:
             runner["log"].append("[시스템 진단] 실패 %s" % type(exc).__name__)
         elapsed = time.monotonic() - started
