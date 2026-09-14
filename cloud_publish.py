@@ -498,13 +498,15 @@ def _main():
     # 사람이 날짜 버전을 손으로 올리지 않아도 다음 게시·앱 재기동 때 자동 갱신된다.
     icon_sync = os.path.join(ROOT, "webapp", "sync_app_icons.ps1")
     if os.name == "nt" and os.path.isfile(icon_sync):
-        result = subprocess.run(
+        # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 넘으면 나무째 끊고 반드시 돌아온다.
+        from proc_guard import run_tree
+        result = run_tree(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", icon_sync],
-            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=60,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            cwd=ROOT, timeout=60,
         )
-        if result.returncode:
+        if result.timed_out:
+            print("  ! 앱 아이콘 자동동기화 60초 초과 — 끊고 게시는 계속합니다")
+        elif result.returncode:
             print("  ! 앱 아이콘 자동동기화 실패:", (result.stderr or "")[-200:])
         elif (result.stdout or "").strip():
             print(" ", (result.stdout or "").strip().splitlines()[-1])

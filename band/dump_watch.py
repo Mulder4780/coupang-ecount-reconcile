@@ -44,12 +44,15 @@ def seen_dumps():
 
 def run(name, args, timeout=1800):
     try:
-        r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 자식이 Z: 를 문다. run_tree 는
+        #   넘으면 나무째 끊고 반드시 돌아온다.
+        sys.path.insert(0, ROOT)
+        import proc_guard
+        r = proc_guard.run_tree([PY] + args, cwd=ROOT, timeout=timeout)
         lines = [x for x in (r.stdout or "").splitlines()
                  if x.strip() and "UserWarning" not in x and "관리대장 최신본" not in x]
-        tail = lines[-1] if lines else ""
-        ok = r.returncode == 0
+        tail = ("시간 초과(%d초)로 끊음 · " % timeout if r.timed_out else "") + (lines[-1] if lines else "")
+        ok = r.returncode == 0 and not r.timed_out
     except Exception as exc:
         ok, tail = False, str(exc)[:90]
     print(f"  [{'OK ' if ok else 'FAIL'}] {name} — {tail[:110]}", flush=True)

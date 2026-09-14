@@ -27,14 +27,20 @@ CACHE = os.path.join(HERE, "cache")
 PY = sys.executable
 
 
-def run(args, label):
-    r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+def run(args, label, timeout=3600):
+    # ★ 시간 제한 없는 subprocess.run 은 Z: 대기에 걸리면 영영 안 돌아온다([175]).
+    #   run_tree 는 넘으면 나무째 끊고 반드시 돌아온다 — 끊기면 실패로 적는다([169]).
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    import proc_guard
+    r = proc_guard.run_tree([PY] + args, cwd=ROOT,
+                            env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=timeout)
     out = "\n".join(l for l in (r.stdout or "").splitlines()
                     if "Warning" not in l and "warn(" not in l)
+    if r.timed_out:
+        out += "\n시간 초과(%d초)로 끊음" % timeout
     print(f"— {label}: {(out.strip().splitlines() or ['(출력 없음)'])[-1]}")
-    return r.returncode == 0, out
+    return r.returncode == 0 and not r.timed_out, out
 
 
 def extract_images():

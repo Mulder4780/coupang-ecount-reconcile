@@ -128,9 +128,14 @@ def plan(days=DAYS, limit=LIMIT, today=None):
 # ── ② 캐시에 다시 넣기 ───────────────────────────────────────────────────────
 def _run(args, timeout=1800):
     try:
-        r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout,
-                           env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 자식(download_intake)이 Z: 를 문다.
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        import proc_guard
+        r = proc_guard.run_tree([PY] + args, cwd=ROOT,
+                                env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=timeout)
+        if r.timed_out:
+            return False, "시간 초과(%d초)로 끊음" % timeout
         tail = [l for l in (r.stdout or "").splitlines() if l.strip()]
         return r.returncode == 0, (tail[-1] if tail else "")
     except Exception as e:
