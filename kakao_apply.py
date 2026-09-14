@@ -46,6 +46,19 @@ import sys
 import time
 from datetime import datetime
 
+
+def _archive_when():
+    """보관본이 언제 만들어지나 — 문구는 `ledger_db.archive_when_text()` 한 곳에서 빌린다([162]·[417]).
+
+    2026-09-10 실측: 여기가 "11:00·15:00" 을 제 손으로 적어, 주 1회 문에 걸린 날에도
+    그 시각에 들어간다고 말했다([169]).  못 빌리면 시각을 지어내지 않는다.
+    """
+    try:
+        import ledger_db
+        return ledger_db.archive_when_text() or "보관 회차"
+    except Exception:                          # noqa: BLE001 - 안내 한 줄이 반영을 막으면 안 된다
+        return "보관 회차"
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 try:
@@ -221,7 +234,7 @@ def main(argv):
     # ★ 무인 경로는 즉시반영을 못 쓴다. 사람 명령이라야 규칙을 넘는다.
     if now_flag and os.environ.get("COUPANG_UNATTENDED") == "1":
         print("거부: 무인 실행에서는 즉시 엑셀 반영을 하지 않습니다 "
-              "— 11:00·15:00 회차로 들어갑니다 (검증 [93])")
+              "— 보관 회차(%s)로 들어갑니다 (검증 [93])" % _archive_when())
         return 3
 
     step = []
@@ -276,7 +289,7 @@ def main(argv):
 
     # ④ 엑셀 반영
     if not apply_flag:
-        print("\n③ 엑셀 반영은 하지 않았습니다 — 11:00·15:00 회차가 가져갑니다.")
+        print("\n③ 엑셀 반영은 하지 않았습니다 — 보관 회차(%s)가 가져갑니다." % _archive_when())
         print("   지금 넣으시려면 같은 명령에 --now 를 붙이십시오.")
         _say_held(held)
         _save(step, given, now_flag)
