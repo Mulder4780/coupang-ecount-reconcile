@@ -100,8 +100,14 @@ def run_tree(
     timeout: int | float = 600,
     drain_timeout: int | float = 30,
     output_limit: int = 200_000,
+    encoding: str | None = None,
 ) -> ProcessResult:
-    """명령을 실행하고 시간 초과 시 자식 나무를 끊은 뒤 반드시 반환한다."""
+    """명령을 실행하고 시간 초과 시 자식 나무를 끊은 뒤 반드시 반환한다.
+
+    `encoding` 은 **파이썬이 아닌 자식이 UTF-8 로 못 쓸 때만** 바꾼다 — 예: robocopy 는
+    윈도우 ANSI 코드페이지(`"mbcs"`)로만 쓴다(2026-09-14 · 분담판 442). 기본값은 그대로라
+    기존 호출은 한 글자도 안 바뀐다([172]).
+    """
     process = subprocess.Popen(
         list(command),
         cwd=cwd,
@@ -110,7 +116,8 @@ def run_tree(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        encoding=CHILD_IO_ENCODING,
+        # ★ 안 주면 공용 상수다 — 읽는 쪽과 쓰는 쪽을 한 곳에서 정한다([411]·[162]).
+        encoding=CHILD_IO_ENCODING if encoding is None else encoding,
         errors="replace",
         **background_popen_kwargs(),
     )

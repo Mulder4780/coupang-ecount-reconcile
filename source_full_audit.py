@@ -35,14 +35,16 @@ def enumerate_files(root: str) -> list[dict]:
         "robocopy", root, null_target, "/L", "/E", "/FP", "/BYTES",
         "/NJH", "/NJS", "/NC", "/R:0", "/W:0",
     ]
-    result = subprocess.run(
-        # robocopy writes through the Windows ANSI codepage.  Python UTF-8
-        # mode would otherwise replace every Korean path with U+FFFD and make
-        # the later file open fail even though enumeration itself succeeded.
-        command, capture_output=True, text=True, encoding="mbcs",
-        errors="replace", timeout=600,
-        check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    # robocopy writes through the Windows ANSI codepage.  Python UTF-8
+    # mode would otherwise replace every Korean path with U+FFFD and make
+    # the later file open fail even though enumeration itself succeeded.
+    # ★ subprocess.run(timeout=) is banned here ([175]) — robocopy walks Z:
+    #   (SMB) and a stalled share never returns on Windows.  run_tree kills
+    #   the tree and always returns.
+    from proc_guard import run_tree
+    result = run_tree(command, timeout=600, encoding="mbcs")
+    if result.timed_out:
+        raise RuntimeError("robocopy enumeration timed out (600s) — Z: share stalled")
     # Robocopy 0..7 are non-fatal result bitmasks.  /L never copies a file.
     if result.returncode > 7:
         raise RuntimeError(
