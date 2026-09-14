@@ -36040,6 +36040,7 @@ def t528_camp_urgency_chain():
             "function esc2(s){return s==null?'':String(s);}",
             "function gradeVal(r){return String((r&&r.대응등급)||'').trim();}",
             "function regionTag(r){return '';}",
+            cut("gradeMeta"), cut("gradeWhy"),
             cut("campUrgTag"), cut("gradeHint"), cut("gradeTag"), cut("gradeTagCore"),
             "const R=[{프로젝트NO:'a',캠프긴급도:'긴급'},{프로젝트NO:'b'},"
             "{프로젝트NO:'c',대응등급:'A긴급',캠프긴급도:'낮음'},"
