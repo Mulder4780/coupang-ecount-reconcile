@@ -55,12 +55,23 @@ def _run(args, timeout, tag="run"):
     except Exception:
         pass
     try:
+        # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 시간이 넘으면 **부모만** 죽이고
+        #   그 밑 자식(daily_run 이 띄운 단계들)은 Z: 를 문 채 남는다. 출력은 그대로 파일로
+        #   흘리고(아래 이유), 넘으면 proc_guard 의 나무째 끊기를 빌린다([162]).
+        import proc_guard
         with open(log, "w", encoding="utf-8", errors="replace") as fh:
-            p = subprocess.run([PY] + args, cwd=ROOT, timeout=timeout,
-                               stdout=fh, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            rc = p.returncode
-    except subprocess.TimeoutExpired:
-        rc = 124
+            p = subprocess.Popen([PY] + args, cwd=ROOT, stdin=subprocess.DEVNULL,
+                                 stdout=fh, stderr=subprocess.STDOUT,
+                                 **proc_guard.background_popen_kwargs())
+            try:
+                rc = p.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc_guard._kill_tree(p)
+                try:
+                    p.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    pass
+                rc = 124
     except Exception as e:
         return 1, str(e)[:400]
     try:
