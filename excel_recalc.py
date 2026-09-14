@@ -281,9 +281,11 @@ def pending_doc():
 
 def refresh_pending():
     """대기 건수를 다시 센다(결과 확인용)."""
+    # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — recalc_pending 은 Z: 관리대장을 읽는다.
     try:
-        subprocess.run([sys.executable, os.path.join(ROOT, "recalc_pending.py")], cwd=ROOT,
-                       capture_output=True, timeout=600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        import proc_guard
+        proc_guard.run_tree([sys.executable, os.path.join(ROOT, "recalc_pending.py")],
+                            cwd=ROOT, timeout=600)
     except Exception:
         pass
     return pending_doc()
