@@ -223,17 +223,17 @@ def _snapshot(path: Path) -> tuple[Path | None, str]:
 
 def _run_audit(script: str, snapshot: Path, timeout: int = 180) -> tuple[int, str]:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    proc = subprocess.run(
+    # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 넘으면 나무째 끊고 반드시 돌아온다.
+    #   부르는 쪽 계약(시간초과는 예외)은 그대로 지킨다 — 조용히 rc 로 바꾸면 갈래가 샌다([172]).
+    import proc_guard
+    proc = proc_guard.run_tree(
         [sys.executable, str(ROOT / script), "--file", str(snapshot)],
         cwd=ROOT,
         env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         timeout=timeout,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    if proc.timed_out:
+        raise subprocess.TimeoutExpired([sys.executable, script], timeout)
     return proc.returncode, ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
 
 
