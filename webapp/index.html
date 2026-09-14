@@ -17310,9 +17310,25 @@ function inputForm(kind, r, id){
   const canEdit = f => !allow || allow.indexOf(f.col) >= 0;
   const blocked = fields.filter(f => !canEdit(f));
   const allBlocked = fields.length > 0 && blocked.length === fields.length;
+  /* ★ 등급을 고르는 **이 자리**에 캠프가 말한 급함·추천을 같이 보인다 (분담판 [431]).
+     배지는 목록·엑셀에만 있어 여기서는 사람이 기억해야 했다.
+     ★ INPUT_SPEC 에 넣지 않는다 — 넣으면 사람이 고칠 수 있게 되고 보관본 칸표까지
+       손대야 한다([321]). 읽기 전용 파생 줄이다(저장 안 됨).
+     ★ 함수는 **있을 때만** 부른다 — 검사 다섯 곳이 이 함수만 떼어 가 돌리는데
+       그 하네스에는 campUrgTag·gradeHint 가 없다([366] · 2026-09-14 t525 사고). */
+  let urgRef = '';
+  if(kind==='as'){
+    const _cu = (typeof campUrgTag==='function') ? campUrgTag(r) : '';
+    const _hasPick = (typeof gradeVal==='function') ? !!gradeVal(r) : true;
+    const _hint = (!_hasPick && typeof gradeHint==='function' && typeof gradeTagCore==='function' && gradeHint(r))
+      ? gradeTagCore(r) : '';
+    if(_cu || _hint) urgRef = `<div style="margin-top:8px;padding:9px 11px;border-radius:10px;background:rgba(127,127,127,.07);border:1px dashed var(--line);font-size:13px;line-height:1.6;color:var(--ink-2)">
+      <b>등급 고를 때 참고</b> (저장 안 됨) ${_cu} ${_hint}
+      <div style="color:var(--ink-3)">캠프가 적은 급함은 우리 대응등급이 아니고, 추천은 확정이 아닙니다.</div></div>`;
+  }
   // data-draft: 입력 초안 자동저장 대상 표시(2026-08-11) — 열쇠가 기록 단위라 남의 기록에 안 덮인다.
   return `<div data-draft="entry:${kind}:${esc2(String(id))}"><div class="sec" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">확인 내용 입력·정정 → 앱 DB 즉시 저장</div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
+    ${urgRef}<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">` +
     fields.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center">
       <span style="width:110px;font-size:14px;color:var(--ink-3);font-weight:600">${f.label}</span>
       ${canEdit(f) ? fieldInput(f, i, f.cur(r)) : lockedField(f, r)}
