@@ -195,9 +195,14 @@ def main(argv):
 
     # ③ 대조 — 새로 들어온 것이 없어도 돌린다(이전 회차가 못 끝냈을 수 있다).
     note("대조", "시작", {"신규": len(copied)})
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "receipt_fill.py"), "--queue"],
-                       capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=ROOT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # ★ 시간 제한 없는 subprocess.run 은 Z: 대기에 걸리면 영영 안 돌아온다([175]).
+    #   run_tree 는 넘으면 나무째 끊고 반드시 돌아온다 — 끊기면 returncode 가 0 이 아니라
+    #   아래 '대조 실패' 갈래로 간다(조용히 성공으로 적지 않는다 · [169]).
+    import proc_guard
+    r = proc_guard.run_tree([sys.executable, os.path.join(ROOT, "receipt_fill.py"), "--queue"],
+                            cwd=ROOT, timeout=3600)
+    if r.timed_out:
+        print("! 대조가 3600초를 넘겨 끊었습니다")
     tail = (r.stdout or "").strip().splitlines()[-3:]
     for ln in tail:
         print(" ", ln)
@@ -212,14 +217,19 @@ def main(argv):
     # ④ 사람 명령일 때만 즉시 보관본.
     if now_flag:
         note("보관본", "시작", None)
-        r2 = subprocess.run([sys.executable, os.path.join(ROOT, "ledger_db.py"),
-                             "--intake", "--apply", "--force", "--now"],
-                            capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", cwd=ROOT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        r2 = proc_guard.run_tree([sys.executable, os.path.join(ROOT, "ledger_db.py"),
+                                  "--intake", "--apply", "--force", "--now"],
+                                 cwd=ROOT, timeout=3600)
         note("보관본", "끝" if r2.returncode == 0 else "실패", {"code": r2.returncode})
         print("  즉시 보관본:", "완료" if r2.returncode == 0 else f"실패({r2.returncode})")
     else:
-        print("  보관본은 11:00·15:00 회차가 만든다 (--now 로 즉시)")
+        # 일정 문구는 한 곳에서 빌린다([162]·[417]) — 못 빌리면 시각을 지어내지 않는다.
+        try:
+            import ledger_db
+            _when = ledger_db.archive_when_text() or "보관 회차"
+        except Exception:                      # noqa: BLE001
+            _when = "보관 회차"
+        print("  보관본은 보관 회차(%s)가 만든다 (--now 로 즉시)" % _when)
     note("회차", "끝", {"신규": len(copied)})
     tell("입금내역 반영이 끝났습니다",
          f"새로 들어온 파일 {len(copied)}건 · 대조 완료"
