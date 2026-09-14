@@ -251,15 +251,19 @@ finally {
 
 def _ps(script, env=None, timeout=120):
     """PowerShell 실행. 경로 같은 값은 env 로 넘긴다(따옴표 문제를 원천 차단)."""
+    # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 자식이 PowerShell+Excel COM 이라
+    #   시간이 넘어도 윈도우에서 안 끝난다. run_tree 는 나무째 끊고 반드시 돌아온다.
+    # ★ run_tree 는 UTF-8 로 읽는다 — PowerShell 기본(cp949)으로 쓰면 한글 오류문이 깨진다.
     try:
-        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout,
-                           env={**os.environ, **(env or {})}, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        import proc_guard
+        r = proc_guard.run_tree(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8\n" + script],
+            env={**os.environ, **(env or {})}, timeout=timeout)
+        if r.timed_out:
+            return "ERR 시간초과"
         lines = [l for l in (r.stdout or "").strip().splitlines() if l.strip()]
         return lines[-1] if lines else (("ERR " + (r.stderr or "").strip()[:120]) if r.stderr else "")
-    except subprocess.TimeoutExpired:
-        return "ERR 시간초과"
     except Exception as e:
         return f"ERR {type(e).__name__}"
 
