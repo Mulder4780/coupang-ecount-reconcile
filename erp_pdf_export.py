@@ -128,6 +128,8 @@ def _convert(pairs):
         return out
     lines = [
         "$ErrorActionPreference='Continue'",
+        # ★ run_tree 는 UTF-8 로 읽는다 — PowerShell 기본(cp949)으로 쓰면 한글 경로가 깨진다.
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
         "$xl = New-Object -ComObject Excel.Application",
         "$xl.Visible=$false; $xl.DisplayAlerts=$false",
         "$done=@()",
@@ -156,8 +158,15 @@ def _convert(pairs):
         "$done -join \"`n\"",
     ]
     script = "\n".join(lines)
-    res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                         capture_output=True, text=True, timeout=1800, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 자식이 PowerShell+Excel COM 이라
+    #   시간이 넘어도 윈도우에서 안 끝난다. run_tree 는 나무째 끊고 반드시 돌아온다.
+    import proc_guard
+    res = proc_guard.run_tree(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                              timeout=1800)
+    if res.timed_out:
+        # 조용히 0건으로 끝내지 않는다([169]) — 끊긴 사실과 그때까지 만든 것을 같이 말한다.
+        print("PDF 변환 시간 초과(1800초) — Excel 을 끊었습니다. 끊기 전 만든 것만 셉니다.",
+              file=sys.stderr)
     return [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip().endswith(".pdf")]
 
 
