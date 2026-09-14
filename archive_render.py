@@ -54,8 +54,12 @@ def html_to_pdf(html, out_pdf, timeout=90):
         cmd = [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
                "--no-pdf-header-footer", f"--user-data-dir={os.path.join(td, 'prof')}",
                f"--print-to-pdf={out_pdf}", "file:///" + src.replace("\\", "/")]
+        # ★ subprocess.run(timeout=) 을 쓰지 않는다([175]) — 크롬 headless 는 손자 프로세스를
+        #   여럿 띄워, 넘으면 부모만 죽고 나머지가 임시 폴더를 잡은 채 남는다.
         try:
-            subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            from proc_guard import run_tree
+            if run_tree(cmd, timeout=timeout).timed_out:
+                return None
         except Exception:
             return None
     return out_pdf if os.path.exists(out_pdf) else None
