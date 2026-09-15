@@ -72,6 +72,9 @@ def attach_answers(issues, answers):
                             "답변자": a.get("답변자", ""), "답변일": a.get("답변일", "")})
             else:
                 left.append(a)
+    # 추가 줄도 등급 순서를 따른다 — '입금 안 됨(높음)' 이 맨 아래로 밀리면 대표가 못 본다
+    order = {"높음": 0, "보통": 1, "참고": 2}
+    out.sort(key=lambda x: order.get(x.get("등급"), 9))
     return out, left
 
 

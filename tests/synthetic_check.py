@@ -36062,12 +36062,15 @@ def t529_sanitizer_issues():
 
     # ②-b 담당 답은 같은 제목에 붙고 판정은 안 바꾼다 · 추가 답은 참고 줄 · 못 붙인 답은 돌려준다([169])
     ans = [{"제목": "소독기 쿠팡 PO 확인 안 됨", "답변": "PO382653", "답변자": "t", "답변일": "d"},
-           {"제목": "입금", "추가": True, "답변": "안 됨"},
+           {"제목": "입금", "추가": True, "등급": "높음", "답변": "안 됨"},
            {"제목": "사라진 문제", "답변": "x"}]
     withans, left = SP.attach_answers(got, ans)
     po = [i for i in withans if i["제목"] == "소독기 쿠팡 PO 확인 안 됨"][0]
     assert po["답변"] == "PO382653" and len(withans) == len(got) + 1, withans
     assert [a["제목"] for a in left] == ["사라진 문제"] and "답변" not in got[0], left
+    grades = [i["등급"] for i in withans]
+    assert grades == sorted(grades, key={"높음": 0, "보통": 1, "참고": 2}.get), \
+        "[529] 추가한 높음 줄이 등급 순서를 안 따른다: %r" % grades
     assert 'k:\'답변\'' in open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read(), \
         "[529] 화면에 담당 답변 칸이 없다"
     assert len(titles) == len(set(titles)), "[529] 같은 문제가 두 번 실렸다: %r" % titles
