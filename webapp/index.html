@@ -4730,51 +4730,51 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
   <!-- 쿠팡 소독기·세척기 (2026-09-15 지시) — sanitizer_projects.py 가 만든 현황을 읽기만 한다 -->
   <section class="view" id="v-sanitizer">
-    <div class="hero-min ios-large"><h2>소독기·세척기</h2>
-      <p class="sub">쿠팡 신규 장비 — 관리 장부(수정·삭제 가능) · 이카운트 거래 · 공유폴더 견적 · 확인할 문제. ERP·폴더 자료는 매일 09:50 회차가 다시 읽습니다.</p></div>
+    <div class="hero-min"><h2>세척기·소독기</h2>
+      <p class="sub" data-help-fold="sanitizer-sub">쿠팡 신규 장비 — 현장별 금액 · 확인할 문제 · 관리 장부(수정·삭제). 이카운트·공유폴더 자료는 매일 09:50 회차가 다시 읽습니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="세척기·소독기 도구">
       <button class="icon-btn primary" onclick="sanCapture()" title="캡처" aria-label="캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="sanCsv()" title="엑셀 저장" aria-label="엑셀 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
-      <button class="icon-btn" onclick="sanEdit(null)" title="새 항목" aria-label="새 항목">＋</button>
+      <button class="icon-btn" onclick="sanEdit(null)" title="새 항목" aria-label="새 항목">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-plus-lg"/></svg></button>
       <button class="icon-btn" onclick="renderSanitizer()" title="새로고침" aria-label="새로고침">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
+    </div>
+    <!-- 필터 — 정산 화면과 같은 .toolbar 한 줄(좁으면 알아서 접힌다). 목록·캡처·엑셀에 똑같이 걸린다. -->
+    <div class="toolbar" id="sanFilter">
+      <select id="sanQ_kind" onchange="sanDraw()" aria-label="구분"><option value="">구분 전체</option><option>세척기</option><option>소독기</option><option>공통</option></select>
+      <select id="sanQ_site" onchange="sanDraw()" aria-label="현장"><option value="">현장 전체</option></select>
+      <select id="sanQ_state" onchange="sanDraw()" aria-label="상태"><option value="">상태 전체</option><option>발행완료</option><option>주문등록</option><option>장부</option></select>
+      <input type="date" id="sanQ_from" onchange="sanDraw()" title="시작일" aria-label="시작일">
+      <input type="date" id="sanQ_to" onchange="sanDraw()" title="종료일" aria-label="종료일">
+      <input id="sanQ_text" placeholder="품목·프로젝트·메모 검색" oninput="sanDraw()" aria-label="검색">
+      <button class="btn" type="button" onclick="sanResetFilter()">필터 지우기</button>
     </div>
     <div class="card" id="sanForm" hidden>
       <h3 id="sanFormTitle">새 항목</h3>
       <input type="hidden" id="sanId"><input type="hidden" id="sanVer">
-      <div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
-        <label>구분<select id="sanF_구분"><option>세척기</option><option>소독기</option><option>공통</option></select></label>
-        <label>일자<input type="date" id="sanF_일자"></label>
-        <label>단계<input id="sanF_단계" placeholder="견적·PO·주문·납품·계산서"></label>
-        <label>프로젝트<input id="sanF_프로젝트"></label>
-        <label>품목<input id="sanF_품목"></label>
-        <label>수량<input id="sanF_수량" inputmode="decimal"></label>
-        <label>단가<input id="sanF_단가" inputmode="decimal"></label>
-        <label>공급가<input id="sanF_공급가" inputmode="decimal"></label>
-        <label>거래처<input id="sanF_거래처"></label>
-        <label>진행<input id="sanF_진행"></label>
-        <label style="grid-column:1/-1">메모<textarea id="sanF_메모"></textarea></label>
+      <div class="toolbar">
+        <select id="sanF_구분" aria-label="구분"><option>세척기</option><option>소독기</option><option>공통</option></select>
+        <input type="date" id="sanF_일자" title="일자" aria-label="일자">
+        <input id="sanF_단계" placeholder="단계 (견적·PO·주문·납품·계산서)" aria-label="단계">
+        <input id="sanF_프로젝트" placeholder="프로젝트" aria-label="프로젝트">
+        <input id="sanF_품목" placeholder="품목 (필수)" aria-label="품목">
+        <input id="sanF_수량" inputmode="decimal" placeholder="수량" aria-label="수량">
+        <input id="sanF_단가" inputmode="decimal" placeholder="단가" aria-label="단가">
+        <input id="sanF_공급가" inputmode="decimal" placeholder="공급가" aria-label="공급가">
+        <input id="sanF_거래처" placeholder="현장·거래처" aria-label="현장·거래처">
+        <input id="sanF_진행" placeholder="진행" aria-label="진행">
+        <input id="sanF_메모" placeholder="메모" aria-label="메모" style="flex-basis:100%">
         <input type="hidden" id="sanF_출처">
       </div>
-      <div class="ui-cards" style="margin-top:8px">
-        <button class="ui-card primary" onclick="sanSave()"><span class="ui-card-tx"><b>저장</b><span>앱 DB 에 바로 저장</span></span></button>
-        <button class="ui-card" onclick="$('sanForm').hidden=true"><span class="ui-card-tx"><b>닫기</b><span>저장하지 않음</span></span></button>
+      <div class="toolbar" style="justify-content:flex-end;margin:0">
+        <button class="btn" type="button" onclick="$('sanForm').hidden=true">닫기</button>
+        <button class="btn primary" type="button" onclick="sanSave()">저장</button>
       </div>
     </div>
-    <div class="card" id="sanFilter">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
-        <label>구분<select id="sanQ_kind" onchange="sanDraw()"><option value="">전체</option><option>세척기</option><option>소독기</option><option>공통</option></select></label>
-        <label>현장<select id="sanQ_site" onchange="sanDraw()"><option value="">전체</option></select></label>
-        <label>상태<select id="sanQ_state" onchange="sanDraw()"><option value="">전체</option><option>발행완료</option><option>주문등록</option><option>장부</option></select></label>
-        <label>시작일<input type="date" id="sanQ_from" onchange="sanDraw()"></label>
-        <label>종료일<input type="date" id="sanQ_to" onchange="sanDraw()"></label>
-        <label>검색<input id="sanQ_text" placeholder="품목·프로젝트·메모" oninput="sanDraw()"></label>
-      </div>
-      <div class="wt-meta" style="margin-top:6px"><a href="javascript:void(0)" onclick="sanResetFilter()">필터 지우기</a> · 필터는 목록·캡처·엑셀에 똑같이 적용됩니다</div>
-    </div>
-    <div class="card"><div id="sanHost"><div class="sk sk-row w70"></div></div></div>
+    <div id="sanHost"><div class="card"><div class="sk sk-row w70"></div></div></div>
   </section>
 
   <!-- 리포트 -->
@@ -19883,7 +19883,7 @@ async function renderSanitizer(){
     const cur=sel.value;
     const sites=[...new Set([...sanDeals(d).map(r=>r.현장),...(d.거래||[]).map(r=>r.거래처),
       ...(((d.장부||{}).rows)||[]).map(r=>r.거래처)].filter(Boolean))].sort();
-    sel.innerHTML='<option value="">전체</option>'+sites.map(s=>'<option>'+esc2(s)+'</option>').join('');
+    sel.innerHTML='<option value="">현장 전체</option>'+sites.map(s=>'<option>'+esc2(s)+'</option>').join('');
     if(sites.indexOf(cur)>=0) sel.value=cur;
   }
   sanDraw();
@@ -19891,44 +19891,77 @@ async function renderSanitizer(){
 function sanDraw(){
   const host=$('sanHost'), d=SAN; if(!host||!d) return;
   const q=sanQ(), e=v=>esc2(v==null?'':String(v)), won=sanWon;
-  const table=(cols,rows,fmt,act)=>'<div style="overflow-x:auto"><table class="tbl"><thead><tr>'+cols.map(c=>'<th>'+e(SAN_LABEL[c]||c)+'</th>').join('')+(act?'<th></th>':'')+
-    '</tr></thead><tbody>'+rows.map(r=>'<tr'+(r.deleted_at?' style="opacity:.5;text-decoration:line-through"':(r._sum?' style="font-weight:700;background:var(--soft,#f3f4f6)"':''))+'>'+
-    cols.map(c=>'<td>'+(fmt&&fmt[c]?fmt[c](r[c]):e(r[c]))+'</td>').join('')+(act?'<td style="white-space:nowrap">'+(r._sum?'':act(r))+'</td>':'')+'</tr>').join('')+'</tbody></table></div>';
-  const grade={'높음':'#DC2626','보통':'#D97706','참고':'#6B7280'};
+  /* 표는 앱 공용 table.grid(정산·매출 실적·캠프와 같은 모양)를 빌린다([162]).
+     cols: [{k, t, num, fmt}] · 합계·소계 줄은 tr.tot · 칸이 비면 표 대신 .empty 한 줄. */
+  const grid=(cols,rows,act,emptyText)=>{
+    if(!rows.length) return '<div class="fnote" style="padding:12px 2px">'+e(emptyText||'조건에 맞는 항목이 없습니다')+'</div>';
+    return '<div class="gridwrap"><table class="grid"><thead><tr>'+
+      cols.map(c=>'<th'+(c.num?' class="num"':'')+'>'+e(c.t)+'</th>').join('')+(act?'<th class="ops"></th>':'')+'</tr></thead><tbody>'+
+      rows.map(r=>'<tr'+(r._tot?' class="tot"':'')+(r.deleted_at?' style="opacity:.55"':'')+'>'+
+        cols.map(c=>'<td'+(c.num?' class="num"':'')+(c.wrap?' style="white-space:normal;min-width:'+c.wrap+'px"':'')+'>'+(c.fmt?c.fmt(r[c.k],r):e(r[c.k]))+'</td>').join('')+
+        (act?'<td class="ops">'+(r._tot?'':act(r))+'</td>':'')+'</tr>').join('')+
+      '</tbody></table></div>';
+  };
+  const stateChip=v=>v?'<span class="chip '+({'발행완료':'c-ok','주문등록':'c-warn','장부':'c-skip'}[v]||'c-skip')+'">'+e(v)+'</span>':'';
+  const gradeChip=v=>'<span class="chip '+({'높음':'c-danger','보통':'c-warn'}[v]||'c-skip')+'">'+e(v)+'</span>';
+  const money=v=>(typeof v==='number')?won(v):'';
+  const card=(title,sub,body)=>'<div class="card"><h3>'+e(title)+(sub?' <span class="norm">— '+e(sub)+'</span>':'')+'</h3>'+body+'</div>';
   const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
   const sum=a=>a.reduce((s,r)=>s+(r.공급가||0),0), cnt=a=>a.reduce((s,r)=>s+(r.대수||0),0);
   const done=deals.filter(r=>r.상태==='발행완료'), open=deals.filter(r=>r.상태!=='발행완료');
-  let h='<div class="wt-meta">조건: '+e(sanQText(q))+' · ERP·폴더 자료 '+e(d.만든시각||'-')+'</div>';
-  if(d.현황없음) h+='<div class="wt-meta">'+e(d.현황없음)+'</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0">'+
-    [['전체',cnt(deals)+'대',won(sum(deals))],['발행 완료',cnt(done)+'대',won(sum(done))],['미발행',cnt(open)+'대',won(sum(open))]]
-    .map(([t,a,b])=>'<div class="card" style="margin:0;padding:10px"><div class="wt-meta">'+t+'</div><b style="font-size:18px">'+b+'</b><div class="wt-meta">'+a+' · 공급가(VAT 별도)</div></div>').join('')+'</div>';
-  const withSum=[...deals];
-  if(deals.length) withSum.push({_sum:1,일자:'합계',구분:'',현장:'',품목:'',대수:cnt(deals),단가:null,공급가:sum(deals),상태:''});
-  h+='<h3>현장별 금액 '+deals.length+'건</h3>'+(deals.length?table(['일자','구분','현장','품목','대수','단가','공급가','상태','근거'],withSum,{'단가':won,'공급가':won}):'<div class="wt-meta">조건에 맞는 건이 없습니다</div>');
-  const byKind=[...new Set(deals.map(r=>r.구분))].map(k=>{ const a=deals.filter(r=>r.구분===k), dn=a.filter(r=>r.상태==='발행완료'), op=a.filter(r=>r.상태!=='발행완료');
-    return {구분:k,발행완료_건:dn.length,발행완료_공급가:sum(dn),주문등록_대수:cnt(op),주문등록_공급가:sum(op),최근:a.map(r=>r.일자).sort().pop()||''}; });
-  h+='<h3>구분별 요약</h3>'+(byKind.length?table(['구분','발행완료_건','발행완료_공급가','주문등록_대수','주문등록_공급가','최근'],byKind,{'발행완료_공급가':won,'주문등록_공급가':won}):'<div class="wt-meta">없음</div>');
+  let h='<div class="fnote">조건 '+e(sanQText(q))+' · 이카운트·폴더 자료 '+e(String(d.만든시각||'-').replace('T',' ').slice(0,16))+' · 금액은 공급가(VAT 별도)</div>';
+  if(d.현황없음) h+='<div class="fnote">'+e(d.현황없음)+'</div>';
+  // 숫자 카드 — 앱 공용 .kpis/.kpi
+  h+='<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">'+
+    [['전체',cnt(deals)+'대',won(sum(deals)),''],['발행 완료',done.length+'건',won(sum(done)),'var(--ok)'],['미발행',cnt(open)+'대',won(sum(open)),'var(--warn)']]
+    .map(([t,a,b,c])=>'<div class="kpi"><div class="head"><div class="l">'+t+' · '+a+'</div></div><div class="v"'+(c?' style="color:'+c+'"':'')+'>'+b+'</div></div>').join('')+'</div>';
+  // ① 현장별 금액 (구분 소계 · 전체 합계)
+  const kinds=[...new Set(deals.map(r=>r.구분))], siteRows=[];
+  kinds.forEach(k=>{ const a=deals.filter(r=>r.구분===k); siteRows.push(...a);
+    if(kinds.length>1) siteRows.push({_tot:1,현장:k+' 소계',대수:cnt(a),공급가:sum(a)}); });
+  if(deals.length) siteRows.push({_tot:1,현장:'전체 합계',대수:cnt(deals),공급가:sum(deals)});
+  h+=card('현장별 금액',deals.length+'건',grid([
+    {k:'현장',t:'현장'},{k:'구분',t:'구분'},{k:'품목',t:'품목'},
+    {k:'대수',t:'대수',num:1,fmt:v=>v==null?'':e(v)+'대'},{k:'공급가',t:'공급가',num:1,fmt:money},
+    {k:'일자',t:'날짜'},{k:'상태',t:'상태',fmt:stateChip},{k:'근거',t:'근거',wrap:140}],siteRows,null,'조건에 맞는 건이 없습니다'));
+  // ② 구분별 요약
+  const byKind=kinds.map(k=>{ const a=deals.filter(r=>r.구분===k), dn=a.filter(r=>r.상태==='발행완료'), op=a.filter(r=>r.상태!=='발행완료');
+    return {구분:k,dn:dn.length,dnw:sum(dn),opn:cnt(op),opw:sum(op),all:sum(a),최근:a.map(r=>r.일자).sort().pop()||''}; });
+  if(byKind.length>1) byKind.push({_tot:1,구분:'합계',dn:done.length,dnw:sum(done),opn:cnt(open),opw:sum(open),all:sum(deals),최근:deals.map(r=>r.일자).sort().pop()||''});
+  h+=card('구분별 요약','',grid([
+    {k:'구분',t:'구분'},{k:'dn',t:'발행 완료',num:1,fmt:v=>e(v)+'건'},{k:'dnw',t:'발행 완료 금액',num:1,fmt:money},
+    {k:'opn',t:'미발행 대수',num:1,fmt:v=>e(v)+'대'},{k:'opw',t:'미발행 금액',num:1,fmt:money},
+    {k:'all',t:'전체 금액',num:1,fmt:money},{k:'최근',t:'최근 거래일'}],byKind,null,'없음'));
+  // ③ 확인할 문제
   const iss=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
-  h+='<h3>확인할 문제 '+iss.length+'건</h3>'+(iss.length?table(['등급','제목','설명','근거'],iss,
-     {'등급':v=>'<b style="color:'+(grade[v]||'#111')+'">'+e(v)+'</b>','제목':v=>'<b>'+e(v)+'</b>'}):'<div class="wt-meta">없음</div>');
+  h+=card('확인할 문제',iss.length+'건',grid([
+    {k:'등급',t:'등급',fmt:gradeChip},{k:'제목',t:'문제',wrap:200,fmt:v=>'<b>'+e(v)+'</b>'},{k:'설명',t:'핵심 내용',wrap:320},
+    {k:'근거',t:'근거',fmt:v=>'<span class="fnote">'+e(String(v||'').split(/ · |, /)[0].split(/[\\/]/).pop())+'</span>'}],iss,null,'확인할 문제가 없습니다'));
+  // ④ 관리 장부
   const led=(((d.장부||{}).rows)||[]).filter(r=>sanPass(r,q));
-  h+='<h3>관리 장부 '+led.filter(r=>!r.deleted_at).length+'건</h3>';
-  if(d.장부오류) h+='<div class="wt-meta">'+e(d.장부오류)+'</div>';
-  h+=led.length?table(['id','구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모','updated_by'],led,{'단가':won,'공급가':won},
-     r=>r.deleted_at?'<button class="abtn" onclick="sanRestore('+r.id+')">복구</button> <span class="wt-meta">'+e(r.delete_reason)+'</span>'
-       :'<button class="abtn" onclick="sanEdit('+r.id+')">수정</button> <button class="abtn" onclick="sanDelete('+r.id+')">삭제</button>')
-     :'<div class="wt-meta">조건에 맞는 항목이 없습니다 — ＋ 또는 아래 거래 내역의 [장부로] 를 누르세요</div>';
-  if((d.못읽음||[]).length) h+='<h3>못 읽은 것</h3><div class="wt-meta">'+d.못읽음.map(e).join('<br>')+'</div>';
+  const ledBody=(d.장부오류?'<div class="fnote">'+e(d.장부오류)+'</div>':'')+grid([
+    {k:'id',t:'번호',num:1},{k:'구분',t:'구분'},{k:'일자',t:'일자'},{k:'단계',t:'단계'},{k:'품목',t:'품목'},
+    {k:'수량',t:'수량',num:1},{k:'공급가',t:'공급가',num:1,fmt:money},{k:'거래처',t:'현장·거래처'},{k:'진행',t:'진행'},{k:'메모',t:'메모',wrap:160},
+    {k:'updated_by',t:'고친 사람',fmt:(v,r)=>r.deleted_at?'<span class="chip c-danger">삭제됨</span>':e(v||r.created_by)}],led,
+    r=>r.deleted_at?'<button class="btn" onclick="sanRestore('+r.id+')">복구</button>'
+      :'<button class="btn" onclick="sanEdit('+r.id+')">수정</button> <button class="btn" onclick="sanDelete('+r.id+')">삭제</button>',
+    '아직 없습니다 — 위 ＋ 단추나 아래 이카운트 거래의 [장부로] 로 추가합니다');
+  h+=card('관리 장부',led.filter(r=>!r.deleted_at).length+'건 · 앱 DB 저장 · 수정·삭제 가능',ledBody);
+  if((d.못읽음||[]).length) h+=card('못 읽은 것','',('<div class="fnote">'+d.못읽음.map(e).join('<br>')+'</div>'));
+  // ⑤ 이카운트 거래 (읽기 전용)
   const erp=(d.거래||[]).map((r,i)=>Object.assign({_i:i},r)).filter(r=>sanPass(r,q));
-  h+='<h3>이카운트 거래 내역 '+erp.length+'건 <span class="norm">— 읽기 전용 · 고치려면 [장부로]</span></h3>'+table(['일자','단계','구분','프로젝트','품목','수량','단가','공급가','거래처','진행'],erp,{'단가':won,'공급가':won},
-     r=>'<button class="abtn" onclick="sanFromErp('+r._i+')">장부로</button>');
+  h+=card('이카운트 거래',erp.length+'건 · 읽기 전용 · 고치려면 [장부로]',grid([
+    {k:'일자',t:'일자'},{k:'단계',t:'단계'},{k:'구분',t:'구분'},{k:'프로젝트',t:'프로젝트'},{k:'품목',t:'품목'},
+    {k:'수량',t:'수량',num:1},{k:'단가',t:'단가',num:1,fmt:money},{k:'공급가',t:'공급가',num:1,fmt:money},{k:'거래처',t:'현장·거래처'},{k:'진행',t:'진행'}],erp,
+    r=>'<button class="btn" onclick="sanFromErp('+r._i+')">장부로</button>','조건에 맞는 거래가 없습니다'));
+  // ⑥ 견적 · 품목 · 폴더
   const qs=(d.견적||[]).filter(r=>sanPass(r,q,{date:'날짜'}));
-  h+='<h3>견적 이력 '+qs.length+'건</h3>'+table(['날짜','구분','견적번호','품명','수량','단가','금액','파일'],qs,{'단가':won,'금액':won});
-  h+='<h3>이카운트 품목</h3>'+table(['품목코드','품목명','규격','판매단가'],d.품목||[],{'판매단가':won});
+  h+=card('견적 이력',qs.length+'건',grid([
+    {k:'날짜',t:'날짜'},{k:'구분',t:'구분'},{k:'견적번호',t:'견적번호'},{k:'품명',t:'품명'},
+    {k:'수량',t:'수량',num:1},{k:'단가',t:'단가',num:1,fmt:money},{k:'금액',t:'금액',num:1,fmt:money},{k:'파일',t:'파일',fmt:v=>'<span class="fnote">'+e(v)+'</span>'}],qs,null,'없음'));
+  h+=card('이카운트 품목','',grid([{k:'품목코드',t:'품목코드'},{k:'품목명',t:'품목명'},{k:'규격',t:'규격'},{k:'판매단가',t:'판매단가',num:1,fmt:money}],d.품목||[],null,'없음'));
   const fs=(d.폴더자료||[]).filter(r=>!q.text||JSON.stringify(r).toLowerCase().indexOf(q.text)>=0);
-  h+='<h3>공유폴더 자료 '+fs.length+'개</h3><div class="wt-meta">'+e(d.원본폴더)+'</div>'+table(['분류','경로','수정일'],fs);
-  h+='<div class="wt-meta">보고용 엑셀(서버 PC): reports/쿠팡_소독기세척기_관리.xlsx</div>';
+  h+=card('공유폴더 자료',fs.length+'개',('<div class="fnote">'+e(d.원본폴더)+'</div>')+grid([{k:'분류',t:'분류'},{k:'경로',t:'파일',wrap:320},{k:'수정일',t:'수정일'}],fs,null,'없음'));
   host.innerHTML=h;
 }
 function sanFill(r){

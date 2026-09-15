@@ -19430,9 +19430,11 @@ def t368_screens_fit_without_shrinking_and_tables_line_up():
     td_num = src.count('<td class="num">')
     assert th_num >= 8, "[368] 숫자 머리글 태그가 %d개뿐이다" % th_num
     assert td_num >= 8, "[368] 숫자 칸 태그가 %d개뿐이다" % td_num
-    assert src.count('<th class="ops">') == 4, (
-        "[368] 조작 머리글 태그가 4개가 아니다(%d) — 표를 늘렸으면 같이 태그한다"
-        % src.count('<th class="ops">'))
+    # ★ 계약은 '정확히 4개'가 아니라 '빠지지 않고, 머리글마다 칸도 태그했다'다([39]·[219]) —
+    #   표가 늘면(2026-09-15 세척기·소독기 장부) 숫자만 박은 검사가 멀쩡한 표를 막는다.
+    th_ops = src.count('<th class="ops">')
+    assert th_ops >= 4, (
+        "[368] 조작 머리글 태그가 %d개뿐이다 — 표를 늘렸으면 같이 태그한다" % th_ops)
 
     # ── ④ 구분선은 토큰이다 — 굳은 색은 한쪽 테마에서만 맞는다([332]) ────────
     for dead in ("#EEF2F7", "#F0F3F7"):
