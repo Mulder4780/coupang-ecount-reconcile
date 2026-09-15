@@ -36018,11 +36018,15 @@ def t529_sanitizer_issues():
         base.update(kw)
         return base
 
-    # ① 멀쩡한 세척기 한 건: 견적 → PO → 계산서, 전용 품목·양사 계약 있음
+    # ⓪ 세척기 = 소독기 (2026-09-15 형님 지시) — 어느 이름이든 한 구분으로 모인다
+    for nm in ("프레시백 세척기", "FRESH WASHING MACHINE", "Tote Freshbox 소독기", "Sterilizer"):
+        assert SP.kind_of(nm) == "소독기", "[529] %s 가 소독기로 안 모였다" % nm
+    assert SP.kind_of("리프트") == ""
+    # ① 멀쩡한 한 건: 견적 → PO → 계산서, 전용 품목(세척기 이름이어도 같은 장비)·양사 계약 있음
     clean = [
-        rec(일자="2026-01-13", 단계="견적", 종류="quote", 구분="세척기", 합계=110.0, 프로젝트명="세척기"),
-        rec(일자="2026-01-22", 단계="쿠팡 PO", 종류="po", 구분="세척기", 공급가=100.0),
-        rec(일자="2026-02-24", 단계="세금계산서 진행", 종류="taxstep", 구분="세척기", 공급가=100.0),
+        rec(일자="2026-01-13", 단계="견적", 종류="quote", 구분="소독기", 합계=110.0, 프로젝트명="세척기"),
+        rec(일자="2026-01-22", 단계="쿠팡 PO", 종류="po", 구분="소독기", 공급가=100.0),
+        rec(일자="2026-02-24", 단계="세금계산서 진행", 종류="taxstep", 구분="소독기", 공급가=100.0),
     ]
     items = [{"품목코드": "1", "품목명": "프레시백 세척기", "규격": "", "판매단가": 100.0, "적요": ""}]
     files = [{"분류": "계약", "경로": "세척기 계약서(양사 날인).pdf", "수정일": "", "KB": 1}]
@@ -36049,11 +36053,23 @@ def t529_sanitizer_issues():
     titles = [i["제목"] for i in got]
     want = ["소독기 ERP 단가가 최종 견적과 다름", "소독기 주문 뒤 세금계산서 확인 안 됨",
             "소독기 주문에 프로젝트코드 없음", "소독기 쿠팡 PO 확인 안 됨",
-            "소독기 견적 유효기간이 지난 뒤 주문 등록", "같은 견적이 세척기·소독기 두 이름으로 등록",
+            "소독기 견적 유효기간이 지난 뒤 주문 등록",
             "견적서 안전관리비 금액이 앞뒤로 다름", "계약서 쿠팡 날인본 확인 안 됨",
-            "세척기 전용 품목코드 없음", "소독기 전용 품목코드 없음"]
+            "소독기 전용 품목코드 없음"]
     missing = [w for w in want if w not in titles]
     assert not missing, "[529] 잡아야 할 문제를 못 잡았다: %r" % missing
+    assert not any(t.startswith("세척기") for t in titles), "[529] 세척기를 따로 셌다: %r" % titles
+
+    # ②-b 담당 답은 같은 제목에 붙고 판정은 안 바꾼다 · 추가 답은 참고 줄 · 못 붙인 답은 돌려준다([169])
+    ans = [{"제목": "소독기 쿠팡 PO 확인 안 됨", "답변": "PO382653", "답변자": "t", "답변일": "d"},
+           {"제목": "입금", "추가": True, "답변": "안 됨"},
+           {"제목": "사라진 문제", "답변": "x"}]
+    withans, left = SP.attach_answers(got, ans)
+    po = [i for i in withans if i["제목"] == "소독기 쿠팡 PO 확인 안 됨"][0]
+    assert po["답변"] == "PO382653" and len(withans) == len(got) + 1, withans
+    assert [a["제목"] for a in left] == ["사라진 문제"] and "답변" not in got[0], left
+    assert 'k:\'답변\'' in open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read(), \
+        "[529] 화면에 담당 답변 칸이 없다"
     assert len(titles) == len(set(titles)), "[529] 같은 문제가 두 번 실렸다: %r" % titles
     assert got[0]["등급"] == "높음", "[529] 높음이 맨 앞에 안 온다"
     s = {x["구분"]: x for x in SP.summarize(bad)}

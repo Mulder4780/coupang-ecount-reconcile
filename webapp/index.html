@@ -4775,7 +4775,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <!-- 필터 — 정산 화면과 같은 .toolbar 한 줄(좁으면 알아서 접힌다). 목록·캡처·엑셀에 똑같이 걸린다. -->
     <div id="sanFilter">
       <div class="san-filter">
-        <div class="seg" id="sanSeg_kind" role="group" aria-label="구분"><button type="button" class="on" onclick="sanSeg('kind','')">전체</button><button type="button" onclick="sanSeg('kind','세척기')">세척기</button><button type="button" onclick="sanSeg('kind','소독기')">소독기</button></div>
+        <div class="seg" id="sanSeg_kind" role="group" aria-label="구분"><button type="button" class="on" onclick="sanSeg('kind','')">전체</button><button type="button" onclick="sanSeg('kind','소독기')">소독기</button></div>
         <div class="seg" id="sanSeg_state" role="group" aria-label="상태"><button type="button" class="on" onclick="sanSeg('state','')">전체</button><button type="button" onclick="sanSeg('state','발행완료')">발행완료</button><button type="button" onclick="sanSeg('state','주문등록')">주문등록</button><button type="button" onclick="sanSeg('state','장부')">장부</button></div>
       </div>
       <input type="hidden" id="sanQ_kind"><input type="hidden" id="sanQ_state">
@@ -19976,6 +19976,7 @@ function sanDraw(){
   const iss=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
   h+=card('확인할 문제',iss.length+'건',grid([
     {k:'등급',t:'등급',fmt:gradeChip},{k:'제목',t:'문제',wrap:200,fmt:v=>'<b>'+e(v)+'</b>'},{k:'설명',t:'핵심 내용',wrap:320},
+    {k:'답변',t:'담당 답변',wrap:260,fmt:(v,r)=>v?e(v)+(r.답변자?'<div class="fnote">'+e(r.답변자)+' · '+e(r.답변일||'')+'</div>':''):'<span class="fnote">답변 없음</span>'},
     {k:'근거',t:'근거',fmt:v=>'<span class="fnote">'+e(String(v||'').split(/ · |, /)[0].split(/[\\/]/).pop())+'</span>'}],iss,null,'확인할 문제가 없습니다'));
   // ④ 관리 장부
   const led=(((d.장부||{}).rows)||[]).filter(r=>sanPass(r,q));
@@ -20006,7 +20007,7 @@ function sanDraw(){
 }
 function sanFill(r){
   SAN_FIELDS.forEach(k=>{ const el=$('sanF_'+k); if(el) el.value=(r&&r[k]!=null)?String(r[k]).slice(0,k==='일자'?10:500):''; });
-  if(!$('sanF_구분').value) $('sanF_구분').value='세척기';
+  if(!$('sanF_구분').value) $('sanF_구분').value='소독기';  // 세척기 = 소독기 (2026-09-15)
 }
 function sanEdit(id){
   const r=id?((SAN&&SAN.장부&&SAN.장부.rows)||[]).find(x=>x.id===id):null;
@@ -20055,8 +20056,8 @@ function sanCsv(){
   (d.거래||[]).filter(r=>sanPass(r,f)).forEach(r=>L.push(['',r.일자,r.단계,r.구분,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,r.파일]));
   L.push([]); L.push(['견적 이력','날짜','구분','견적번호','품명','수량','단가','금액','파일']);
   (d.견적||[]).filter(r=>sanPass(r,f,{date:'날짜'})).forEach(r=>L.push(['',r.날짜,r.구분,r.견적번호,r.품명,r.수량,r.단가,r.금액,r.파일]));
-  L.push([]); L.push(['확인할 문제','등급','제목','설명','근거']);
-  (d.문제||[]).forEach(i=>L.push(['',i.등급,i.제목,i.설명,i.근거]));
+  L.push([]); L.push(['확인할 문제','등급','제목','설명','담당 답변','답변자','답변일','근거']);
+  (d.문제||[]).forEach(i=>L.push(['',i.등급,i.제목,i.설명,i.답변||'',i.답변자||'',i.답변일||'',i.근거]));
   const csv='﻿'+L.map(r=>r.map(q).join(',')).join('\n');
   saveOrOpen(new Blob([csv],{type:'text/csv'}),`세척기소독기_${todayISO()}.csv`);
 }
@@ -20144,8 +20145,9 @@ async function sanCapture(opt){
   // ③ 확인할 문제 — 근거는 파일 이름만(경로·여러 파일은 첫 것)
   const gcol={'높음':'#DC2626','보통':'#D97706','참고':'#667085'};
   const base=s=>String(s||'').split(/ · |, /)[0].split(/[\\/]/).pop();
-  table('확인할 문제 '+issues.length+'건',[{t:'등급',w:44},{t:'문제',w:210},{t:'핵심 내용',w:320},{t:'근거',w:144}],
-    issues.map(i=>({c:[i.등급,i.제목,i.설명,base(i.근거)],col:{0:gcol[i.등급]}})),'확인할 문제 없음');
+  // 근거 대신 담당 답변을 싣는다 — 대표가 보는 것은 "왜 그런가"다(근거 파일은 화면·엑셀에 남는다)
+  table('확인할 문제 '+issues.length+'건',[{t:'등급',w:44},{t:'문제',w:170},{t:'핵심 내용',w:214},{t:'담당 답변',w:290}],
+    issues.map(i=>({c:[i.등급,i.제목,i.설명,i.답변||'답변 없음'],col:{0:gcol[i.등급],3:i.답변?'#1D4ED8':'#98A2B3'}})),'확인할 문제 없음');
   // 장마다 바닥글 — 쪽 번호는 전체 장 수를 안 뒤에 적는다
   pages.forEach((cv,i)=>{ const c=cv.getContext('2d');
     c.font=F(9); c.fillStyle='#667085'; c.textAlign='left';

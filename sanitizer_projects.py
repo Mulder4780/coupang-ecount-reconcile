@@ -43,12 +43,47 @@ def is_target(text):
 
 
 def kind_of(text):
+    """세척기와 소독기는 **같은 장비**다 (2026-09-15 형님 지시 · 오종현 확인:
+    품목코드 55004 'Tote Freshbox 소독기' 하나). 이름이 둘이라 갈라 세면 같은 견적이
+    두 번 뜨고 '세척기 전용 품목코드 없음' 같은 없는 문제가 생긴다 — 그래서 한 이름으로 모은다."""
     t = (text or "").lower()
-    if any(k in t for k in STERILIZER):
+    if any(k in t for k in STERILIZER + WASHER):
         return "소독기"
-    if any(k in t for k in WASHER):
-        return "세척기"
     return ""
+
+
+ANSWERS_JSON = os.path.join(ROOT, "reports", "소독기_문제답변.json")
+
+
+def attach_answers(issues, answers):
+    """사람이 준 답을 같은 제목의 문제에 붙인다(순수 함수 · 판정은 안 바꾼다).
+    답은 **확인 기록**이지 완료 처리가 아니다 — 문제는 그대로 남고 답이 옆에 붙는다.
+    '추가' 답(문제 목록에 없는 확인 사항)은 참고 줄로 싣는다. 못 붙인 답은 돌려준다([169])."""
+    out = [dict(i) for i in issues]
+    left = []
+    for a in answers or []:
+        hit = [i for i in out if i["제목"] == a.get("제목")]
+        for i in hit:
+            i["답변"], i["답변자"], i["답변일"] = a.get("답변", ""), a.get("답변자", ""), a.get("답변일", "")
+        if not hit:
+            if a.get("추가"):
+                out.append({"등급": a.get("등급", "참고"), "제목": a["제목"], "설명": a.get("설명", ""),
+                            "근거": a.get("답변자", ""), "답변": a.get("답변", ""),
+                            "답변자": a.get("답변자", ""), "답변일": a.get("답변일", "")})
+            else:
+                left.append(a)
+    return out, left
+
+
+def load_answers(path=ANSWERS_JSON):
+    """못 읽으면 빈 목록과 이유(모름을 '답 없음'으로 뭉개지 않는다 · [169])."""
+    if not os.path.exists(path):
+        return [], ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("답변", []), ""
+    except (OSError, ValueError) as exc:
+        return [], "답변 파일 못 읽음: %s" % type(exc).__name__
 
 
 def _num(v):
@@ -436,7 +471,7 @@ def write_xlsx(data, path=OUT_XLSX):
     wb.remove(wb.active)
     sheet("1_요약", ["구분", "발행완료_건", "발행완료_공급가", "주문등록_대수", "주문등록_공급가", "최근"],
           data["요약"])
-    sheet("2_문제사항", ["등급", "제목", "설명", "근거"], data["문제"])
+    sheet("2_문제사항", ["등급", "제목", "설명", "답변", "답변자", "답변일", "근거"], data["문제"])
     sheet("3_거래내역", ["일자", "단계", "구분", "프로젝트", "프로젝트명", "품목코드", "품목", "수량",
                      "단가", "공급가", "합계", "거래처", "진행", "PO", "파일"], data["거래"])
     sheet("4_견적이력", ["날짜", "구분", "견적번호", "품명", "수량", "단가", "금액", "유효기간일", "파일"],
@@ -456,13 +491,16 @@ def build():
     recs = normalize(raw)
     items, item_err = item_master(os.path.join(ROOT, "inbox", "api", "ecount_items_latest.json"))
     files, quotes, folder_err = scan_folder(PROJECT_DIR)
+    answers, ans_err = load_answers()
+    issues, unmatched = attach_answers(find_issues(recs, items, quotes, files), answers)
     data = {
         "만든시각": datetime.datetime.now().isoformat(timespec="seconds"),
         "원본폴더": PROJECT_DIR,
         "요약": summarize(recs),
-        "문제": find_issues(recs, items, quotes, files),
+        "문제": issues,
+        "답변_지난문제": unmatched,
         "거래": recs, "견적": quotes, "품목": items or [], "폴더자료": files,
-        "못읽음": [m for m in [item_err, folder_err] + fails[:20] if m],
+        "못읽음": [m for m in [item_err, folder_err, ans_err] + fails[:20] if m],
     }
     tmp = OUT_JSON + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
