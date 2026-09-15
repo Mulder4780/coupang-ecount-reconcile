@@ -17234,6 +17234,57 @@ def t365_pipeline_failure_says_why():
     assert "시간초과" not in old[:150], (
         "계기 시험 — 옛 방식에서도 사유가 보이면 ⑤가 무의미하다")
 
+    # ⑨ [302] 앞 회차가 **도중에 사라졌으면** 다음 회차가 자국을 남긴다 — 실행으로 잰다([295]).
+    #    진짜 상태·잠금·reports 는 안 건드린다([247]) — 임시 뿌리로만.
+    from pathlib import Path as _P302
+    from app_store import AppStore as _AS302
+    with tempfile.TemporaryDirectory(prefix="csos-302-") as _td:
+        _root = _P302(_td)
+        (_root / "reports").mkdir(parents=True)
+        _st = _root / "reports" / "state.json"
+        _dead = AP._default_state()
+        _dead["running"] = True
+        _dead["active_run_id"] = "dead-run"
+        _dead["last_run"] = {"status": "running", "run_id": "dead-run",
+                             "started_at": "2026-08-31T04:26:00+00:00",
+                             "current_stage": "밴드 앱 DB 신규·변경등록"}
+        _dead["history"] = [{"status": "success", "run_id": "older"}]
+        _st.write_text(json.dumps(_dead, ensure_ascii=False), encoding="utf-8")
+        _pl = AP.AutomationPipeline(root=_root, state_path=_st,
+                                    lock_path=_root / "reports" / ".lock",
+                                    store=_AS302(_root / "app.db").initialize(),
+                                    stage_runner=lambda *_a: {"ok": True})
+        assert _pl._acquire_run(), "[302] 임시 잠금을 못 잡았다"
+        try:
+            _tr = _root / "reports" / AP.AutomationPipeline.CRASH_TRACE_NAME
+            assert _tr.name.endswith("_오류.json"), (
+                "[302] 이름이 *_오류.json 이 아니면 schedule_watch.traces() 가 못 줍는다")
+            assert _tr.exists(), "[302] 앞 회차가 사라졌는데 자국이 없다 — 왜인지 물을 데가 없다"
+            _doc = json.loads(_tr.read_text(encoding="utf-8"))
+            assert "밴드 앱 DB 신규·변경등록" in _doc.get("무엇", "")[:120], (
+                "[302] 어느 단계에서 사라졌는지가 앞 120자에 없다(인계가 자른다)", _doc)
+            assert _pl.state["history"][0]["status"] == "interrupted", (
+                "[302] 끝을 못 본 회차가 history 에 안 남는다", _pl.state["history"][:2])
+            assert _pl.state["history"][1]["run_id"] == "older", "[302] 옛 history 를 덮었다"
+            assert _pl.state["running"] is False
+            # 계기 자기시험([272]) — 멀쩡히 끝난 앞 회차에는 **아무 말도 안 한다**([170])
+            _tr.unlink()
+            _pl.state["running"] = False
+            _pl.state["last_run"] = {"status": "success"}
+            _pl._note_prev_crash()
+            assert not _tr.exists(), "[302] 정상 완주에도 자국을 남긴다 — 경보가 가짜가 된다"
+            # 성공하면 지운다([228])
+            _tr.write_text("{}", encoding="utf-8")
+            _pl._clear_crash_trace()
+            assert not _tr.exists(), "[302] 성공한 회차가 옛 자국을 안 지운다"
+        finally:
+            _pl._release_run()
+    _src302 = open(os.path.join(ROOT, "automation_pipeline.py"), encoding="utf-8").read()
+    assert "self._note_prev_crash()" in _src302.split("def _acquire_run", 1)[1].split("def ", 1)[0], (
+        "[302] 잠금을 잡는 자리에서 앞 회차를 안 본다 — 자국 코드가 있어도 안 돈다([328])")
+    assert _src302.count("self._clear_crash_trace()") >= 1, (
+        "[302] 성공 갈래가 자국을 안 지운다 — 고친 뒤에도 매일 경보가 뜬다([170])")
+
     print("  [365] 회차 실패가 왜인지 말한다(사유 먼저·꼬리 보존) · 앱이 쓰는 감사 칸은 보관 가능 ✅")
 
 def t366_permission_never_draws_a_dead_input():

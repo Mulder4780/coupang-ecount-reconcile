@@ -742,7 +742,56 @@ class AutomationPipeline:
         # prior round finished.  Reload only after this round owns the lock so a
         # stale in-memory history/fingerprint cannot overwrite the newer state.
         self._reload_state()
+        self._note_prev_crash()
         return True
+
+    # ★ 앞 회차가 **도중에 사라졌으면** 그 사실을 자국으로 남긴다 (2026-09-15 · 분담판 [302]).
+    #   2026-08-31 실측: running=True · last_run.status=running 으로 5시간 굳었는데
+    #   history 는 완주해야 쌓이고 `*_오류.json` 도 없어 **왜인지 물을 데가 없었다**([228]).
+    #   `except Exception` 은 프로세스가 밖에서 죽는 것(작업 제한·taskkill·전원)을 못 받는다.
+    #   근거는 지어낼 것이 없다 — 잠금을 새로 잡았는데 상태가 아직 '실행 중'이면 앞 주인은
+    #   끝을 못 본 것이다(정상·예외 갈래는 둘 다 running=False 로 닫는다).
+    #   이름은 `*_오류.json` 이라 `schedule_watch.traces()` 가 인계까지 저절로 싣는다([304]).
+    CRASH_TRACE_NAME = "파이프라인_오류.json"
+
+    def _crash_trace_path(self) -> Path:
+        return self.root / "reports" / self.CRASH_TRACE_NAME
+
+    def _note_prev_crash(self) -> None:
+        prev = self.state.get("last_run") if isinstance(self.state.get("last_run"), dict) else {}
+        if not (self.state.get("running") and prev.get("status") == "running"):
+            return
+        stage = str(prev.get("current_stage") or "알 수 없음")
+        started = str(prev.get("started_at") or "")
+        seen = str(prev.get("updated_at") or started)
+        try:
+            _atomic_json(self._crash_trace_path(), {
+                "시각": _now(),
+                "작업": "CSOS_AutomationPipeline",
+                "무엇": f"증분 파이프라인이 '{stage}' 단계에서 끝을 못 보고 사라졌다(시작 {started} · 마지막 기록 {seen})",
+                "어떻게": f"'{stage}' 단계가 그 시각 무엇을 기다렸는지 본다 — 공유폴더(Z:) 응답·작업 제한시간·PC 절전. "
+                          "다음 회차가 성공하면 이 자국은 저절로 지워진다.",
+                "앞회차": {"run_id": prev.get("run_id"), "시작": started,
+                          "단계": stage, "마지막기록": seen},
+            })
+        except OSError:
+            pass                      # 자국을 못 남겨도 새 회차는 돈다 — 회차를 막으면 더 나쁘다
+        # ★ history 에도 남긴다 — 완주해야만 쌓이면 죽는 회차는 통째로 안 보인다([180]).
+        gone = dict(prev)
+        gone.update({"status": "interrupted", "finished_at": None,
+                     "summary": f"'{stage}' 단계에서 끝을 못 봄(다음 회차가 발견)"})
+        history = list(self.state.get("history") or [])
+        history.insert(0, gone)
+        self.state["history"] = history[:30]
+        self.state["running"] = False
+        self.state["last_run"] = gone
+
+    def _clear_crash_trace(self) -> None:
+        """성공한 회차는 앞 자국을 지운다([228]) — 남겨 두면 고친 뒤에도 매일 경보가 뜬다([170])."""
+        try:
+            self._crash_trace_path().unlink()
+        except OSError:
+            pass
 
     def _owns_run(self) -> bool:
         return self.lock.is_owner(self._lock_token, self._run_id)
@@ -1292,6 +1341,8 @@ class AutomationPipeline:
             history.insert(0, dict(self.run_record))
             self.state["history"] = history[:30]
             self._save()
+            if status == "success":
+                self._clear_crash_trace()     # [302] 성공했으면 앞 자국은 끝난 이야기다
             return {"ok": not failures, **self.run_record}
         except LockOwnershipLost as exc:
             # A successor owns the shared state now.  Keep this result local;
