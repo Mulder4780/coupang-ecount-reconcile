@@ -28159,9 +28159,13 @@ def t445_daily_run_completed_is_not_aborted():
 
     # (8) 없는 깃발을 조치로 주지 않는다 — `daily_run.py` 에는 인자 처리가 한 줄도
     #     없어 `--status` 를 붙이면 **회차가 통째로 돈다**(2026-08-16 겹침 사고)
+    #     2026-09-15 부터는 인자를 받으면 **거절하고 멈춘다**(분담판 445 · `refuse_args`) —
+    #     그래도 `--status` 는 여전히 **없는 깃발**이라 조치로 주면 안 된다. 전제는
+    #     '깃발을 받아 무언가를 하는 코드가 없다'이다.
     src_dr = _Path(SA.ROOT / "daily_run.py").read_text(encoding="utf-8", errors="replace")
-    assert "add_argument" not in src_dr and "sys.argv" not in src_dr, (
-        "daily_run.py 에 인자 처리가 생겼다 — 그러면 이 검사의 전제가 바뀐다")
+    import daily_run as _DR445b
+    assert "add_argument" not in src_dr and _DR445b.refuse_args(["--status"]), (
+        "daily_run.py 가 깃발을 받아 처리하게 됐다 — 그러면 이 검사의 전제가 바뀐다")
     tmp = _Path(tempfile.mkdtemp(prefix="csos_t445b_"))
     keep = SA.REPORTS
     try:
@@ -28315,6 +28319,13 @@ def t448_advice_points_at_commands_that_exist():
     ROOT448 = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
     UP448 = _os.path.dirname(ROOT448)
     CMD448 = _re.compile(r"python\s+((?:[\w.-]+/)*[\w.-]+\.py)((?:\s+--[\w-]+)*)")
+
+    # [445] 인자를 받으면 회차가 돌지 않는다(2026-09-15 `--help` 로 90분 회차가 돈 실사고) —
+    #       인자 없는 부름은 그대로 통과한다([172]). 불러서 잰다([295] · main 은 안 부른다).
+    import daily_run as _DR445
+    assert _DR445.refuse_args([]) is None, "[448] 인자 없는 daily_run 부름까지 거절한다"
+    assert _DR445.refuse_args(["--help"]) and "시작하지 않았습니다" in _DR445.refuse_args(["--help"]), (
+        "[448] daily_run --help 를 거절하지 않는다 — 본 회차가 통째로 돈다")
 
     def _docstrings(tree):
         out = set()
@@ -36022,6 +36033,11 @@ def t529_sanitizer_issues():
     for nm in ("프레시백 세척기", "FRESH WASHING MACHINE", "Tote Freshbox 소독기", "Sterilizer"):
         assert SP.kind_of(nm) == "소독기", "[529] %s 가 소독기로 안 모였다" % nm
     assert SP.kind_of("리프트") == ""
+    # ⓪-2 품목표준화: 대표코드 55004 · 06090 은 소독기·세척기 이름일 때만 같은 장비
+    assert SP.main_code("55004", "Tote Freshbox Sterilizer") == "55004"
+    assert SP.main_code("06090", "특수제작 [프레시백 세척기]") == "55004"
+    assert SP.main_code("06090", "특수제작 [리프트 발판]") == "", "[529] 06090 리프트가 소독기로 묶였다"
+    assert SP.main_code("11111", "소독기") == "", "[529] 다른 코드가 55004 로 묶였다"
     # ① 멀쩡한 한 건: 견적 → PO → 계산서, 전용 품목(세척기 이름이어도 같은 장비)·양사 계약 있음
     clean = [
         rec(일자="2026-01-13", 단계="견적", 종류="quote", 구분="소독기", 합계=110.0, 프로젝트명="세척기"),

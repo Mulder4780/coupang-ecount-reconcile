@@ -1784,5 +1784,22 @@ def finish(steps, aborted=False):
         print(f"  [{mark}] {s['name']}")
 
 
+def refuse_args(argv):
+    """[445] 이 회차는 인자를 받지 않는다 — 받은 인자가 있으면 거절 문구를, 없으면 None.
+    2026-09-15 실사고: 옵션을 보려고 `--help` 를 쳤는데 인자 처리가 한 줄도 없어
+    **90분짜리 본 회차가 통째로 돌았다**([448] 의 그 구멍). 부르는 곳(스케줄러 bat ·
+    워치독 · 앱 · workbench · overnight)은 전부 인자 없이 부른다(실측) — 그래서
+    인자를 받으면 도는 대신 멈춘다([172] — 멀쩡한 부름은 한 톨도 안 바뀐다)."""
+    if not argv:
+        return None
+    return ("daily_run.py 는 인자를 받지 않습니다 — 회차를 시작하지 않았습니다.\n"
+            "  받은 인자: %s\n"
+            "  회차를 돌리려면 인자 없이: python daily_run.py" % " ".join(argv))
+
+
 if __name__ == "__main__":
+    _refused = refuse_args(sys.argv[1:])
+    if _refused:
+        print(_refused)
+        sys.exit(2)
     main()
