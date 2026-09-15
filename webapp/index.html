@@ -19910,9 +19910,8 @@ function sanDraw(){
     return {구분:k,발행완료_건:dn.length,발행완료_공급가:sum(dn),주문등록_대수:cnt(op),주문등록_공급가:sum(op),최근:a.map(r=>r.일자).sort().pop()||''}; });
   h+='<h3>구분별 요약</h3>'+(byKind.length?table(['구분','발행완료_건','발행완료_공급가','주문등록_대수','주문등록_공급가','최근'],byKind,{'발행완료_공급가':won,'주문등록_공급가':won}):'<div class="wt-meta">없음</div>');
   const iss=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
-  h+='<h3>확인할 문제 '+iss.length+'건</h3>'+(iss.map(i=>
-     '<div style="padding:8px 0;border-bottom:1px solid var(--line,#e5e7eb)"><b style="color:'+(grade[i.등급]||'#111')+'">['+e(i.등급)+']</b> <b>'+e(i.제목)+'</b><br>'+
-     e(i.설명)+'<div class="wt-meta">근거: '+e(i.근거)+'</div></div>').join('')||'<div class="wt-meta">없음</div>');
+  h+='<h3>확인할 문제 '+iss.length+'건</h3>'+(iss.length?table(['등급','제목','설명','근거'],iss,
+     {'등급':v=>'<b style="color:'+(grade[v]||'#111')+'">'+e(v)+'</b>','제목':v=>'<b>'+e(v)+'</b>'}):'<div class="wt-meta">없음</div>');
   const led=(((d.장부||{}).rows)||[]).filter(r=>sanPass(r,q));
   h+='<h3>관리 장부 '+led.filter(r=>!r.deleted_at).length+'건</h3>';
   if(d.장부오류) h+='<div class="wt-meta">'+e(d.장부오류)+'</div>';
@@ -19995,9 +19994,10 @@ async function sanCapture(){
   const d=SAN||{}, q=sanQ();
   const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
   const kinds=[...new Set(deals.map(r=>r.구분))];
-  const issues=(d.문제||[]).filter(i=>i.등급!=='참고').slice(0,6);
+  const issues=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
   const S=2,W=1040,M=28,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
-  const RH=30, H=150+96+40+RH*(deals.length+kinds.length+2)+(issues.length?46+issues.length*26:0)+70;
+  const RH=30, TB=(n)=>34+RH+RH*Math.max(1,n)+26;
+  const H=96+20+72+30+TB(kinds.length+1)+TB(deals.length+kinds.length+1)+TB(issues.length)+50;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const x=cv.getContext('2d'); x.scale(S,S);
   const clip=(t,w)=>{ t=String(t==null?'':t); if(x.measureText(t).width<=w) return t; while(t&&x.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
@@ -20019,32 +20019,49 @@ async function sanCapture(){
     x.fillStyle='#F3F4F6'; x.fillRect(kx,y,kw,72);
     x.fillStyle='#475467'; x.font=F(13); x.fillText(t,kx+14,y+24);
     x.fillStyle=c; x.font=F(22,700); x.fillText(clip(v,kw-28),kx+14,y+56); });
-  y+=72+34;
-  // 표
-  const C=[['일자',M,96],['구분',M+100,60],['현장',M+166,220],['품목',M+392,190],['대수',M+640,44,'r'],
-           ['대당 금액',M+760,110,'r'],['공급가',M+880,110,'r'],['상태',M+900,90]];
-  x.fillStyle='#E5E7EB'; x.fillRect(M,y-20,W-M*2,RH);
-  x.fillStyle='#101828'; x.font=F(13,700);
-  C.forEach(([t,cx,w,al])=>al?right(t,cx,y):x.fillText(t,cx,y));
+  y+=72+30;
+  /* 표 그리기 한 곳 — 머리줄·줄무늬·칸선·금액 오른쪽 정렬. rows: {c:[…], kind:'sum'|'total'|'', col:{칸번호:색}} */
+  const table=(title,cols,rows,empty)=>{
+    x.fillStyle='#101828'; x.font=F(16,700); x.fillText(title,M,y+20); y+=34;
+    const xs=[]; let cx=M; cols.forEach(c=>{ xs.push(cx); cx+=c.w; });
+    const cell=(txt,i,yy,bold,color)=>{ const c=cols[i]; x.font=F(13,bold?700:400); x.fillStyle=color||'#101828';
+      const t=clip(txt,c.w-16); if(c.al==='r'){ right(t,xs[i]+c.w-8,yy); } else x.fillText(t,xs[i]+8,yy); };
+    x.fillStyle='#0E1B3F'; x.fillRect(M,y,W-M*2,RH);
+    cols.forEach((c,i)=>cell(c.t,i,y+20,true,'#fff'));
+    y+=RH;
+    if(!rows.length) rows=[{c:[empty||'없음'],kind:'empty'}];
+    rows.forEach((r,ri)=>{
+      x.fillStyle=r.kind==='total'?'#DBEAFE':r.kind==='sum'?'#EEF2F7':(ri%2?'#F9FAFB':'#fff');
+      x.fillRect(M,y,W-M*2,RH);
+      if(r.kind==='empty'){ x.font=F(13); x.fillStyle='#667085'; x.fillText(r.c[0],M+8,y+20); }
+      else r.c.forEach((v,i)=>cell(v,i,y+20,r.kind==='sum'||r.kind==='total',(r.col||{})[i]));
+      x.strokeStyle='#E5E7EB'; x.strokeRect(M,y,W-M*2,RH);
+      y+=RH;
+    });
+    x.strokeStyle='#CBD5E1'; x.beginPath(); xs.slice(1).forEach(xx=>{ x.moveTo(xx,y-RH*rows.length); x.lineTo(xx,y); }); x.stroke();
+    y+=26;
+  };
   const stateCol={'발행완료':'#15803D','주문등록':'#C2410C','장부':'#1D4ED8'};
-  const line=(r,bold)=>{ y+=RH; x.font=F(13,bold?700:400); x.fillStyle='#101828';
-    x.fillText(clip(r.일자,96),C[0][1],y); x.fillText(clip(r.구분,60),C[1][1],y);
-    x.fillText(clip(r.현장,216),C[2][1],y); x.fillText(clip(r.품목,200),C[3][1],y);
-    right(r.대수===''?'':String(r.대수),C[4][1],y); right(r.단가==null?'':won(r.단가),C[5][1],y); right(won(r.공급가),C[6][1],y);
-    x.fillStyle=stateCol[r.상태]||'#475467'; x.fillText(clip(r.상태||'',90),C[7][1],y);
-    x.strokeStyle='#E5E7EB'; x.beginPath(); x.moveTo(M,y+10); x.lineTo(W-M,y+10); x.stroke(); };
-  if(!deals.length){ y+=RH; x.font=F(13); x.fillStyle='#475467'; x.fillText('조건에 맞는 건이 없습니다',M,y); }
+  // ① 구분별 요약
+  const sumRows=kinds.map(k=>{ const a=deals.filter(r=>r.구분===k), dn=a.filter(r=>r.상태==='발행완료'), op=a.filter(r=>r.상태!=='발행완료');
+    return {c:[k,dn.length+'건',won(sum(dn)),cnt(op)+'대',won(sum(op)),won(sum(a)),a.map(r=>r.일자).sort().pop()||'']}; });
+  if(kinds.length) sumRows.push({kind:'total',c:['합계',done.length+'건',won(sum(done)),cnt(open)+'대',won(sum(open)),won(sum(deals)),deals.map(r=>r.일자).sort().pop()||'']});
+  table('구분별 요약',[{t:'구분',w:120},{t:'발행 완료',w:100,al:'r'},{t:'발행 완료 금액(원)',w:170,al:'r'},
+    {t:'미발행 대수',w:110,al:'r'},{t:'미발행 금액(원)',w:170,al:'r'},{t:'전체 금액(원)',w:170,al:'r'},{t:'최근 거래일',w:144}],
+    sumRows,'조건에 맞는 건이 없습니다');
+  // ② 현장별 금액
+  const siteRows=[];
   kinds.forEach(k=>{ const a=deals.filter(r=>r.구분===k);
-    a.forEach(r=>line(r));
-    x.fillStyle='#F9FAFB'; x.fillRect(M,y+12,W-M*2,RH-2);
-    line({일자:'',구분:k,현장:'소계',품목:'',대수:cnt(a),단가:null,공급가:sum(a),상태:''},true); });
-  if(deals.length){ x.fillStyle='#DBEAFE'; x.fillRect(M,y+12,W-M*2,RH-2);
-    line({일자:'',구분:'',현장:'전체 합계',품목:'',대수:cnt(deals),단가:null,공급가:sum(deals),상태:''},true); }
-  // 확인할 것
-  if(issues.length){ y+=46; x.fillStyle='#101828'; x.font=F(15,700); x.fillText('확인할 것',M,y);
-    const col={'높음':'#DC2626','보통':'#D97706'};
-    issues.forEach(i=>{ y+=26; x.font=F(13,700); x.fillStyle=col[i.등급]||'#475467'; x.fillText('● '+i.등급,M,y);
-      x.fillStyle='#101828'; x.font=F(13); x.fillText(clip(i.제목+' — '+i.설명,W-M*2-80),M+70,y); }); }
+    a.forEach(r=>siteRows.push({c:[r.현장||'-',k,r.품목,r.대수+'대',won(r.공급가),r.일자,r.상태],col:{6:stateCol[r.상태]}}));
+    siteRows.push({kind:'sum',c:[k+' 소계','','',cnt(a)+'대',won(sum(a)),'','']}); });
+  if(deals.length) siteRows.push({kind:'total',c:['전체 합계','','',cnt(deals)+'대',won(sum(deals)),'','']});
+  table('현장별 금액',[{t:'현장',w:250},{t:'구분',w:80},{t:'품목',w:200},{t:'대수',w:70,al:'r'},
+    {t:'공급가(원)',w:160,al:'r'},{t:'날짜',w:110},{t:'상태',w:114}],
+    siteRows,'조건에 맞는 건이 없습니다 (관리 장부·ERP 거래 모두 없음)');
+  // ③ 확인할 문제
+  const gcol={'높음':'#DC2626','보통':'#D97706','참고':'#667085'};
+  table('확인할 문제 '+issues.length+'건',[{t:'등급',w:70},{t:'문제',w:300},{t:'핵심 내용',w:440},{t:'근거',w:174}],
+    issues.map(i=>({c:[i.등급,i.제목,i.설명,String(i.근거||'').split(/[\\/]/).pop()],col:{0:gcol[i.등급]}})),'확인할 문제 없음');
   // 바닥
   y=H-26; x.font=F(11); x.fillStyle='#667085';
   x.fillText(clip('금액은 공급가(VAT 별도) · 발행 완료 = 이카운트 세금계산서 확인 · 미발행 = 주문 전표·관리 장부 중 계산서 확인 전 · 근거: 이카운트 판매·계산서·주문 전표, 공유폴더 견적, 앱 관리 장부',W-M*2),M,y);
