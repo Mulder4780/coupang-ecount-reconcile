@@ -4733,7 +4733,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="hero-min ios-large"><h2>소독기·세척기</h2>
       <p class="sub">쿠팡 신규 장비 — 관리 장부(수정·삭제 가능) · 이카운트 거래 · 공유폴더 견적 · 확인할 문제. ERP·폴더 자료는 매일 09:50 회차가 다시 읽습니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="세척기·소독기 도구">
-      <button class="icon-btn primary" onclick="sanCapture()" title="보고 캡처" aria-label="보고 캡처">
+      <button class="icon-btn primary" onclick="sanCapture()" title="캡처" aria-label="캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="sanCsv()" title="엑셀 저장" aria-label="엑셀 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
@@ -4762,6 +4762,17 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <button class="ui-card primary" onclick="sanSave()"><span class="ui-card-tx"><b>저장</b><span>앱 DB 에 바로 저장</span></span></button>
         <button class="ui-card" onclick="$('sanForm').hidden=true"><span class="ui-card-tx"><b>닫기</b><span>저장하지 않음</span></span></button>
       </div>
+    </div>
+    <div class="card" id="sanFilter">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
+        <label>구분<select id="sanQ_kind" onchange="sanDraw()"><option value="">전체</option><option>세척기</option><option>소독기</option><option>공통</option></select></label>
+        <label>현장<select id="sanQ_site" onchange="sanDraw()"><option value="">전체</option></select></label>
+        <label>상태<select id="sanQ_state" onchange="sanDraw()"><option value="">전체</option><option>발행완료</option><option>주문등록</option><option>장부</option></select></label>
+        <label>시작일<input type="date" id="sanQ_from" onchange="sanDraw()"></label>
+        <label>종료일<input type="date" id="sanQ_to" onchange="sanDraw()"></label>
+        <label>검색<input id="sanQ_text" placeholder="품목·프로젝트·메모" oninput="sanDraw()"></label>
+      </div>
+      <div class="wt-meta" style="margin-top:6px"><a href="javascript:void(0)" onclick="sanResetFilter()">필터 지우기</a> · 필터는 목록·캡처·엑셀에 똑같이 적용됩니다</div>
     </div>
     <div class="card"><div id="sanHost"><div class="sk sk-row w70"></div></div></div>
   </section>
@@ -19803,37 +19814,121 @@ function openSource(path){
 let SAN=null;
 const SAN_FIELDS=['구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모','출처'];
 const sanWon=v=>(typeof v==='number')?Math.round(v).toLocaleString('ko-KR')+'원':'-';
+/* 사람이 읽는 머리글 — 칸 이름(발행완료_건)을 화면에 그대로 내지 않는다(2026-09-15 지시) */
+const SAN_LABEL={id:'번호',발행완료_건:'발행 완료 건수',발행완료_공급가:'발행 완료 금액',주문등록_대수:'미발행 대수',
+  주문등록_공급가:'미발행 금액',최근:'최근 거래일',updated_by:'고친 사람',공급가:'공급가(VAT 별도)',거래처:'현장·거래처'};
+const SAN_INV=new Set(['tax','taxstep','taxinv','hometax']);
+/* 대표 보고용 '건' — 서버 summarize 와 같은 규칙: 발행된 계산서(같은 날·같은 금액은 하나) +
+   마지막 발행 뒤의 주문 전표 + 사람이 적은 장부 줄([장부로] 가져온 ERP 줄은 두 번 세지 않는다). */
+function sanDeals(d){
+  const out=[], rows=(d&&d.거래)||[];
+  [...new Set(rows.map(r=>r.구분).filter(Boolean))].forEach(k=>{
+    const mine=rows.filter(r=>r.구분===k), seen=new Set(); let last='';
+    mine.forEach(r=>{
+      if(!((SAN_INV.has(r.종류)||/세금계산서발행/.test(r.진행||''))&&r.공급가)) return;
+      const key=r.일자+'|'+r.공급가; if(seen.has(key)) return; seen.add(key);
+      if(r.일자>last) last=r.일자;
+      const n=r.수량||1;
+      out.push({구분:k,일자:r.일자||'',현장:r.거래처||'',품목:r.품목||'',대수:n,단가:r.단가||r.공급가/n,
+                공급가:r.공급가,상태:'발행완료',프로젝트:r.프로젝트||'',근거:'이카운트 '+(r.단계||'')});
+    });
+    mine.forEach(r=>{
+      if(r.단계!=='전표(종류 미확인)'||!(r.일자>last)||!r.공급가) return;
+      const n=r.수량||1;
+      out.push({구분:k,일자:r.일자||'',현장:r.거래처||'',품목:r.품목||'',대수:n,단가:r.단가||r.공급가/n,
+                공급가:r.공급가,상태:'주문등록',프로젝트:r.프로젝트||'',근거:'이카운트 주문 전표'});
+    });
+  });
+  ((((d&&d.장부)||{}).rows)||[]).filter(r=>!r.deleted_at&&!/^ERP/.test(r.출처||'')&&r.공급가).forEach(r=>{
+    const n=r.수량||1;
+    out.push({구분:r.구분,일자:r.일자||'',현장:r.거래처||'',품목:r.품목||'',대수:n,단가:r.단가||r.공급가/n,
+              공급가:r.공급가,상태:'장부',프로젝트:r.프로젝트||'',근거:'관리 장부 '+r.id+'번'+(r.진행?' · '+r.진행:'')});
+  });
+  return out.sort((a,b)=>String(a.일자).localeCompare(String(b.일자)));
+}
+function sanQ(){
+  const g=id=>(($(id)&&$(id).value)||'').trim();
+  return {kind:g('sanQ_kind'),site:g('sanQ_site'),state:g('sanQ_state'),from:g('sanQ_from'),to:g('sanQ_to'),text:g('sanQ_text').toLowerCase()};
+}
+function sanQText(q){
+  const p=[];
+  if(q.kind) p.push(q.kind); if(q.site) p.push(q.site); if(q.state) p.push(q.state);
+  if(q.from||q.to) p.push((q.from||'처음')+' ~ '+(q.to||'오늘')); if(q.text) p.push('"'+q.text+'"');
+  return p.length?p.join(' · '):'전체';
+}
+/* opt.date 날짜 칸 · opt.site 현장 칸 · opt.state 상태 칸(없으면 상태 필터를 안 건다) */
+function sanPass(r,q,opt){
+  opt=opt||{};
+  if(q.kind&&r.구분!==q.kind) return false;
+  if(q.site&&String(r[opt.site||'거래처']||'')!==q.site) return false;
+  if(q.state&&opt.state&&r[opt.state]!==q.state) return false;
+  const dt=String(r[opt.date||'일자']||'').slice(0,10);
+  if(q.from&&(!dt||dt<q.from)) return false;
+  if(q.to&&(!dt||dt>q.to)) return false;
+  if(q.text&&JSON.stringify(r).toLowerCase().indexOf(q.text)<0) return false;
+  return true;
+}
+function sanResetFilter(){
+  ['sanQ_kind','sanQ_site','sanQ_state','sanQ_from','sanQ_to','sanQ_text'].forEach(id=>{ if($(id)) $(id).value=''; });
+  sanDraw();
+}
 async function renderSanitizer(){
   const host=$('sanHost'); if(!host) return;
   let d;
   try{ d=await api('/api/sanitizer'); }catch(e){ host.textContent='불러오지 못했습니다: '+(e&&e.message||e); return; }
   if(!d||!d.ok){ host.textContent=(d&&d.error)||'현황이 없습니다'; return; }
   SAN=d;
-  const e=v=>esc2(v==null?'':String(v));
-  const won=sanWon;
-  const table=(cols,rows,fmt,act)=>'<div style="overflow-x:auto"><table class="tbl"><thead><tr>'+cols.map(c=>'<th>'+e(c)+'</th>').join('')+(act?'<th></th>':'')+
-    '</tr></thead><tbody>'+rows.map((r,i)=>'<tr'+(r.deleted_at?' style="opacity:.5;text-decoration:line-through"':'')+'>'+cols.map(c=>'<td>'+(fmt&&fmt[c]?fmt[c](r[c]):e(r[c]))+'</td>').join('')+(act?'<td style="white-space:nowrap">'+act(r,i)+'</td>':'')+'</tr>').join('')+'</tbody></table></div>';
+  const sel=$('sanQ_site');
+  if(sel){
+    const cur=sel.value;
+    const sites=[...new Set([...sanDeals(d).map(r=>r.현장),...(d.거래||[]).map(r=>r.거래처),
+      ...(((d.장부||{}).rows)||[]).map(r=>r.거래처)].filter(Boolean))].sort();
+    sel.innerHTML='<option value="">전체</option>'+sites.map(s=>'<option>'+esc2(s)+'</option>').join('');
+    if(sites.indexOf(cur)>=0) sel.value=cur;
+  }
+  sanDraw();
+}
+function sanDraw(){
+  const host=$('sanHost'), d=SAN; if(!host||!d) return;
+  const q=sanQ(), e=v=>esc2(v==null?'':String(v)), won=sanWon;
+  const table=(cols,rows,fmt,act)=>'<div style="overflow-x:auto"><table class="tbl"><thead><tr>'+cols.map(c=>'<th>'+e(SAN_LABEL[c]||c)+'</th>').join('')+(act?'<th></th>':'')+
+    '</tr></thead><tbody>'+rows.map(r=>'<tr'+(r.deleted_at?' style="opacity:.5;text-decoration:line-through"':(r._sum?' style="font-weight:700;background:var(--soft,#f3f4f6)"':''))+'>'+
+    cols.map(c=>'<td>'+(fmt&&fmt[c]?fmt[c](r[c]):e(r[c]))+'</td>').join('')+(act?'<td style="white-space:nowrap">'+(r._sum?'':act(r))+'</td>':'')+'</tr>').join('')+'</tbody></table></div>';
   const grade={'높음':'#DC2626','보통':'#D97706','참고':'#6B7280'};
-  let h='<div class="wt-meta">ERP·폴더 자료 만든 시각 '+e(d.만든시각||'-')+'</div>';
+  const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
+  const sum=a=>a.reduce((s,r)=>s+(r.공급가||0),0), cnt=a=>a.reduce((s,r)=>s+(r.대수||0),0);
+  const done=deals.filter(r=>r.상태==='발행완료'), open=deals.filter(r=>r.상태!=='발행완료');
+  let h='<div class="wt-meta">조건: '+e(sanQText(q))+' · ERP·폴더 자료 '+e(d.만든시각||'-')+'</div>';
   if(d.현황없음) h+='<div class="wt-meta">'+e(d.현황없음)+'</div>';
-  const led=(d.장부&&d.장부.rows)||[];
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0">'+
+    [['전체',cnt(deals)+'대',won(sum(deals))],['발행 완료',cnt(done)+'대',won(sum(done))],['미발행',cnt(open)+'대',won(sum(open))]]
+    .map(([t,a,b])=>'<div class="card" style="margin:0;padding:10px"><div class="wt-meta">'+t+'</div><b style="font-size:18px">'+b+'</b><div class="wt-meta">'+a+' · 공급가(VAT 별도)</div></div>').join('')+'</div>';
+  const withSum=[...deals];
+  if(deals.length) withSum.push({_sum:1,일자:'합계',구분:'',현장:'',품목:'',대수:cnt(deals),단가:null,공급가:sum(deals),상태:''});
+  h+='<h3>현장별 금액 '+deals.length+'건</h3>'+(deals.length?table(['일자','구분','현장','품목','대수','단가','공급가','상태','근거'],withSum,{'단가':won,'공급가':won}):'<div class="wt-meta">조건에 맞는 건이 없습니다</div>');
+  const byKind=[...new Set(deals.map(r=>r.구분))].map(k=>{ const a=deals.filter(r=>r.구분===k), dn=a.filter(r=>r.상태==='발행완료'), op=a.filter(r=>r.상태!=='발행완료');
+    return {구분:k,발행완료_건:dn.length,발행완료_공급가:sum(dn),주문등록_대수:cnt(op),주문등록_공급가:sum(op),최근:a.map(r=>r.일자).sort().pop()||''}; });
+  h+='<h3>구분별 요약</h3>'+(byKind.length?table(['구분','발행완료_건','발행완료_공급가','주문등록_대수','주문등록_공급가','최근'],byKind,{'발행완료_공급가':won,'주문등록_공급가':won}):'<div class="wt-meta">없음</div>');
+  const iss=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
+  h+='<h3>확인할 문제 '+iss.length+'건</h3>'+(iss.map(i=>
+     '<div style="padding:8px 0;border-bottom:1px solid var(--line,#e5e7eb)"><b style="color:'+(grade[i.등급]||'#111')+'">['+e(i.등급)+']</b> <b>'+e(i.제목)+'</b><br>'+
+     e(i.설명)+'<div class="wt-meta">근거: '+e(i.근거)+'</div></div>').join('')||'<div class="wt-meta">없음</div>');
+  const led=(((d.장부||{}).rows)||[]).filter(r=>sanPass(r,q));
   h+='<h3>관리 장부 '+led.filter(r=>!r.deleted_at).length+'건</h3>';
   if(d.장부오류) h+='<div class="wt-meta">'+e(d.장부오류)+'</div>';
   h+=led.length?table(['id','구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모','updated_by'],led,{'단가':won,'공급가':won},
      r=>r.deleted_at?'<button class="abtn" onclick="sanRestore('+r.id+')">복구</button> <span class="wt-meta">'+e(r.delete_reason)+'</span>'
        :'<button class="abtn" onclick="sanEdit('+r.id+')">수정</button> <button class="abtn" onclick="sanDelete('+r.id+')">삭제</button>')
-     :'<div class="wt-meta">아직 없습니다 — ＋ 또는 아래 거래 내역의 [장부로] 를 누르세요</div>';
-  h+='<h3>요약</h3>'+table(['구분','발행완료_건','발행완료_공급가','주문등록_대수','주문등록_공급가','최근'],d.요약||[],
-     {'발행완료_공급가':won,'주문등록_공급가':won});
-  h+='<h3>확인할 문제 '+(d.문제||[]).length+'건</h3>'+((d.문제||[]).map(i=>
-     '<div style="padding:8px 0;border-bottom:1px solid var(--line,#e5e7eb)"><b style="color:'+(grade[i.등급]||'#111')+'">['+e(i.등급)+']</b> <b>'+e(i.제목)+'</b><br>'+
-     e(i.설명)+'<div class="wt-meta">근거: '+e(i.근거)+'</div></div>').join('')||'<div class="wt-meta">없음</div>');
+     :'<div class="wt-meta">조건에 맞는 항목이 없습니다 — ＋ 또는 아래 거래 내역의 [장부로] 를 누르세요</div>';
   if((d.못읽음||[]).length) h+='<h3>못 읽은 것</h3><div class="wt-meta">'+d.못읽음.map(e).join('<br>')+'</div>';
-  h+='<h3>이카운트 거래 내역 <span class="norm">— 읽기 전용 · 고치려면 [장부로]</span></h3>'+table(['일자','단계','구분','프로젝트','품목','수량','단가','공급가','거래처','진행'],d.거래||[],{'단가':won,'공급가':won},
-     (r,i)=>'<button class="abtn" onclick="sanFromErp('+i+')">장부로</button>');
-  h+='<h3>견적 이력</h3>'+table(['날짜','구분','견적번호','품명','수량','단가','금액','파일'],d.견적||[],{'단가':won,'금액':won});
+  const erp=(d.거래||[]).map((r,i)=>Object.assign({_i:i},r)).filter(r=>sanPass(r,q));
+  h+='<h3>이카운트 거래 내역 '+erp.length+'건 <span class="norm">— 읽기 전용 · 고치려면 [장부로]</span></h3>'+table(['일자','단계','구분','프로젝트','품목','수량','단가','공급가','거래처','진행'],erp,{'단가':won,'공급가':won},
+     r=>'<button class="abtn" onclick="sanFromErp('+r._i+')">장부로</button>');
+  const qs=(d.견적||[]).filter(r=>sanPass(r,q,{date:'날짜'}));
+  h+='<h3>견적 이력 '+qs.length+'건</h3>'+table(['날짜','구분','견적번호','품명','수량','단가','금액','파일'],qs,{'단가':won,'금액':won});
   h+='<h3>이카운트 품목</h3>'+table(['품목코드','품목명','규격','판매단가'],d.품목||[],{'판매단가':won});
-  h+='<h3>공유폴더 자료 '+(d.폴더자료||[]).length+'개</h3><div class="wt-meta">'+e(d.원본폴더)+'</div>'+table(['분류','경로','수정일'],d.폴더자료||[]);
+  const fs=(d.폴더자료||[]).filter(r=>!q.text||JSON.stringify(r).toLowerCase().indexOf(q.text)>=0);
+  h+='<h3>공유폴더 자료 '+fs.length+'개</h3><div class="wt-meta">'+e(d.원본폴더)+'</div>'+table(['분류','경로','수정일'],fs);
   h+='<div class="wt-meta">보고용 엑셀(서버 PC): reports/쿠팡_소독기세척기_관리.xlsx</div>';
   host.innerHTML=h;
 }
@@ -19876,41 +19971,85 @@ async function sanRestore(id){
   if(await sanPost('/api/sanitizer/restore',{id})) renderSanitizer();
 }
 function sanCsv(){
-  const d=SAN||{}; const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
-  const L=[['구역','구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모·설명','근거']];
-  (d.요약||[]).forEach(s=>L.push(['요약',s.구분,s.최근,'','','',s.주문등록_대수,'',s.주문등록_공급가,'','발행완료 '+s.발행완료_건+'건 '+s.발행완료_공급가,'','']));
-  (d.문제||[]).forEach(i=>L.push(['문제',i.등급,'','','',i.제목,'','','','','',i.설명,i.근거]));
-  (((d.장부||{}).rows)||[]).filter(r=>!r.deleted_at).forEach(r=>L.push(['관리장부',r.구분,r.일자,r.단계,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,r.메모,r.출처]));
-  (d.거래||[]).forEach(r=>L.push(['ERP거래',r.구분,r.일자,r.단계,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,'',r.파일]));
-  (d.견적||[]).forEach(r=>L.push(['견적',r.구분,r.날짜,'견적 '+(r.견적번호||''),'',r.품명,r.수량,r.단가,r.금액,'','','',r.파일]));
+  const d=SAN||{}, f=sanQ(); const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  const L=[['조건',sanQText(f),'만든 때',new Date().toLocaleString('ko-KR'),'자료 기준',d.만든시각||'']];
+  L.push([]); L.push(['현장별 금액','일자','구분','현장','품목','대수','대당 금액','공급가(VAT 별도)','상태','프로젝트','근거']);
+  const deals=sanDeals(d).filter(r=>sanPass(r,f,{site:'현장',state:'상태'}));
+  deals.forEach(r=>L.push(['',r.일자,r.구분,r.현장,r.품목,r.대수,Math.round(r.단가||0),r.공급가,r.상태,r.프로젝트,r.근거]));
+  L.push(['합계','','','','',deals.reduce((s,r)=>s+(r.대수||0),0),'',deals.reduce((s,r)=>s+(r.공급가||0),0),'','','']);
+  L.push([]); L.push(['관리 장부','번호','구분','일자','단계','프로젝트','품목','수량','단가','공급가','현장·거래처','진행','메모','출처']);
+  (((d.장부||{}).rows)||[]).filter(r=>!r.deleted_at&&sanPass(r,f)).forEach(r=>L.push(['',r.id,r.구분,r.일자,r.단계,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,r.메모,r.출처]));
+  L.push([]); L.push(['이카운트 거래','일자','단계','구분','프로젝트','품목','수량','단가','공급가','현장·거래처','진행','파일']);
+  (d.거래||[]).filter(r=>sanPass(r,f)).forEach(r=>L.push(['',r.일자,r.단계,r.구분,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,r.파일]));
+  L.push([]); L.push(['견적 이력','날짜','구분','견적번호','품명','수량','단가','금액','파일']);
+  (d.견적||[]).filter(r=>sanPass(r,f,{date:'날짜'})).forEach(r=>L.push(['',r.날짜,r.구분,r.견적번호,r.품명,r.수량,r.단가,r.금액,r.파일]));
+  L.push([]); L.push(['확인할 문제','등급','제목','설명','근거']);
+  (d.문제||[]).forEach(i=>L.push(['',i.등급,i.제목,i.설명,i.근거]));
   const csv='﻿'+L.map(r=>r.map(q).join(',')).join('\n');
   saveOrOpen(new Blob([csv],{type:'text/csv'}),`세척기소독기_${todayISO()}.csv`);
 }
+/* 대표용 캡처 — 어느 현장에 얼마 · 전체 얼마 · 날짜 · 상태를 한 장에 (2026-09-15 지시).
+   화면 필터를 그대로 따른다: 걸러 본 것이 곧 보고하는 것이다. */
 async function sanCapture(){
   if(!SAN) await renderSanitizer();
-  const d=SAN||{}; const S=2,W=900,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
-  const issues=(d.문제||[]).slice(0,12), led=(((d.장부||{}).rows)||[]).filter(r=>!r.deleted_at).slice(0,15);
-  const H=110+(d.요약||[]).length*26+40+issues.length*44+40+Math.max(1,led.length)*24+40;
+  const d=SAN||{}, q=sanQ();
+  const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
+  const kinds=[...new Set(deals.map(r=>r.구분))];
+  const issues=(d.문제||[]).filter(i=>i.등급!=='참고').slice(0,6);
+  const S=2,W=1040,M=28,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  const RH=30, H=150+96+40+RH*(deals.length+kinds.length+2)+(issues.length?46+issues.length*26:0)+70;
   const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
   const x=cv.getContext('2d'); x.scale(S,S);
-  const clip=(t,w)=>{ t=String(t==null?'':t); while(t&&x.measureText(t).width>w) t=t.slice(0,-1); return t; };
+  const clip=(t,w)=>{ t=String(t==null?'':t); if(x.measureText(t).width<=w) return t; while(t&&x.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
+  const right=(t,xr,y)=>{ x.textAlign='right'; x.fillText(t,xr,y); x.textAlign='left'; };
+  const won=v=>(typeof v==='number')?Math.round(v).toLocaleString('ko-KR'):'-';
+  const sum=a=>a.reduce((s,r)=>s+(r.공급가||0),0), cnt=a=>a.reduce((s,r)=>s+(r.대수||0),0);
   x.fillStyle='#fff'; x.fillRect(0,0,W,H);
-  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,64);
-  x.fillStyle='#fff'; x.font=F(20,700); x.fillText('쿠팡 세척기 · 소독기 현황',24,34);
-  x.font=F(12); x.fillStyle='#C9D5FA'; x.fillText(`기준 ${new Date().toLocaleString('ko-KR')} · ERP·폴더 자료 ${d.만든시각||'-'}`,24,52);
-  let y=92; x.fillStyle='#101828';
-  (d.요약||[]).forEach(s=>{ x.font=F(14,700);
-    x.fillText(clip(`${s.구분}  발행완료 ${s.발행완료_건}건 ${sanWon(s.발행완료_공급가)}  ·  주문등록 ${s.주문등록_대수}대 ${sanWon(s.주문등록_공급가)}  ·  최근 ${s.최근}`,W-48),24,y); y+=26; });
-  y+=14; x.font=F(13,700); x.fillStyle='#475467'; x.fillText(`확인할 문제 ${(d.문제||[]).length}건`,24,y); y+=10;
-  const col={'높음':'#DC2626','보통':'#D97706','참고':'#6B7280'};
-  issues.forEach(i=>{ y+=20; x.font=F(13,700); x.fillStyle=col[i.등급]||'#101828'; x.fillText(`[${i.등급}]`,24,y);
-    x.fillStyle='#101828'; x.fillText(clip(i.제목,W-110),80,y); y+=20; x.font=F(12); x.fillStyle='#475467'; x.fillText(clip(i.설명,W-110),80,y); y+=4; });
-  y+=30; x.font=F(13,700); x.fillStyle='#475467'; x.fillText(`관리 장부 ${led.length}건`,24,y); y+=6;
-  if(!led.length){ y+=22; x.font=F(12); x.fillText('등록된 항목 없음',24,y); }
-  led.forEach(r=>{ y+=22; x.font=F(12); x.fillStyle='#101828';
-    x.fillText(clip(`${r.일자||''} ${r.구분} · ${r.단계||''} · ${r.품목||''} · ${r.수량==null?'':r.수량+'대'} · ${sanWon(r.공급가)} · ${r.거래처||''} · ${r.진행||''}`,W-48),24,y); });
+  // 머리
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,96);
+  x.fillStyle='#fff'; x.font=F(24,700); x.fillText('쿠팡 세척기 · 소독기 납품 현황',M,42);
+  x.font=F(13); x.fillStyle='#C9D5FA';
+  x.fillText(`보고일 ${todayISO()}  ·  조건 ${sanQText(q)}  ·  자료 기준 ${String(d.만든시각||'-').replace('T',' ').slice(0,16)}`,M,70);
+  // 핵심 숫자 넷
+  const done=deals.filter(r=>r.상태==='발행완료'), open=deals.filter(r=>r.상태!=='발행완료');
+  const kpi=[['전체 대수',cnt(deals)+'대','#0E1B3F'],['전체 금액',won(sum(deals))+'원','#0E1B3F'],
+             ['발행 완료',won(sum(done))+'원','#15803D'],['미발행',won(sum(open))+'원','#C2410C']];
+  const kw=(W-M*2-12*3)/4; let y=116;
+  kpi.forEach(([t,v,c],i)=>{ const kx=M+i*(kw+12);
+    x.fillStyle='#F3F4F6'; x.fillRect(kx,y,kw,72);
+    x.fillStyle='#475467'; x.font=F(13); x.fillText(t,kx+14,y+24);
+    x.fillStyle=c; x.font=F(22,700); x.fillText(clip(v,kw-28),kx+14,y+56); });
+  y+=72+34;
+  // 표
+  const C=[['일자',M,96],['구분',M+100,60],['현장',M+166,220],['품목',M+392,190],['대수',M+640,44,'r'],
+           ['대당 금액',M+760,110,'r'],['공급가',M+880,110,'r'],['상태',M+900,90]];
+  x.fillStyle='#E5E7EB'; x.fillRect(M,y-20,W-M*2,RH);
+  x.fillStyle='#101828'; x.font=F(13,700);
+  C.forEach(([t,cx,w,al])=>al?right(t,cx,y):x.fillText(t,cx,y));
+  const stateCol={'발행완료':'#15803D','주문등록':'#C2410C','장부':'#1D4ED8'};
+  const line=(r,bold)=>{ y+=RH; x.font=F(13,bold?700:400); x.fillStyle='#101828';
+    x.fillText(clip(r.일자,96),C[0][1],y); x.fillText(clip(r.구분,60),C[1][1],y);
+    x.fillText(clip(r.현장,216),C[2][1],y); x.fillText(clip(r.품목,200),C[3][1],y);
+    right(r.대수===''?'':String(r.대수),C[4][1],y); right(r.단가==null?'':won(r.단가),C[5][1],y); right(won(r.공급가),C[6][1],y);
+    x.fillStyle=stateCol[r.상태]||'#475467'; x.fillText(clip(r.상태||'',90),C[7][1],y);
+    x.strokeStyle='#E5E7EB'; x.beginPath(); x.moveTo(M,y+10); x.lineTo(W-M,y+10); x.stroke(); };
+  if(!deals.length){ y+=RH; x.font=F(13); x.fillStyle='#475467'; x.fillText('조건에 맞는 건이 없습니다',M,y); }
+  kinds.forEach(k=>{ const a=deals.filter(r=>r.구분===k);
+    a.forEach(r=>line(r));
+    x.fillStyle='#F9FAFB'; x.fillRect(M,y+12,W-M*2,RH-2);
+    line({일자:'',구분:k,현장:'소계',품목:'',대수:cnt(a),단가:null,공급가:sum(a),상태:''},true); });
+  if(deals.length){ x.fillStyle='#DBEAFE'; x.fillRect(M,y+12,W-M*2,RH-2);
+    line({일자:'',구분:'',현장:'전체 합계',품목:'',대수:cnt(deals),단가:null,공급가:sum(deals),상태:''},true); }
+  // 확인할 것
+  if(issues.length){ y+=46; x.fillStyle='#101828'; x.font=F(15,700); x.fillText('확인할 것',M,y);
+    const col={'높음':'#DC2626','보통':'#D97706'};
+    issues.forEach(i=>{ y+=26; x.font=F(13,700); x.fillStyle=col[i.등급]||'#475467'; x.fillText('● '+i.등급,M,y);
+      x.fillStyle='#101828'; x.font=F(13); x.fillText(clip(i.제목+' — '+i.설명,W-M*2-80),M+70,y); }); }
+  // 바닥
+  y=H-26; x.font=F(11); x.fillStyle='#667085';
+  x.fillText(clip('금액은 공급가(VAT 별도) · 발행 완료 = 이카운트 세금계산서 확인 · 미발행 = 주문 전표·관리 장부 중 계산서 확인 전 · 근거: 이카운트 판매·계산서·주문 전표, 공유폴더 견적, 앱 관리 장부',W-M*2),M,y);
   const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
-  saveOrOpen(blob,`세척기소독기_${todayISO()}.png`);
+  saveOrOpen(blob,`세척기소독기_보고_${todayISO()}.png`);
 }
 
 async function loadReports(){

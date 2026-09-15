@@ -9926,18 +9926,23 @@ def t137_contamination_marked_every_merge():
     print("  [137] 오염 판정이 병합마다 자동 실행 · 날짜 달린 사본만 좁게 · 원본 보존 ✅")
 
 
-def _t138_daily_health(aborted, age_h, due=None):
+def _t138_daily_health(aborted, age_h, due=None, off=None):
     """`daily_run_health` 를 **합성 상태로 실제로 돌린다** — 실측 증거는 안 건드린다(`[247]`).
 
     `REPORT_DIR` 만 임시 폴더로 돌리고 `finally` 로 되돌린다. 전역 `os` 속성은
     건드리지 않는다 — 그것을 갈면 뒤따르는 검사가 통째로 눈이 먼다(`[369]` 실사고).
+    ★ [303] 자동 대조 **꺼짐 스위치도 목으로 못 박는다**(`off`) — 안 박으면 실제 스위치가
+      '꺼짐'인 날 옛 계약이 전부 '밀림 아님'을 받아 **죽거나, 아무것도 안 재면서
+      통과한다**([211]·[460]·[501] 이 같은 뿌리에서 두 방향으로 밟았다).
     """
     import importlib, io, json, shutil, tempfile, time
     S = importlib.import_module("session_handoff")
     import schedule_watch
     tmp = tempfile.mkdtemp(prefix="t138_")
     keep_dir, keep_sw = S.REPORT_DIR, schedule_watch.due_state
+    keep_off = S._auto_daily_off
     try:
+        S._auto_daily_off = lambda: off
         S.REPORT_DIR = tmp
         f = os.path.join(tmp, "agent_status.json")
         io.open(f, "w", encoding="utf-8").write(
@@ -9950,6 +9955,7 @@ def _t138_daily_health(aborted, age_h, due=None):
     finally:
         S.REPORT_DIR = keep_dir
         schedule_watch.due_state = keep_sw
+        S._auto_daily_off = keep_off               # 모듈 속성은 모두의 것이다([371])
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -19133,6 +19139,26 @@ def t371_a_round_that_is_not_due_yet_is_not_late():
     got = _t138_daily_health(aborted=False, age_h=25.0, due=None)
     assert got["밀림"] is True, (
         "[371] 못 갈랐는데(None) 조용해졌다 — '확인 못 함'을 '괜찮음'으로 치면 안 된다(`[169]`): %r" % (got,))
+    # ⑧-b [303] **지시로 꺼 둔** 회차는 나이로 밀림이라 하지 않는다 — 대신 꺼짐을 말한다.
+    #   (2026-09-15 실측: 꺼짐 표시가 있는데 '137시간째 완주 안 함' 이 인계·진단 두 줄로 떴다)
+    why_off = "자동 대조가 꺼져 있다(합성)"
+    got = _t138_daily_health(aborted=False, age_h=137.0, due=None, off=why_off)
+    assert got["밀림"] is False and got.get("자동꺼짐") == why_off, (
+        "[303] 꺼 둔 회차를 '밀렸다' 한다 — 거짓 경보가 진짜를 덮는다([170]): %r" % (got,))
+    got = _t138_daily_health(aborted=True, age_h=137.0, due=None, off=why_off)
+    assert got["밀림"] is True, (
+        "[303] 꺼짐이 **중단**까지 삼켰다 — 사람이 띄운 회차의 중단은 꺼짐과 무관하다([172]): %r" % (got,))
+    # 계기 자기시험([272]) — 같은 나이에 꺼짐이 아니면 **그대로 밀림**이어야 위 줄이 뜻이 있다
+    got = _t138_daily_health(aborted=False, age_h=137.0, due=None, off=None)
+    assert got["밀림"] is True, "[303] 꺼짐이 아닌데도 조용하다 — 위 검사가 아무것도 안 잰다: %r" % (got,)
+    #   꺼져 있어도 **한 줄은 남는다**([169]) — 조용히 빼면 대조가 멈춘 줄 아무도 모른다
+    _S303 = importlib.import_module("session_handoff")
+    _bl303 = io.open(os.path.join(ROOT, "session_handoff.py"), encoding="utf-8", newline="").read()
+    assert 'elif dr.get("자동꺼짐")' in _bl303 and "지시로 **꺼져 있다**" in _bl303, (
+        "[303] 꺼짐 갈래가 인계에서 통째로 사라졌다 — 대조가 멈춘 사실을 아무도 못 본다([169])")
+    assert _S303._auto_daily_off.__doc__ and "auto_round_blocked" in io.open(
+        os.path.join(ROOT, "session_handoff.py"), encoding="utf-8").read().split("def _auto_daily_off", 1)[1][:900], (
+        "[303] 꺼짐 판정을 제 손으로 한다 — 회차와 갈린다([162])")
 
     # ⑨ 한 사건을 두 목소리로 울리지 않는다(`[322]`) — `system_audit` 도 같은 판정을 빌린다.
     sa_src = io.open(os.path.join(ROOT, "system_audit.py"),
@@ -36050,7 +36076,13 @@ def t529_sanitizer_issues():
     nav = html.index("data-v=\"remote\" onclick=\"routeNav('remote')\"")
     assert html.index("data-v=\"sanitizer\" onclick=\"routeNav('sanitizer')\"") > nav, \
         "[529] 왼쪽 메뉴 리모컨 아래에 없다"
-    for fn in ("function sanCapture(", "function sanCsv(", "function sanSave(", "function sanDelete("):
+    assert 'title="캡처"' in html and 'title="보고 캡처"' not in html, "[529] 단추 글자가 '캡처' 가 아니다"
+    for fid in ("sanQ_kind", "sanQ_site", "sanQ_state", "sanQ_from", "sanQ_to", "sanQ_text"):
+        assert 'id="%s"' % fid in html, "[529] 필터 %s 가 없다" % fid
+    assert "'발행완료_건','발행완료_공급가'" not in html.split("const SAN_LABEL=")[0][-200:], \
+        "[529] 칸 이름을 머리글로 그대로 낸다"
+    for fn in ("function sanDeals(", "function sanPass(", "function sanDraw(",
+               "function sanCapture(", "function sanCsv(", "function sanSave(", "function sanDelete("):
         assert fn in html, "[529] %s 가 없다" % fn
     for path in ('"/api/sanitizer/save"', '"/api/sanitizer/delete"', '"/api/sanitizer/restore"'):
         assert path in srv, "[529] %s 라우트가 없다" % path
