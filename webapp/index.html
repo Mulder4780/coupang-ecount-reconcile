@@ -2693,6 +2693,36 @@ fieldset.remote-edit>input{margin:0 0 9px}
 /* 그룹 섹션 헤더 — iOS 는 제목을 카드 안이 아니라 위에, 작고 옅게 둔다 */
 .ios-sec-h{margin:20px 6px 8px;font-size:0.8125rem;font-weight:600;color:var(--ink-2);letter-spacing:-.1px}
 .ios-sec-h span{font-weight:500;color:var(--ink-3)}
+/* 세척기·소독기 — 아이폰 설정 앱 감각(2026-09-15 지시 "애플 아이폰 화면처럼 고급지게").
+   새 모양을 만들지 않고 이미 있는 iOS 조각(.ios-large·.ios-sec-h·.seg)과 색 토큰을 빌린다([162]).
+   글꼴은 --font-ui 그대로다 — '아이폰 글자체' 는 설정의 글꼴 프리셋이 정한다([246]). */
+#v-sanitizer .ios-large{margin:8px 0 14px}
+#v-sanitizer .ios-large h2{font-size:1.9375rem;font-weight:800;letter-spacing:.2px;margin:0 0 3px}
+#v-sanitizer .ios-large .sub{font-size:0.8125rem;color:var(--ink-2)}
+#v-sanitizer .rpt-actions .icon-btn{border-radius:99px}
+#v-sanitizer .san-filter{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin:4px 0 8px}
+#v-sanitizer .san-filter .seg{margin:0}
+#v-sanitizer .san-filter .seg button{padding:7.5px 0;font-size:0.8125rem}
+#v-sanitizer .san-fields{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 4px}
+#v-sanitizer .san-fields input,#v-sanitizer .san-fields select{flex:1;min-width:140px;border:0;background:var(--panel-2);
+  border-radius:11px;padding:10px 13px;font-size:0.875rem;color:var(--ink)}
+#v-sanitizer .san-fields input:focus,#v-sanitizer .san-fields select:focus{outline:2px solid var(--brand);outline-offset:0}
+#v-sanitizer .san-fields .btn{border-radius:99px;border:0;background:var(--brand-tint);color:var(--brand)}
+#v-sanitizer .ios-sec-h{margin:18px 6px 6px}
+#v-sanitizer .card.san-group{border:0;border-radius:16px;box-shadow:var(--sh);padding:2px 0;overflow:hidden}
+#v-sanitizer .san-group .gridwrap{border:0;box-shadow:none}
+#v-sanitizer .san-group table.grid{border:0;background:transparent;box-shadow:none}
+#v-sanitizer .san-group table.grid th{background:transparent;font-size:0.75rem;font-weight:600;color:var(--ink-3);padding:10px 16px}
+#v-sanitizer .san-group table.grid td{padding:13px 16px;border-bottom:1px solid var(--line)}
+#v-sanitizer .san-group table.grid tr.tot td{background:transparent;font-weight:800}
+#v-sanitizer .san-group table.grid tr:hover td{background:transparent}
+#v-sanitizer .san-group>.fnote{padding:10px 16px}
+#v-sanitizer .kpis{gap:10px}
+#v-sanitizer .kpi{border:0;border-radius:16px;box-shadow:var(--sh);padding:16px 18px}
+#v-sanitizer .kpi:hover{transform:none}
+#v-sanitizer .kpi .l{font-size:0.75rem;color:var(--ink-3);font-weight:600}
+#v-sanitizer .kpi .v{font-size:1.75rem;letter-spacing:-.8px}
+#v-sanitizer .chip{border-radius:99px}
 /* ═══ 구역 머리를 눌러 접었다 폈다 (2026-08-07 지시) ═══════════════════════
    사용자 지시: "날짜 표시된 카드와 세부 사항 카드 접었다 폈다 하는 기능 추가해서
    적용 / 다른 것들도 이런 기능 들어갈 만한거 있는지 검토해보고 적용".
@@ -4730,7 +4760,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 
   <!-- 쿠팡 소독기·세척기 (2026-09-15 지시) — sanitizer_projects.py 가 만든 현황을 읽기만 한다 -->
   <section class="view" id="v-sanitizer">
-    <div class="hero-min"><h2>세척기·소독기</h2>
+    <div class="hero-min ios-large"><h2>세척기·소독기</h2>
       <p class="sub" data-help-fold="sanitizer-sub">쿠팡 신규 장비 — 현장별 금액 · 확인할 문제 · 관리 장부(수정·삭제). 이카운트·공유폴더 자료는 매일 09:50 회차가 다시 읽습니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="세척기·소독기 도구">
       <button class="icon-btn primary" onclick="sanCapture()" title="캡처" aria-label="캡처">
@@ -4743,14 +4773,19 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
     </div>
     <!-- 필터 — 정산 화면과 같은 .toolbar 한 줄(좁으면 알아서 접힌다). 목록·캡처·엑셀에 똑같이 걸린다. -->
-    <div class="toolbar" id="sanFilter">
-      <select id="sanQ_kind" onchange="sanDraw()" aria-label="구분"><option value="">구분 전체</option><option>세척기</option><option>소독기</option><option>공통</option></select>
-      <select id="sanQ_site" onchange="sanDraw()" aria-label="현장"><option value="">현장 전체</option></select>
-      <select id="sanQ_state" onchange="sanDraw()" aria-label="상태"><option value="">상태 전체</option><option>발행완료</option><option>주문등록</option><option>장부</option></select>
-      <input type="date" id="sanQ_from" onchange="sanDraw()" title="시작일" aria-label="시작일">
-      <input type="date" id="sanQ_to" onchange="sanDraw()" title="종료일" aria-label="종료일">
-      <input id="sanQ_text" placeholder="품목·프로젝트·메모 검색" oninput="sanDraw()" aria-label="검색">
-      <button class="btn" type="button" onclick="sanResetFilter()">필터 지우기</button>
+    <div id="sanFilter">
+      <div class="san-filter">
+        <div class="seg" id="sanSeg_kind" role="group" aria-label="구분"><button type="button" class="on" onclick="sanSeg('kind','')">전체</button><button type="button" onclick="sanSeg('kind','세척기')">세척기</button><button type="button" onclick="sanSeg('kind','소독기')">소독기</button></div>
+        <div class="seg" id="sanSeg_state" role="group" aria-label="상태"><button type="button" class="on" onclick="sanSeg('state','')">전체</button><button type="button" onclick="sanSeg('state','발행완료')">발행완료</button><button type="button" onclick="sanSeg('state','주문등록')">주문등록</button><button type="button" onclick="sanSeg('state','장부')">장부</button></div>
+      </div>
+      <input type="hidden" id="sanQ_kind"><input type="hidden" id="sanQ_state">
+      <div class="san-fields">
+        <select id="sanQ_site" onchange="sanDraw()" aria-label="현장"><option value="">현장 전체</option></select>
+        <input type="date" id="sanQ_from" onchange="sanDraw()" title="시작일" aria-label="시작일">
+        <input type="date" id="sanQ_to" onchange="sanDraw()" title="종료일" aria-label="종료일">
+        <input id="sanQ_text" placeholder="품목·프로젝트·메모 검색" oninput="sanDraw()" aria-label="검색">
+        <button class="btn" type="button" onclick="sanResetFilter()">필터 지우기</button>
+      </div>
     </div>
     <div class="card" id="sanForm" hidden>
       <h3 id="sanFormTitle">새 항목</h3>
@@ -19868,9 +19903,14 @@ function sanPass(r,q,opt){
   if(q.text&&JSON.stringify(r).toLowerCase().indexOf(q.text)<0) return false;
   return true;
 }
-function sanResetFilter(){
-  ['sanQ_kind','sanQ_site','sanQ_state','sanQ_from','sanQ_to','sanQ_text'].forEach(id=>{ if($(id)) $(id).value=''; });
+function sanSeg(which,val){
+  const inp=$('sanQ_'+which), box=$('sanSeg_'+which); if(inp) inp.value=val;
+  if(box) [...box.querySelectorAll('button')].forEach(b=>b.classList.toggle('on',(b.textContent==='전체'?'':b.textContent)===val));
   sanDraw();
+}
+function sanResetFilter(){
+  ['sanQ_site','sanQ_from','sanQ_to','sanQ_text'].forEach(id=>{ if($(id)) $(id).value=''; });
+  sanSeg('kind',''); sanSeg('state','');
 }
 async function renderSanitizer(){
   const host=$('sanHost'); if(!host) return;
@@ -19905,7 +19945,7 @@ function sanDraw(){
   const stateChip=v=>v?'<span class="chip '+({'발행완료':'c-ok','주문등록':'c-warn','장부':'c-skip'}[v]||'c-skip')+'">'+e(v)+'</span>':'';
   const gradeChip=v=>'<span class="chip '+({'높음':'c-danger','보통':'c-warn'}[v]||'c-skip')+'">'+e(v)+'</span>';
   const money=v=>(typeof v==='number')?won(v):'';
-  const card=(title,sub,body)=>'<div class="card"><h3>'+e(title)+(sub?' <span class="norm">— '+e(sub)+'</span>':'')+'</h3>'+body+'</div>';
+  const card=(title,sub,body)=>'<div class="ios-sec-h">'+e(title)+(sub?' <span>· '+e(sub)+'</span>':'')+'</div><div class="card san-group">'+body+'</div>';
   const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
   const sum=a=>a.reduce((s,r)=>s+(r.공급가||0),0), cnt=a=>a.reduce((s,r)=>s+(r.대수||0),0);
   const done=deals.filter(r=>r.상태==='발행완료'), open=deals.filter(r=>r.상태!=='발행완료');
