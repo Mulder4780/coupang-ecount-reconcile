@@ -666,15 +666,28 @@ def norm_ecount(rows):
             amt = round(float(str(amt).replace(",", "")), 2) if amt is not None else None
         except ValueError:
             amt = None
-        out.append({
+        row = {
             "금액": amt,
             "일자": _d(pick(r, "일자")),
             "적요": _d(pick(r, "적요")),
             "거래처": _d(pick(r, "거래처")),
             "번호": _d(pick(r, "번호")),
             "_raw": r,
-        })
+        }
+        # ★ 프로젝트NO 를 찾는 글자를 **행마다 한 번만** 만든다 (2026-09-15 · 분담판 [444]).
+        #   `match_project` 가 원장 한 건마다 판매 행 전부를 훑으며 매번 `json.dumps` 를
+        #   다시 했다 — 판매 후보가 8,781 → 145,224 행으로 늘자 750건에 약 19분이 들어
+        #   파이프라인의 20분 한도에 매 회차 끊겼다(9/14 12:11 이후 partial 16회).
+        #   실측: 같은 750건이 38.9초 · 판정 결과는 100건 표본에서 한 글자도 안 바뀌었다.
+        #   만드는 식은 `_match_blob` **한 곳**이다([162]) — 둘로 적으면 언젠가 갈린다.
+        row["_blob"] = _match_blob(row)
+        out.append(row)
     return out
+
+
+def _match_blob(e):
+    """프로젝트NO 1순위 매칭이 뒤지는 글자. 식을 바꾸면 매칭 결과가 바뀐다."""
+    return f"{e.get('적요','')} {e.get('번호','')} {json.dumps(e.get('_raw',{}), ensure_ascii=False)}"
 
 
 def supply_effective(rec):
@@ -717,7 +730,10 @@ def match_project(ledger_rec, ecount_rows, tol_amt, filter_cust, exp_amt=None):
     # 1순위: 프로젝트NO 문자열 포함
     if prj:
         for e in ecount_rows:
-            blob = f"{e.get('적요','')} {e.get('번호','')} {json.dumps(e.get('_raw',{}), ensure_ascii=False)}"
+            # norm_ecount 가 미리 만든 글자를 쓴다([444]) — 없으면(손으로 만든 행) 그 자리에서.
+            blob = e.get("_blob")
+            if blob is None:
+                blob = _match_blob(e)
             if prj in blob and cust_ok(e):
                 return e, "프로젝트NO"
     # 2순위: 금액 근접 — **0 은 '금액 없음'으로 다뢬다**([124]).
