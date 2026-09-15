@@ -861,7 +861,17 @@ def build() -> dict[str, Any]:
                     done_at=datetime.fromtimestamp(daily_path.stat().st_mtime))
             except Exception:
                 not_due = None
-            if not (not_due or {}).get("아직"):
+            # ★ [303] 꺼 둔 회차는 늦은 것이 아니다 — 판정은 회차와 같은 곳에서 빌린다([162]).
+            #   인계(`session_handoff.daily_run_health`)가 '꺼져 있다'를 한 줄로 말하므로
+            #   여기서 `[P1]` 을 또 올리면 한 사건이 두 목소리가 된다([170]).
+            #   못 읽으면 None 이라 예전 그대로 P1 이다([169]).
+            auto_off = None
+            try:
+                from operation_window import auto_round_blocked
+                auto_off = auto_round_blocked(auto=True)
+            except Exception:
+                auto_off = None
+            if not (not_due or {}).get("아직") and not auto_off:
                 add("daily-run-stale", "P1", "일일 대조 완주 기록이 하루 가까이 갱신되지 않음",
                     f"마지막 진행 기록이 {daily_age / 60:.1f}시간 전입니다.",
                     "python session_handoff.py --check", "reports/.daily_run.progress.json")

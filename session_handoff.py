@@ -1041,12 +1041,20 @@ def daily_run_health():
     #   조치가 정반대다: 안 돌았으면 **띄워야** 하고, 돌고 있으면 **기다려야** 한다.
     #   그래서 잠금 파일에서 앞 회차의 나이를 같이 읽는다(살아 있는 pid 일 때만).
     running = _daily_run_inflight()
+    # ★ **꺼 둔 회차를 '밀렸다'고 부르지 않는다** (2026-09-15 · 분담판 [303]).
+    #   2026-09-08 지시로 자동 대조는 사람이 부를 때만 돈다(`자동대조_꺼짐.json`). 그런데
+    #   이 함수는 완주 나이만 봐서 "137시간째 완주하지 않았다" 를 매일 올렸고,
+    #   `system_audit` 도 같은 사건을 `[P1]` 로 한 줄 더 올렸다 — 거짓 경보 두 줄([170]).
+    #   판정은 회차가 쓰는 `operation_window.auto_round_blocked` 한 곳에서 빌린다([162]).
+    #   ★ 도는 회차가 있으면(사람이 띄웠다) 예전 그대로 본다 — 그것은 끈 것이 아니다([172]).
+    #   ★ 못 읽으면 None 이라 **예전 그대로 밀림**이다([169]).
+    off = _auto_daily_off() if running is None else None
     p = os.path.join(REPORT_DIR, "agent_status.json")
     try:
         age_h = (datetime.now().timestamp() - os.path.getmtime(p)) / 3600.0
     except OSError:
         return {"완주없음": True, "경과시간": None, "중단": False, "실패단계": [],
-                "진행중": running, "밀림": True}
+                "진행중": running, "밀림": off is None, "자동꺼짐": off}
     # ★ 나이만 보면 놓친다 — 마지막 회차가 **중단(aborted)** 으로 끝났을 수 있다.
     #   실측 2026-08-06 21:01 회차가 그랬다: aborted=True 인데 파일은 최신이라 조용했다.
     aborted, failed = False, []
@@ -1085,7 +1093,23 @@ def daily_run_health():
     return {"완주없음": False, "경과시간": round(age_h, 1), "중단": aborted,
             "실패단계": [f for f in failed if f], "진행중": running,
             "아직예정": (not_due or {}).get("왜") if (not_due or {}).get("아직") else None,
-            "밀림": stale or aborted}
+            # [303] 꺼 둔 회차는 나이로 밀림이라 하지 않는다 — **중단은 그대로 밀림**이다
+            #   (사람이 띄운 회차가 중단됐으면 그것은 꺼짐과 무관한 사실이다 · [172]).
+            "밀림": (stale and off is None) or aborted, "자동꺼짐": off}
+
+
+def _auto_daily_off():
+    """자동 대조가 **지시로 꺼져 있으면** 그 이유 말, 아니면 None ([303]).
+
+    ★ 판정은 `operation_window.auto_round_blocked` 한 곳이다([162]) — 여기서 환경변수를
+      직접 보면 회차 쪽과 언젠가 갈린다.
+    ★ 못 읽으면 None(=꺼짐 아님)이라 부르는 쪽은 **예전 그대로 밀림**을 말한다([169]).
+    """
+    try:
+        from operation_window import auto_round_blocked
+        return auto_round_blocked(auto=True)
+    except Exception:
+        return None
 
 
 def _progress_owner_alive(d):
@@ -2040,6 +2064,13 @@ def blockers(st, for_sol=False):
         out.append(("일일자동대조 — %s. 스케줄러가 '성공'이라 적어도 완주하지 않았을 수 있다"
                     "(앞 회차가 도는 동안 다음 회차가 조용히 건너뛴다)%s"
                     % (why, (" · 실패단계: " + ", ".join(bad[:4])) if bad else ""), act))
+    elif dr.get("자동꺼짐") and (dr.get("경과시간") is None or dr.get("경과시간") >= DAILY_STALE_H):
+        # ★ [303] 꺼 둔 것은 **조용히 빼지 않는다**([169]) — 다만 '밀렸다' 두 줄이 아니라
+        #   '꺼져 있다' 한 줄이다([170]). 조치는 붙여넣어 도는 명령이다([448]).
+        hrs = dr.get("경과시간")
+        out.append(("일일자동대조 — 지시로 **꺼져 있다**(%s) · 마지막 완주 %s. 대조·자료현황이 그만큼 멈춰 있다"
+                    % (dr.get("자동꺼짐"), "기록 없음" if hrs is None else "%.0f시간 전" % hrs),
+                    "python daily_run.py    # 사람이 돌리는 길 · 앱 [전체 대조 실행] 과 같다"))
     elif run_h is not None and run_h >= DAILY_SLOW_H:
         # 완주 기록은 아직 싱싱한데 **지금 회차가 비정상적으로 길다.** 이대로 두면
         # 20시간을 넘겨서야 위 경보가 뜬다 — 그때는 이미 하루를 잃은 뒤다.
