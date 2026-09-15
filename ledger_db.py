@@ -206,6 +206,22 @@ CREATE TABLE IF NOT EXISTS remote_audit(     -- 리모컨 기록 수정·삭제 
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_remote_audit_row ON remote_audit(table_name, row_id);
+CREATE TABLE IF NOT EXISTS sanitizer_entry(  -- 쿠팡 소독기·세척기 관리 장부 (2026-09-15 지시)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,      -- ERP 에서 읽은 줄은 여기 안 넣는다(읽기 전용) — 사람이 관리하는 줄만
+  data_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,        -- 낙관잠금: 읽은 판이 아니면 저장을 거절한다
+  deleted_at TEXT, deleted_by TEXT, delete_reason TEXT,   -- 지워도 행은 남는다(복구 가능)
+  created_by TEXT, created_at TEXT NOT NULL, updated_by TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS sanitizer_audit(  -- 장부 등록·수정·삭제·복구 원장
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id INTEGER NOT NULL, action TEXT NOT NULL,
+  before_json TEXT, after_json TEXT, reason TEXT, actor TEXT, request_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sanitizer_request( -- 멱등키: 같은 요청을 두 번 보내도 한 번만 반영
+  request_id TEXT PRIMARY KEY, result_json TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS call_note(        -- 통화·회의 기록 (2026-08-07 지시: 민감 — DB 전용)
   id INTEGER PRIMARY KEY AUTOINCREMENT,      -- ★ Z: 공유 폴더에 원본을 두지 않는다. 여기가 정본이다.
   file TEXT NOT NULL UNIQUE,                 -- 원래 메모 파일 이름(식별자 — 같은 이름이면 갱신)
@@ -1990,6 +2006,175 @@ def remote_audit_list(limit=30):
                 for r in c.execute(
                     "SELECT id,table_name,row_id,action,reason,forced,actor,created_at"
                     " FROM remote_audit ORDER BY id DESC LIMIT ?", (int(limit),))]
+
+
+# ── 쿠팡 소독기·세척기 관리 장부 (2026-09-15 지시) ─────────────────────────
+# 형님 지시: "세척기 소독기 카테고리 추가해서 관리하고 보고캡처, 엑셀 저장, 수정, 삭제".
+# ERP·공유폴더에서 읽은 것은 sanitizer_projects.py 가 만든 **읽기 전용** 자료다. 사람이
+# 고치고 지우는 것은 이 장부 한 곳이다 — 등록·수정·삭제·복구가 한 트랜잭션에서 감사로그와
+# 같이 확정되고, 같은 멱등키는 한 번만 반영되며, 읽은 판(version)이 아니면 덮지 않는다.
+SANITIZER_FIELDS = ("구분", "일자", "단계", "프로젝트", "품목", "수량", "단가", "공급가",
+                    "거래처", "진행", "메모", "출처")
+SANITIZER_KINDS = ("세척기", "소독기", "공통")
+
+
+class SanitizerConflict(ValueError):
+    """읽은 뒤 다른 사람이 먼저 고쳤다 — 덮지 않고 알린다."""
+
+
+def _san_row(c, rid):
+    try:
+        rid = int(rid)
+    except (TypeError, ValueError):
+        raise ValueError("항목 번호가 없습니다")
+    r = c.execute("SELECT id,data_json,version,deleted_at,deleted_by,delete_reason,created_by,"
+                  "created_at,updated_by,updated_at FROM sanitizer_entry WHERE id=?", (rid,)).fetchone()
+    if not r:
+        raise ValueError(f"{rid}번 항목이 없습니다")
+    d = {k: None for k in SANITIZER_FIELDS}
+    d.update(json.loads(r[1] or "{}"))
+    d.update(id=r[0], version=r[2], deleted_at=r[3] or "", deleted_by=r[4] or "",
+             delete_reason=r[5] or "", created_by=r[6] or "", created_at=r[7] or "",
+             updated_by=r[8] or "", updated_at=r[9] or "")
+    return d
+
+
+def _san_clean(fields):
+    out = {}
+    for k in SANITIZER_FIELDS:
+        if k not in (fields or {}):
+            continue
+        v = fields[k]
+        if k in ("수량", "단가", "공급가"):
+            s = str(v if v is not None else "").replace(",", "").strip()
+            if not s:
+                out[k] = None
+                continue
+            try:
+                out[k] = float(s)
+            except ValueError:
+                raise ValueError(f"{k} 은(는) 숫자로 적어야 합니다: {v}")
+        else:
+            out[k] = str(v if v is not None else "").strip()[:500]
+    return out
+
+
+def _san_once(c, request_id):
+    if not request_id:
+        return None
+    r = c.execute("SELECT result_json FROM sanitizer_request WHERE request_id=?",
+                  (request_id,)).fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def _san_finish(c, entry_id, action, before, after, reason, actor, request_id):
+    now = datetime.now().isoformat(timespec="seconds")
+    c.execute("INSERT INTO sanitizer_audit(entry_id,action,before_json,after_json,reason,actor,"
+              "request_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+              (int(entry_id), action,
+               json.dumps(before, ensure_ascii=False) if before else "",
+               json.dumps(after, ensure_ascii=False) if after else "",
+               str(reason or ""), str(actor or ""), str(request_id or ""), now))
+    result = {"row": after or before, "action": action}
+    if request_id:
+        c.execute("INSERT INTO sanitizer_request(request_id,result_json,created_at) VALUES(?,?,?)",
+                  (request_id, json.dumps(result, ensure_ascii=False), now))
+    return result
+
+
+def _san_check_version(before, version):
+    try:
+        v = int(version)
+    except (TypeError, ValueError):
+        raise SanitizerConflict("읽은 판 번호가 없습니다 — 화면을 새로고침한 뒤 다시 하세요")
+    if v != before["version"]:
+        raise SanitizerConflict(f"{before['id']}번은 그사이 {before.get('updated_by') or '다른 사람'}"
+                                f" 이(가) 고쳤습니다 — 새로고침해서 두 값을 비교하세요")
+
+
+def sanitizer_list(include_deleted=True):
+    with conn() as c:
+        ids = [r[0] for r in c.execute("SELECT id FROM sanitizer_entry ORDER BY id")]
+        rows = [_san_row(c, i) for i in ids]
+        audit = [dict(zip(("id", "entry_id", "action", "reason", "actor", "created_at"), r))
+                 for r in c.execute("SELECT id,entry_id,action,reason,actor,created_at"
+                                    " FROM sanitizer_audit ORDER BY id DESC LIMIT 30")]
+    if not include_deleted:
+        rows = [r for r in rows if not r["deleted_at"]]
+    return {"rows": rows, "audit": audit}
+
+
+def sanitizer_save(fields, rid=None, version=None, actor="", request_id=""):
+    """등록(rid 없음) 또는 수정(rid·version). 감사로그와 같은 트랜잭션에서 확정한다."""
+    request_id = str(request_id or "").strip()[:200]
+    data = _san_clean(fields)
+    with conn() as c:
+        done = _san_once(c, request_id)
+        if done is not None:
+            return done
+        now = datetime.now().isoformat(timespec="seconds")
+        if rid in (None, "", 0, "0"):
+            if data.get("구분") not in SANITIZER_KINDS:
+                raise ValueError("구분은 세척기·소독기·공통 중 하나입니다")
+            if not data.get("품목"):
+                raise ValueError("품목은 꼭 적어야 합니다")
+            cur = c.execute("INSERT INTO sanitizer_entry(data_json,version,created_by,created_at)"
+                            " VALUES(?,1,?,?)", (json.dumps(data, ensure_ascii=False), actor, now))
+            after = _san_row(c, cur.lastrowid)
+            return _san_finish(c, after["id"], "등록", None, after, "", actor, request_id)
+        before = _san_row(c, rid)
+        if before["deleted_at"]:
+            raise ValueError(f"{before['id']}번은 삭제된 항목입니다 — 먼저 복구하세요")
+        _san_check_version(before, version)
+        merged = {k: before.get(k) for k in SANITIZER_FIELDS}
+        merged.update(data)
+        if merged.get("구분") not in SANITIZER_KINDS or not merged.get("품목"):
+            raise ValueError("구분(세척기·소독기·공통)과 품목은 비울 수 없습니다")
+        cur = c.execute("UPDATE sanitizer_entry SET data_json=?,version=version+1,updated_by=?,"
+                        "updated_at=? WHERE id=? AND version=?",
+                        (json.dumps(merged, ensure_ascii=False), actor, now,
+                         before["id"], before["version"]))
+        if cur.rowcount != 1:
+            raise SanitizerConflict("저장하는 순간 다른 사람이 먼저 고쳤습니다 — 새로고침하세요")
+        after = _san_row(c, before["id"])
+        return _san_finish(c, before["id"], "수정", before, after, "", actor, request_id)
+
+
+def sanitizer_delete(rid, version, actor="", reason="", request_id=""):
+    """지운다 — 행은 남기고 표시만 한다. 사유가 없으면 거절한다."""
+    request_id = str(request_id or "").strip()[:200]
+    if not str(reason or "").strip():
+        raise ValueError("삭제할 때는 사유를 적어야 합니다")
+    with conn() as c:
+        done = _san_once(c, request_id)
+        if done is not None:
+            return done
+        before = _san_row(c, rid)
+        if before["deleted_at"]:
+            raise ValueError(f"{before['id']}번은 이미 삭제됐습니다")
+        _san_check_version(before, version)
+        now = datetime.now().isoformat(timespec="seconds")
+        c.execute("UPDATE sanitizer_entry SET deleted_at=?,deleted_by=?,delete_reason=?,"
+                  "version=version+1,updated_by=?,updated_at=? WHERE id=?",
+                  (now, actor, str(reason).strip()[:300], actor, now, before["id"]))
+        after = _san_row(c, before["id"])
+        return _san_finish(c, before["id"], "삭제", before, after, reason, actor, request_id)
+
+
+def sanitizer_restore(rid, actor="", request_id=""):
+    request_id = str(request_id or "").strip()[:200]
+    with conn() as c:
+        done = _san_once(c, request_id)
+        if done is not None:
+            return done
+        before = _san_row(c, rid)
+        if not before["deleted_at"]:
+            raise ValueError(f"{before['id']}번은 삭제된 항목이 아닙니다")
+        now = datetime.now().isoformat(timespec="seconds")
+        c.execute("UPDATE sanitizer_entry SET deleted_at=NULL,deleted_by=NULL,delete_reason=NULL,"
+                  "version=version+1,updated_by=?,updated_at=? WHERE id=?", (actor, now, before["id"]))
+        after = _san_row(c, before["id"])
+        return _san_finish(c, before["id"], "복구", before, after, "삭제 되돌리기", actor, request_id)
 
 
 def remote_status(limit=60):

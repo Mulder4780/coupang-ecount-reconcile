@@ -4058,6 +4058,9 @@ button[aria-busy="true"]::after{
             <button class="ui-card" onclick="openYooIssues()">
               <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-exclamation-triangle-fill"/></svg></span>
               <span class="ui-card-tx"><b>확인 필요</b><span>근거·예외·완료 판정</span></span></button>
+            <button class="ui-card" onclick="routeNav('sanitizer')">
+              <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-graph-up-arrow"/></svg></span>
+              <span class="ui-card-tx"><b>소독기·세척기</b><span>쿠팡 신규 장비 견적·주문·문제사항</span></span></button>
           </div>
         </div>
       </div>
@@ -4723,6 +4726,44 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       <div class="check-summary" id="checksummary" role="status" aria-live="polite"></div>
       <div class="slist" id="checklist"></div>
     </div>
+  </section>
+
+  <!-- 쿠팡 소독기·세척기 (2026-09-15 지시) — sanitizer_projects.py 가 만든 현황을 읽기만 한다 -->
+  <section class="view" id="v-sanitizer">
+    <div class="hero-min ios-large"><h2>소독기·세척기</h2>
+      <p class="sub">쿠팡 신규 장비 — 관리 장부(수정·삭제 가능) · 이카운트 거래 · 공유폴더 견적 · 확인할 문제. ERP·폴더 자료는 매일 09:50 회차가 다시 읽습니다.</p></div>
+    <div class="rpt-actions" role="toolbar" aria-label="세척기·소독기 도구">
+      <button class="icon-btn primary" onclick="sanCapture()" title="보고 캡처" aria-label="보고 캡처">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+      <button class="icon-btn excel" onclick="sanCsv()" title="엑셀 저장" aria-label="엑셀 저장">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
+      <button class="icon-btn" onclick="sanEdit(null)" title="새 항목" aria-label="새 항목">＋</button>
+      <button class="icon-btn" onclick="renderSanitizer()" title="새로고침" aria-label="새로고침">
+        <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
+    </div>
+    <div class="card" id="sanForm" hidden>
+      <h3 id="sanFormTitle">새 항목</h3>
+      <input type="hidden" id="sanId"><input type="hidden" id="sanVer">
+      <div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
+        <label>구분<select id="sanF_구분"><option>세척기</option><option>소독기</option><option>공통</option></select></label>
+        <label>일자<input type="date" id="sanF_일자"></label>
+        <label>단계<input id="sanF_단계" placeholder="견적·PO·주문·납품·계산서"></label>
+        <label>프로젝트<input id="sanF_프로젝트"></label>
+        <label>품목<input id="sanF_품목"></label>
+        <label>수량<input id="sanF_수량" inputmode="decimal"></label>
+        <label>단가<input id="sanF_단가" inputmode="decimal"></label>
+        <label>공급가<input id="sanF_공급가" inputmode="decimal"></label>
+        <label>거래처<input id="sanF_거래처"></label>
+        <label>진행<input id="sanF_진행"></label>
+        <label style="grid-column:1/-1">메모<textarea id="sanF_메모"></textarea></label>
+        <input type="hidden" id="sanF_출처">
+      </div>
+      <div class="ui-cards" style="margin-top:8px">
+        <button class="ui-card primary" onclick="sanSave()"><span class="ui-card-tx"><b>저장</b><span>앱 DB 에 바로 저장</span></span></button>
+        <button class="ui-card" onclick="$('sanForm').hidden=true"><span class="ui-card-tx"><b>닫기</b><span>저장하지 않음</span></span></button>
+      </div>
+    </div>
+    <div class="card"><div id="sanHost"><div class="sk sk-row w70"></div></div></div>
   </section>
 
   <!-- 리포트 -->
@@ -5780,6 +5821,8 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <button class="worktab-nav" data-v="sop" onclick="routeNav('sop')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>표준절차서</button>
   <!-- 리모컨은 AS 기사가 현장에 들고 나가는 물건이라 돌발 AS 바로 아래 둔다(2026-08-04 지시). -->
   <button class="worktab-nav" data-v="remote" onclick="routeNav('remote')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-box-seam"/></svg>리모컨</button>
+  <!-- 쿠팡 소독기·세척기 — 리모컨 바로 아래(2026-09-15 지시). -->
+  <button class="worktab-nav" data-v="sanitizer" onclick="routeNav('sanitizer')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-graph-up-arrow"/></svg>세척기·소독기</button>
   <button class="staff-worklog-nav" data-v="worklog" onclick="routeNav('worklog')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-clipboard-data-fill"/></svg>대표보고 일지</button>
   <button data-v="flow" onclick="routeNav('flow')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-up-right"/></svg>워크플로우</button>
   <button data-v="settle" onclick="routeNav('settle')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-receipt"/></svg>정산</button>
@@ -11104,6 +11147,7 @@ function routeNav(v){
   if(v==='run'){ pollLog(); if(!staffSlug) loadSystemAudit(); }
   if(v==='camps') renderCamps();
   if(v==='sop') renderSop();
+  if(v==='sanitizer') renderSanitizer();
   /* 설정도 **열 때마다** 다시 읽는다. 여기 갈래가 없어서 예전에는 한 번 채운 값이
      그대로 낡은 채 남았다 — 오류가 안 나므로 아무도 몰랐다([165] 와 같은 모양). */
   if(v==='settings'){ if(!staffSlug) loadAdminSettings(); loadSettingsPanel();
@@ -19755,6 +19799,120 @@ function openSource(path){
   if(!w) location.href = sourceFileURL(path);   // 차단됐으면 현재 탭에서 연다
 }
 
+/* 쿠팡 소독기·세척기 (2026-09-15 지시) — 서버가 준 것을 그대로 그린다. 판정은 서버 한 곳([162]). */
+let SAN=null;
+const SAN_FIELDS=['구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모','출처'];
+const sanWon=v=>(typeof v==='number')?Math.round(v).toLocaleString('ko-KR')+'원':'-';
+async function renderSanitizer(){
+  const host=$('sanHost'); if(!host) return;
+  let d;
+  try{ d=await api('/api/sanitizer'); }catch(e){ host.textContent='불러오지 못했습니다: '+(e&&e.message||e); return; }
+  if(!d||!d.ok){ host.textContent=(d&&d.error)||'현황이 없습니다'; return; }
+  SAN=d;
+  const e=v=>esc2(v==null?'':String(v));
+  const won=sanWon;
+  const table=(cols,rows,fmt,act)=>'<div style="overflow-x:auto"><table class="tbl"><thead><tr>'+cols.map(c=>'<th>'+e(c)+'</th>').join('')+(act?'<th></th>':'')+
+    '</tr></thead><tbody>'+rows.map((r,i)=>'<tr'+(r.deleted_at?' style="opacity:.5;text-decoration:line-through"':'')+'>'+cols.map(c=>'<td>'+(fmt&&fmt[c]?fmt[c](r[c]):e(r[c]))+'</td>').join('')+(act?'<td style="white-space:nowrap">'+act(r,i)+'</td>':'')+'</tr>').join('')+'</tbody></table></div>';
+  const grade={'높음':'#DC2626','보통':'#D97706','참고':'#6B7280'};
+  let h='<div class="wt-meta">ERP·폴더 자료 만든 시각 '+e(d.만든시각||'-')+'</div>';
+  if(d.현황없음) h+='<div class="wt-meta">'+e(d.현황없음)+'</div>';
+  const led=(d.장부&&d.장부.rows)||[];
+  h+='<h3>관리 장부 '+led.filter(r=>!r.deleted_at).length+'건</h3>';
+  if(d.장부오류) h+='<div class="wt-meta">'+e(d.장부오류)+'</div>';
+  h+=led.length?table(['id','구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모','updated_by'],led,{'단가':won,'공급가':won},
+     r=>r.deleted_at?'<button class="abtn" onclick="sanRestore('+r.id+')">복구</button> <span class="wt-meta">'+e(r.delete_reason)+'</span>'
+       :'<button class="abtn" onclick="sanEdit('+r.id+')">수정</button> <button class="abtn" onclick="sanDelete('+r.id+')">삭제</button>')
+     :'<div class="wt-meta">아직 없습니다 — ＋ 또는 아래 거래 내역의 [장부로] 를 누르세요</div>';
+  h+='<h3>요약</h3>'+table(['구분','발행완료_건','발행완료_공급가','주문등록_대수','주문등록_공급가','최근'],d.요약||[],
+     {'발행완료_공급가':won,'주문등록_공급가':won});
+  h+='<h3>확인할 문제 '+(d.문제||[]).length+'건</h3>'+((d.문제||[]).map(i=>
+     '<div style="padding:8px 0;border-bottom:1px solid var(--line,#e5e7eb)"><b style="color:'+(grade[i.등급]||'#111')+'">['+e(i.등급)+']</b> <b>'+e(i.제목)+'</b><br>'+
+     e(i.설명)+'<div class="wt-meta">근거: '+e(i.근거)+'</div></div>').join('')||'<div class="wt-meta">없음</div>');
+  if((d.못읽음||[]).length) h+='<h3>못 읽은 것</h3><div class="wt-meta">'+d.못읽음.map(e).join('<br>')+'</div>';
+  h+='<h3>이카운트 거래 내역 <span class="norm">— 읽기 전용 · 고치려면 [장부로]</span></h3>'+table(['일자','단계','구분','프로젝트','품목','수량','단가','공급가','거래처','진행'],d.거래||[],{'단가':won,'공급가':won},
+     (r,i)=>'<button class="abtn" onclick="sanFromErp('+i+')">장부로</button>');
+  h+='<h3>견적 이력</h3>'+table(['날짜','구분','견적번호','품명','수량','단가','금액','파일'],d.견적||[],{'단가':won,'금액':won});
+  h+='<h3>이카운트 품목</h3>'+table(['품목코드','품목명','규격','판매단가'],d.품목||[],{'판매단가':won});
+  h+='<h3>공유폴더 자료 '+(d.폴더자료||[]).length+'개</h3><div class="wt-meta">'+e(d.원본폴더)+'</div>'+table(['분류','경로','수정일'],d.폴더자료||[]);
+  h+='<div class="wt-meta">보고용 엑셀(서버 PC): reports/쿠팡_소독기세척기_관리.xlsx</div>';
+  host.innerHTML=h;
+}
+function sanFill(r){
+  SAN_FIELDS.forEach(k=>{ const el=$('sanF_'+k); if(el) el.value=(r&&r[k]!=null)?String(r[k]).slice(0,k==='일자'?10:500):''; });
+  if(!$('sanF_구분').value) $('sanF_구분').value='세척기';
+}
+function sanEdit(id){
+  const r=id?((SAN&&SAN.장부&&SAN.장부.rows)||[]).find(x=>x.id===id):null;
+  $('sanId').value=r?r.id:''; $('sanVer').value=r?r.version:'';
+  $('sanFormTitle').textContent=r?(r.id+'번 수정'):'새 항목';
+  sanFill(r); $('sanForm').hidden=false;
+  try{ $('sanForm').scrollIntoView({block:'start',behavior:'smooth'}); }catch(_){}
+}
+function sanFromErp(i){
+  const r=((SAN&&SAN.거래)||[])[i]; if(!r) return;
+  sanEdit(null); sanFill(Object.assign({},r,{출처:'ERP '+(r.파일||''),메모:''}));
+}
+async function sanPost(path,body){
+  let d;
+  try{ d=await api(path,{method:'POST',body:JSON.stringify(body)}); }
+  catch(e){ notice('저장하지 못했습니다: '+(e&&e.message||e)); return null; }
+  if(!d||!d.ok){ notice((d&&d.error)||'저장하지 못했습니다'); if(d&&/고쳤습니다/.test(d.error||'')) renderSanitizer(); return null; }
+  return d;
+}
+async function sanSave(){
+  const fields={}; SAN_FIELDS.forEach(k=>{ const el=$('sanF_'+k); if(el) fields[k]=el.value; });
+  const id=$('sanId').value;
+  const d=await sanPost('/api/sanitizer/save',{id:id?Number(id):null,version:id?Number($('sanVer').value):null,fields});
+  if(!d) return;
+  $('sanForm').hidden=true; renderSanitizer();
+}
+async function sanDelete(id){
+  const r=((SAN&&SAN.장부&&SAN.장부.rows)||[]).find(x=>x.id===id); if(!r) return;
+  const why=await askText('삭제 사유', '', {title:id+'번 '+(r.품목||'')+' 삭제', desc:'지운 항목은 [복구]로 되살릴 수 있습니다', ok:'삭제'});
+  if(!why||!why.trim()) return;
+  if(await sanPost('/api/sanitizer/delete',{id,version:r.version,reason:why.trim()})) renderSanitizer();
+}
+async function sanRestore(id){
+  if(await sanPost('/api/sanitizer/restore',{id})) renderSanitizer();
+}
+function sanCsv(){
+  const d=SAN||{}; const q=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  const L=[['구역','구분','일자','단계','프로젝트','품목','수량','단가','공급가','거래처','진행','메모·설명','근거']];
+  (d.요약||[]).forEach(s=>L.push(['요약',s.구분,s.최근,'','','',s.주문등록_대수,'',s.주문등록_공급가,'','발행완료 '+s.발행완료_건+'건 '+s.발행완료_공급가,'','']));
+  (d.문제||[]).forEach(i=>L.push(['문제',i.등급,'','','',i.제목,'','','','','',i.설명,i.근거]));
+  (((d.장부||{}).rows)||[]).filter(r=>!r.deleted_at).forEach(r=>L.push(['관리장부',r.구분,r.일자,r.단계,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,r.메모,r.출처]));
+  (d.거래||[]).forEach(r=>L.push(['ERP거래',r.구분,r.일자,r.단계,r.프로젝트,r.품목,r.수량,r.단가,r.공급가,r.거래처,r.진행,'',r.파일]));
+  (d.견적||[]).forEach(r=>L.push(['견적',r.구분,r.날짜,'견적 '+(r.견적번호||''),'',r.품명,r.수량,r.단가,r.금액,'','','',r.파일]));
+  const csv='﻿'+L.map(r=>r.map(q).join(',')).join('\n');
+  saveOrOpen(new Blob([csv],{type:'text/csv'}),`세척기소독기_${todayISO()}.csv`);
+}
+async function sanCapture(){
+  if(!SAN) await renderSanitizer();
+  const d=SAN||{}; const S=2,W=900,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  const issues=(d.문제||[]).slice(0,12), led=(((d.장부||{}).rows)||[]).filter(r=>!r.deleted_at).slice(0,15);
+  const H=110+(d.요약||[]).length*26+40+issues.length*44+40+Math.max(1,led.length)*24+40;
+  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
+  const x=cv.getContext('2d'); x.scale(S,S);
+  const clip=(t,w)=>{ t=String(t==null?'':t); while(t&&x.measureText(t).width>w) t=t.slice(0,-1); return t; };
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,64);
+  x.fillStyle='#fff'; x.font=F(20,700); x.fillText('쿠팡 세척기 · 소독기 현황',24,34);
+  x.font=F(12); x.fillStyle='#C9D5FA'; x.fillText(`기준 ${new Date().toLocaleString('ko-KR')} · ERP·폴더 자료 ${d.만든시각||'-'}`,24,52);
+  let y=92; x.fillStyle='#101828';
+  (d.요약||[]).forEach(s=>{ x.font=F(14,700);
+    x.fillText(clip(`${s.구분}  발행완료 ${s.발행완료_건}건 ${sanWon(s.발행완료_공급가)}  ·  주문등록 ${s.주문등록_대수}대 ${sanWon(s.주문등록_공급가)}  ·  최근 ${s.최근}`,W-48),24,y); y+=26; });
+  y+=14; x.font=F(13,700); x.fillStyle='#475467'; x.fillText(`확인할 문제 ${(d.문제||[]).length}건`,24,y); y+=10;
+  const col={'높음':'#DC2626','보통':'#D97706','참고':'#6B7280'};
+  issues.forEach(i=>{ y+=20; x.font=F(13,700); x.fillStyle=col[i.등급]||'#101828'; x.fillText(`[${i.등급}]`,24,y);
+    x.fillStyle='#101828'; x.fillText(clip(i.제목,W-110),80,y); y+=20; x.font=F(12); x.fillStyle='#475467'; x.fillText(clip(i.설명,W-110),80,y); y+=4; });
+  y+=30; x.font=F(13,700); x.fillStyle='#475467'; x.fillText(`관리 장부 ${led.length}건`,24,y); y+=6;
+  if(!led.length){ y+=22; x.font=F(12); x.fillText('등록된 항목 없음',24,y); }
+  led.forEach(r=>{ y+=22; x.font=F(12); x.fillStyle='#101828';
+    x.fillText(clip(`${r.일자||''} ${r.구분} · ${r.단계||''} · ${r.품목||''} · ${r.수량==null?'':r.수량+'대'} · ${sanWon(r.공급가)} · ${r.거래처||''} · ${r.진행||''}`,W-48),24,y); });
+  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+  saveOrOpen(blob,`세척기소독기_${todayISO()}.png`);
+}
+
 async function loadReports(){
   const d = await api('/api/reports');
   reports = d.reports||[];
@@ -23085,6 +23243,7 @@ const VIEW_RESET = {
                         _rvCall('renderCampList'); },
             reload:()=>_rvCall('renderCamps',true)},
   sop:     {name:'표준절차서', reload:()=>_rvCall('renderSop',true)},
+  sanitizer: {name:'소독기·세척기', reload:()=>_rvCall('renderSanitizer')},
   sources: {name:'원본 자료',
             clear:()=>{ _rvSet('srcQ',''); _rvSet('dlwQ',''); _rvSet('dlwSince',''); _rvSet('dlwUntil','');
                         try{ SRC_G=''; SRC_M=''; SRC_Y=''; }catch(_){} },

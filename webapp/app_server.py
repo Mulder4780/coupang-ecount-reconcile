@@ -138,6 +138,8 @@ FEATURES = {
                  "설명": "작업별 표준 업무 절차서 — 워드·PPT로 내보내고 유니웍스로 넘긴다"},
     "remote":   {"이름": "리모컨",        "묶음": "현장 업무",
                  "설명": "리모컨 불출·납품·재고"},
+    "sanitizer": {"이름": "세척기·소독기", "묶음": "현장 업무",
+                 "설명": "쿠팡 신규 장비 견적·주문·문제사항과 관리 장부"},
     "check":    {"이름": "확인 필요",     "묶음": "현장 업무",
                  "설명": "사람이 봐야 하는 건들을 모아 둔 목록"},
     "settle":   {"이름": "정산",          "묶음": "정산·매출",
@@ -11804,6 +11806,23 @@ self.addEventListener('fetch', e => {
             return self._send(200, datalake_records(rq))
         if p == "/api/reports":
             return self._send(200, {"reports": latest_reports()})
+        if p == "/api/sanitizer":
+            # 쿠팡 소독기·세척기 (2026-09-15 지시) — sanitizer_projects.py 가 만든 것을 그대로 싣는다.
+            # 못 읽으면 빈 화면이 아니라 이유를 준다([169]).
+            try:
+                with open(os.path.join(ROOT, "reports", "소독기세척기_현황.json"), encoding="utf-8") as fh:
+                    data = {"ok": True, **json.load(fh)}
+            except FileNotFoundError:
+                data = {"ok": True, "현황없음": "아직 안 만들었습니다 — python sanitizer_projects.py"}
+            except (OSError, ValueError) as exc:
+                data = {"ok": True, "현황없음": "현황 파일을 못 읽음: %s" % type(exc).__name__}
+            # 사람이 관리하는 장부는 DB 정본이다 — 현황 파일이 없어도 장부는 보여 준다.
+            try:
+                import ledger_db
+                data["장부"] = ledger_db.sanitizer_list()
+            except Exception as exc:
+                data["장부오류"] = "장부를 못 읽음: %s" % type(exc).__name__
+            return self._send(200, data)
         if p == "/api/tasklog":
             return self._send(200, {"busy": runner["busy"], "task": runner["task"],
                                     "log": list(runner["log"])[-300:],
@@ -12118,6 +12137,37 @@ self.addEventListener('fetch', e => {
             except Exception as exc:
                 _notify_upload_rejected("PO 첨부", "", self._actor(), str(exc)[:200])
                 return self._send(400, {"ok": False, "error": str(exc)[:320]})
+        if p in ("/api/sanitizer/save", "/api/sanitizer/delete", "/api/sanitizer/restore"):
+            # 쿠팡 소독기·세척기 장부(2026-09-15 지시) — 리모컨과 같은 사람이 쓴다.
+            # 판정(필수값·판 번호·멱등)은 ledger_db 한 곳이 한다([162]). 여기는 넘기기만.
+            actor = self._actor()
+            role = str(actor.get("role") or "")
+            slug = str(actor.get("staff_slug") or "")
+            if not (role == "admin" or (role == "staff" and slug in STAFF_CENTERS)):
+                return self._send(403, {"ok": False,
+                                        "error": "소독기·세척기 장부는 등록된 업무센터 또는 관리자만"})
+            ln = int(self.headers.get("Content-Length", 0))
+            if ln <= 0 or ln > 20_000:
+                return self._send(400, {"ok": False, "error": "장부 요청 형식 오류"})
+            try:
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                import ledger_db
+                who = "관리자" if role == "admin" else STAFF_CENTERS[slug]["name"]
+                rid = str(self.headers.get("Idempotency-Key") or body.get("idempotency_key") or "")
+                if p == "/api/sanitizer/save":
+                    r = ledger_db.sanitizer_save(body.get("fields") or {}, body.get("id"),
+                                                 body.get("version"), who, rid)
+                elif p == "/api/sanitizer/delete":
+                    r = ledger_db.sanitizer_delete(body.get("id"), body.get("version"), who,
+                                                   body.get("reason") or "", rid)
+                else:
+                    r = ledger_db.sanitizer_restore(body.get("id"), who, rid)
+                return self._send(200, {"ok": True, **r})
+            except ValueError as exc:
+                code = 409 if type(exc).__name__ == "SanitizerConflict" else 400
+                return self._send(code, {"ok": False, "error": str(exc)[:200]})
+            except Exception as exc:
+                return self._send(500, {"ok": False, "error": str(exc)[:180]})
         if p in ("/api/remote/request", "/api/remote/deliver", "/api/remote/stock",
                  "/api/remote/edit", "/api/remote/delete", "/api/remote/restore"):
             # 리모컨 관리(2026-08-03 지시, 같은 날 개정): 승인 단계 없이 기록·관리·보고만.

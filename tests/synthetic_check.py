@@ -35921,6 +35921,129 @@ def t527_band_urgency_parse():
     print(chr(9989) + " [527] 밴드 접수 양식의 '● 긴급도' 를 파서가 읽는다")
 
 
+def t529_sanitizer_issues():
+    """쿠팡 소독기·세척기 문제 판정 — 목 자료로 **실행해서** 잰다([295]) (2026-09-15 지시).
+
+    ★ 진짜 ERP·공유폴더·보고 파일은 안 건드린다([247]) — `find_issues`·`summarize`
+      는 순수 함수이고, 폴더 갈래는 없는 임시 경로로만 잰다.
+    ★ 멀쩡한 자료에서는 **아무 문제도 안 뜬다**([170]·[172]) — 그 계약이 없으면
+      판정을 넓힐수록 경보만 쌓인다.
+    """
+    import tempfile as _tf
+    import sanitizer_projects as SP
+
+    def rec(**kw):
+        base = {"일자": "", "단계": "", "종류": "", "구분": "", "프로젝트": "", "프로젝트명": "",
+                "품목코드": "", "품목": "", "수량": None, "단가": None, "공급가": None, "합계": None,
+                "거래처": "", "진행": "", "PO": "", "파일": "f.xlsx"}
+        base.update(kw)
+        return base
+
+    # ① 멀쩡한 세척기 한 건: 견적 → PO → 계산서, 전용 품목·양사 계약 있음
+    clean = [
+        rec(일자="2026-01-13", 단계="견적", 종류="quote", 구분="세척기", 합계=110.0, 프로젝트명="세척기"),
+        rec(일자="2026-01-22", 단계="쿠팡 PO", 종류="po", 구분="세척기", 공급가=100.0),
+        rec(일자="2026-02-24", 단계="세금계산서 진행", 종류="taxstep", 구분="세척기", 공급가=100.0),
+    ]
+    items = [{"품목코드": "1", "품목명": "프레시백 세척기", "규격": "", "판매단가": 100.0, "적요": ""}]
+    files = [{"분류": "계약", "경로": "세척기 계약서(양사 날인).pdf", "수정일": "", "KB": 1}]
+    got = SP.find_issues(clean, items, [], files)
+    assert got == [], "[529] 멀쩡한 자료에 문제가 떴다: %r" % got
+    s = SP.summarize(clean)
+    assert s and s[0]["발행완료_공급가"] == 100.0 and s[0]["주문등록_공급가"] == 0, s
+
+    # ② 2026-09-15 실제 모양: 계산서 없는 소독기 주문 · 단가 333원 차이 · 유효기간 초과
+    #    · 프로젝트코드 없음 · PO 없음 · 이름 둘로 등록된 같은 견적 · 안전관리비 불일치
+    bad = clean + [
+        rec(일자="2026-01-13", 단계="견적", 종류="quote", 구분="소독기", 합계=110.0, 프로젝트명="소독기"),
+        rec(일자="2026-09-04", 단계="전표(종류 미확인)", 구분="소독기", 수량=1.0,
+            단가=61573333.0, 공급가=61573333.0, 거래처="송파1캠프"),
+        rec(일자="2026-09-04", 단계="전표(종류 미확인)", 구분="소독기", 수량=1.0,
+            단가=61573333.0, 공급가=61573333.0, 거래처="북김해 1SUB", 파일="g.xlsx"),
+    ]
+    quotes = [{"파일": "2026.07.28 Sterilizer 견적서.xlsx", "날짜": "2026-07-28", "구분": "소독기",
+               "견적번호": "A", "품명": "Tote Freshbox Sterilizer", "수량": 2, "단가": 61573000.0,
+               "금액": 123146000.0, "유효기간일": 30, "특기_안전관리비": 112000.0,
+               "내역_안전관리비": 412000.0}]
+    files2 = [{"분류": "계약", "경로": "계약서 (유니 날인본).pdf", "수정일": "", "KB": 1}]
+    got = SP.find_issues(bad, [], quotes, files2)
+    titles = [i["제목"] for i in got]
+    want = ["소독기 ERP 단가가 최종 견적과 다름", "소독기 주문 뒤 세금계산서 확인 안 됨",
+            "소독기 주문에 프로젝트코드 없음", "소독기 쿠팡 PO 확인 안 됨",
+            "소독기 견적 유효기간이 지난 뒤 주문 등록", "같은 견적이 세척기·소독기 두 이름으로 등록",
+            "견적서 안전관리비 금액이 앞뒤로 다름", "계약서 쿠팡 날인본 확인 안 됨",
+            "세척기 전용 품목코드 없음", "소독기 전용 품목코드 없음"]
+    missing = [w for w in want if w not in titles]
+    assert not missing, "[529] 잡아야 할 문제를 못 잡았다: %r" % missing
+    assert len(titles) == len(set(titles)), "[529] 같은 문제가 두 번 실렸다: %r" % titles
+    assert got[0]["등급"] == "높음", "[529] 높음이 맨 앞에 안 온다"
+    s = {x["구분"]: x for x in SP.summarize(bad)}
+    assert s["소독기"]["주문등록_공급가"] == 123146666.0 and s["소독기"]["주문등록_대수"] == 2.0, s
+
+    # ③ 품목 목록을 못 읽으면(None) '전용 품목코드 없음'을 지어내지 않는다([169])
+    got = SP.find_issues(bad, None, quotes, files2)
+    assert not any("전용 품목코드" in i["제목"] for i in got), "[529] 못 읽은 품목을 '없음'으로 셌다"
+
+    # ④ 폴더를 못 열면 0개가 아니라 이유를 준다([169])
+    with _tf.TemporaryDirectory() as td:
+        f, q, err = SP.scan_folder(os.path.join(td, "없는폴더"))
+    assert f == [] and q == [] and "못 열었습니다" in err, (f, q, err)
+
+    # ⑤ 앱 배선 — 화면·라우트·회차가 실제로 이어져 있나([328])
+    html = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    srv = open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    dr = open(os.path.join(ROOT, "daily_run.py"), encoding="utf-8").read()
+    assert 'id="v-sanitizer"' in html and "if(v==='sanitizer') renderSanitizer();" in html
+    assert "routeNav('sanitizer')" in html and '"/api/sanitizer"' in srv
+    assert '"sanitizer_projects.py"' in dr, "[529] 09:50 회차에 안 달렸다"
+    nav = html.index("data-v=\"remote\" onclick=\"routeNav('remote')\"")
+    assert html.index("data-v=\"sanitizer\" onclick=\"routeNav('sanitizer')\"") > nav, \
+        "[529] 왼쪽 메뉴 리모컨 아래에 없다"
+    for fn in ("function sanCapture(", "function sanCsv(", "function sanSave(", "function sanDelete("):
+        assert fn in html, "[529] %s 가 없다" % fn
+    for path in ('"/api/sanitizer/save"', '"/api/sanitizer/delete"', '"/api/sanitizer/restore"'):
+        assert path in srv, "[529] %s 라우트가 없다" % path
+
+    # ⑥ 장부 — 등록·수정·삭제·복구를 **임시 DB 로 실행해서** 잰다([247]·[371])
+    import ledger_db as L
+    old_dir, old_path = L.DB_DIR, L.DB_PATH
+    with _tf.TemporaryDirectory() as td:
+        try:
+            L.DB_DIR, L.DB_PATH = td, os.path.join(td, "t.db")
+            r = L.sanitizer_save({"구분": "소독기", "품목": "Tote Freshbox 소독기", "수량": "2",
+                                  "공급가": "123,146,666"}, actor="t", request_id="k1")["row"]
+            assert r["id"] and r["version"] == 1 and r["공급가"] == 123146666.0, r
+            again = L.sanitizer_save({"구분": "소독기", "품목": "다른것"}, actor="t", request_id="k1")
+            assert again["row"]["id"] == r["id"] and len(L.sanitizer_list()["rows"]) == 1, \
+                "[529] 같은 멱등키가 두 번 반영됐다"
+            r2 = L.sanitizer_save({"메모": "단가 확인"}, rid=r["id"], version=1, actor="t")["row"]
+            assert r2["version"] == 2 and r2["품목"] == "Tote Freshbox 소독기" and r2["메모"] == "단가 확인"
+            try:
+                L.sanitizer_save({"메모": "덮기"}, rid=r["id"], version=1, actor="u")
+                raise AssertionError("[529] 옛 판으로 저장했는데 덮었다")
+            except L.SanitizerConflict:
+                pass
+            for bad_call in (lambda: L.sanitizer_delete(r["id"], 2, "t", ""),
+                             lambda: L.sanitizer_save({"구분": "냉장고", "품목": "x"}, actor="t")):
+                try:
+                    bad_call()
+                    raise AssertionError("[529] 사유 없는 삭제·목록 밖 구분이 통과했다")
+                except L.SanitizerConflict:
+                    raise AssertionError("[529] 형식 오류를 충돌로 불렀다")
+                except ValueError:
+                    pass
+            L.sanitizer_delete(r["id"], 2, "t", "중복 입력")
+            rows = L.sanitizer_list()["rows"]
+            assert rows[0]["deleted_at"] and rows[0]["delete_reason"] == "중복 입력", "[529] 지운 행이 사라졌다"
+            L.sanitizer_restore(r["id"], "t")
+            rows = L.sanitizer_list()
+            assert not rows["rows"][0]["deleted_at"] and rows["rows"][0]["version"] == 4
+            assert [a["action"] for a in rows["audit"]] == ["복구", "삭제", "수정", "등록"], rows["audit"]
+        finally:
+            L.DB_DIR, L.DB_PATH = old_dir, old_path
+    print("  [529] 소독기·세척기 — 멀쩡하면 조용 · 실제 모양 10갈래 · 모름은 안 지어냄 · 메뉴·캡처·엑셀 · 장부 등록·수정·삭제·복구·멱등·판충돌 ✅")
+
+
 def t528_camp_urgency_chain():
     """'캠프가 말한 급함'이 색인 → 행 → 화면까지 가는가 — 실행으로 잰다([295]).
 
@@ -48232,6 +48355,19 @@ def t323_amount_ladder_is_one_value_in_five_places():
             {"금액": 380000, "적요": "", "번호": "B", "거래처": ""}]
     assert E.match_project({"프로젝트NO": ""}, twin, 0, "", 380000) == (None, None),         "금액이 같은 전표가 둘인데 하나를 골랐다 — 근거가 아니라 충돌이다([172])"
     assert E.match_project({"프로젝트NO": ""}, twin[:1], 0, "", 380000)[0]["번호"] == "A",         "유일한데도 안 붙는다 — 문을 너무 좁혔다"
+    # ★ [444] 미리 만든 글자는 **속도만** 바꾼다 — 매칭 결과는 한 글자도 안 바뀐다.
+    #   norm_ecount 가 붙인 `_blob` 과 없는 행(옛 길)이 같은 답을 내야 한다.
+    #   ⚠ 적요가 None 인 행도 같이 잰다 — f-string 이 'None' 을 적는 것까지 같아야 한다.
+    _raw444 = [{"SUPPLY_AMT": 2100000, "REMARKS": "UJ2601173 점검", "CUST_DES": "쿠팡"},
+               {"SUPPLY_AMT": 50000, "CUST_DES": "쿠팡"}]
+    _n444 = E.norm_ecount(_raw444)
+    assert all(r["_blob"] == E._match_blob(r) for r in _n444), "미리 만든 글자가 식과 다르다"
+    _bare444 = [{k: v for k, v in r.items() if k != "_blob"} for r in _n444]
+    for _led444 in ({"프로젝트NO": "UJ2601173", "원장_공급가액": 1}, {"프로젝트NO": "", "원장_공급가액": 50000},
+                    {"프로젝트NO": "없는번호", "원장_공급가액": None}):
+        _a444, _b444 = E.match_project(_led444, _n444, 0, ""), E.match_project(_led444, _bare444, 0, "")
+        assert (_a444[1], (_a444[0] or {}).get("금액")) == (_b444[1], (_b444[0] or {}).get("금액")), (
+            "[444] 미리 만든 글자가 매칭 결과를 바꿨다", _led444, _a444[1], _b444[1])
 
     # ③ 다섯째 — `key_warning` 이 **유효 금액**을 센다(실행해서 잰다)
     fill = [{"①판매/명세서_판정": "이카운트미등록", "②세금계산서_판정": "양측미발행",
@@ -51089,6 +51225,7 @@ if __name__ == "__main__":
     t526_as_grade_report_capture_and_xlsx()
     t527_band_urgency_parse()
     t528_camp_urgency_chain()
+    t529_sanitizer_issues()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
