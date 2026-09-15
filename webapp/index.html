@@ -3931,7 +3931,7 @@ button[aria-busy="true"]::after{
 	      <div class="toplist" id="mylist"><div class="sk sk-row w88"></div><div class="sk sk-row w70"></div><div class="sk sk-row w45"></div></div>
 	      <div class="media-tools" role="toolbar" aria-label="내 확인 목록 도구" style="margin-top:10px">
 	        <button class="icon-btn" onclick="printMine()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
-	        <button class="icon-btn primary" onclick="captureMine()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureMine()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
 	        <button class="icon-btn" onclick="copyMineImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
 	        <button class="icon-btn excel" onclick="exportMineXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	      </div></div>
@@ -3949,7 +3949,7 @@ button[aria-busy="true"]::after{
 	    <div class="card"><h3>대시보드 저장·인쇄</h3>
 	      <div class="media-tools" role="toolbar" aria-label="대시보드 도구">
 	        <button class="icon-btn" onclick="printDash()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
-	        <button class="icon-btn primary" onclick="captureDash()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	        <button class="icon-btn primary" onclick="captureDash()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
 	        <button class="icon-btn" onclick="copyDashImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
 	        <button class="icon-btn excel" onclick="exportDashXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	        <button class="icon-btn" onclick="reloadHere(this)" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
@@ -4336,7 +4336,7 @@ button[aria-busy="true"]::after{
         · <b>담당자(직책 미상)</b> — 2023~2024년 옛 접수 양식은 <code>● 담당자명</code> 한 사람만 적고 <b>직책을 말하지 않습니다.</b> 현장책임인지 안전관리인지 원문이 밝히지 않으므로 직책을 붙이지 않습니다.<br>
         · 이메일이 <b>현장책임</b> 쪽에 거의 없는 것은 자료가 빠진 것이 아니라 <b>접수 양식이 그 칸을 적지 않기 때문</b>입니다(실측: 두 사람이 다 적힌 글 1,926건 중 현장책임 이메일이 있는 글 4건).</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="캠프 목록 도구">
-      <button class="icon-btn primary" onclick="campsCapture()" title="이미지 저장" aria-label="이미지 저장">
+      <button class="icon-btn primary" onclick="campsCapture()" title="캡처" aria-label="캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="campsXlsx()" title="엑셀 저장" aria-label="엑셀 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
@@ -4359,7 +4359,7 @@ button[aria-busy="true"]::after{
     <div class="hero-min"><h2>리모컨 관리</h2>
       <p class="sub" data-help-fold="remote-sub">지점 재고 · AS 담당자 불출 · 현장 납품을 한 화면에서 기록합니다. 입력은 즉시 공통 DB에 저장되어 모든 업무센터와 대표보고에 바로 반영됩니다.</p></div>
     <div class="rpt-actions" role="toolbar" aria-label="리모컨 도구">
-      <button class="icon-btn primary" onclick="remoteCapture()" title="이미지 저장" aria-label="이미지 저장">
+      <button class="icon-btn primary" onclick="remoteCapture()" title="캡처" aria-label="캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn excel" onclick="remoteCsv()" title="엑셀 저장" aria-label="엑셀 저장">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
@@ -4700,7 +4700,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="rpt-actions" role="toolbar" aria-label="보고서 도구">
       <button class="icon-btn" onclick="printReport()" title="인쇄" aria-label="인쇄">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
-      <button class="icon-btn primary" onclick="captureReport()" title="이미지 저장" aria-label="이미지 저장">
+      <button class="icon-btn primary" onclick="captureReport()" title="캡처" aria-label="캡처">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn" onclick="copyReportImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사">
         <svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
@@ -4893,7 +4893,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	          <span>과거 → 최근 · 항목을 누르면 입력 화면이 열립니다</span>
 	        </div>
 	        <div class="media-tools" id="staffListToolbar" role="toolbar" aria-label="담당자 업무 목록 도구" style="margin:0 0 9px">
-	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	          <button class="icon-btn primary" type="button" onclick="ryuCaptureList()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
 	          <button class="icon-btn" type="button" onclick="ryuCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
 	          <button class="icon-btn excel" type="button" onclick="ryuExportList()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	        </div>
@@ -5161,13 +5161,13 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	    </form>
 
 	    <div class="card">
-	      <h3>대표 보고 화면 <span class="norm">— 선택 날짜 기준으로 열기·이미지 저장</span></h3>
+	      <h3>대표 보고 화면 <span class="norm">— 선택 날짜 기준으로 열기·캡처</span></h3>
 	      <div class="ryu-fields">
 	        <label>보고 기준일<input id="workLogReportDate" type="date"></label>
 	      </div>
 	      <div class="actions" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:12px">
 	      <button class="abtn" type="button" onclick="openWorkLogReport(false)"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-text-fill"/></svg>대표 보고 열기</button>
-	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>대표 보고 이미지 저장</button>
+	      <button class="abtn primary" type="button" onclick="openWorkLogReport(true)"><svg class="em bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-image-fill"/></svg>대표 보고 캡처</button>
 	      </div>
 	    </div>
 	  </section>
@@ -5192,7 +5192,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="media-tools" id="calTools" role="toolbar" aria-label="캘린더 저장·전달 도구" style="margin:0 0 10px">
       <button class="icon-btn" type="button" onclick="refreshCalendarPage()" title="새로고침" aria-label="새로고침"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg></button>
       <button class="icon-btn" type="button" onclick="shareCalendarLink()" title="링크 복사 — 지금 보고 있는 달·필터 그대로 여는 주소" aria-label="링크 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-link-45deg"/></svg></button>
-      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+      <button class="icon-btn primary" type="button" onclick="calendarCapture()" title="대표 보고 캡처 (A4 세 장 · 사유 전체)" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
       <button class="icon-btn" type="button" onclick="calCopyList()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
       <button class="icon-btn excel" type="button" onclick="calExportList()" title="엑셀(xlsx)로 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
       <button class="icon-btn" type="button" id="calInstallBtn" onclick="calInstallApp()" title="홈 화면에 앱으로 설치" aria-label="앱 설치" hidden><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-save-fill"/></svg></button>
@@ -5838,7 +5838,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
       </div>
       <div class="org-tools">
         <button type="button" class="org-btn" onclick="orgLoad(true)" title="지금 다시 읽기"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-arrow-clockwise"/></svg>새로고침</button>
-        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>이미지 저장</button>
+        <button type="button" class="org-btn" onclick="orgToPng()" title="카톡으로 보낼 이미지"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg>캡처</button>
       </div>
     </div>
     <div class="org-legend">
@@ -7668,7 +7668,7 @@ async function ryuListToPng(){
 }
 async function ryuCaptureList(){
   try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');saveOrOpen(b,ryuListFileName());}
-  catch(e){notice('이미지 저장 실패: '+e);}
+  catch(e){notice('캡처 실패: '+e);}
 }
 async function ryuCopyList(){
   try{const b=await ryuListToPng();if(!b)throw new Error('빈 이미지');await copyPngBlob(b);}
@@ -9688,7 +9688,7 @@ function injectRemoteCard(){
   card.className='card';
   card.innerHTML='<h3>리모컨 관리 <span class="norm">— 재고·불출·납품을 한 곳에서</span></h3>'
     +'<div class="actions" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:10px">'
-    +'<button class="abtn primary" type="button" onclick="remoteCapture()">이미지 저장</button>'
+    +'<button class="abtn primary" type="button" onclick="remoteCapture()">캡처</button>'
     +'<button class="abtn" type="button" onclick="remoteCsv()">엑셀 저장</button>'
     +'<button class="abtn" type="button" onclick="renderRemoteCard(\'staffRemoteHost\')">새로고침</button>'
     +'</div><div id="staffRemoteHost"></div>';
@@ -10413,10 +10413,10 @@ function osRender(host){
   }).join('');
   el.innerHTML='<h3>미처리 통계 <span class="sub">기준 '+esc2(s['때']||'')+'</span></h3>'
     +'<p class="sub" style="font-size:14px;line-height:1.6">'+esc2(s['말']||'')+'</p>'
-    /* 라벨에 '이미지 저장'·'엑셀 저장' 이 들어가야 [430] 이 스피너를 붙인다.
+    /* 라벨에 '캡처'·'엑셀 저장' 이 들어가야 [430] 이 스피너를 붙인다.
        그리고 인자 없는 onclick 이어야 잡힌다 - 화면 둘이 같은 OPEN_STATS 를 본다. */
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px">'
-    +'<button class="btn" onclick="osSaveImage()" title="카톡으로 보낼 이미지 저장">이미지 저장</button>'
+    +'<button class="btn" onclick="osSaveImage()" title="카톡으로 보낼 캡처">캡처</button>'
     +'<button class="btn" onclick="osSaveXlsx()" title="엑셀 저장">엑셀 저장</button>'
     +'</div>'
     +'<div class="gridwrap"><table class="grid"><thead><tr><th>구분</th><th>미처리</th>'
@@ -20561,7 +20561,7 @@ async function renderCamps(force){
     host.innerHTML = '<div class="empty">목록을 받았지만 화면에 그리지 못했습니다 — '
       + esc2((e && e.message) || String(e))
       + '<div class="norm">캠프 '+((d.rows||[]).length)+'개는 받아 두었습니다. '
-      + '[엑셀 저장]·[이미지 저장]은 그대로 됩니다.</div></div>';
+      + '[엑셀 저장]·[캡처]은 그대로 됩니다.</div></div>';
     try{ uxEvent('error','renderCampList:'+((e&&e.message)||e)); }catch(_){}
   }
 }
@@ -21799,12 +21799,12 @@ function briefBlock(){
       ${hotL.slice(0,5).map(x=>`<div class="bhr"><b>${_e(x.프로젝트NO||'')}</b> ${_e(String(x.캠프명||'').slice(0,18))}
         <span>${_e(String(x.미처리사유||'').slice(0,46))}</span></div>`).join('')}
       ${hotL.length>5?`<div class="bnd">… 외 ${hotL.length-5}건 · 눌러서 전체 목록</div>`
-        :`<div class="bnd">눌러서 전체 목록·이미지 저장</div>`}</div>`;
+        :`<div class="bnd">눌러서 전체 목록·캡처</div>`}</div>`;
     if(blockers.length) h += `<div class="bglab">미실시 사유 구분 · ${blockers.map(x=>`${_e(x.구분)} ${x.건수}건`).join(' · ')}</div>`;
     if(reasons.length) h += `<div class="bneed actionable" role="button" tabindex="0" onclick="openWorkLogBrief('open')"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkLogBrief('open')}">
       <div class="bnh">확인 대기 사유 <b>${reasons.map(x=>`${_e(x.사유)} ${x.건수}건`).join(' · ')}</b></div>
-      <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 이미지 저장·복사</div></div>`;
+      <div class="bnd">눌러서 프로젝트번호·캠프·원문 사유 확인 · 캡처·복사</div></div>`;
     if(wla.처리완료일확인) h += `<div class="bnd">※ 처리완료 ${wla.처리완료일확인}건은 원본에 완료일이 없어 임의 입력하지 않았습니다.</div>`;
   }
   if(newL.length) h += `<div class="bglab new">새로 접수 ${newL.length}건 · 접수일 ${_md(d)}</div>`
@@ -21871,7 +21871,7 @@ function briefBlock(){
         <div class="bnh">완료일이 안 적힌 오래된 건 <b>${staleN}건</b></div>
         <div class="bnd">접수 후 30일 넘음${ds.length?` · 접수 ${ds[0]} ~ ${ds[ds.length-1]}`:''}</div>
         <div class="bnd">실제로는 끝났을 가능성이 큽니다 — 완료일만 채우면 정리됩니다.</div>
-        <div class="bnd actionhint">눌러서 ${stale.length}건 목록 보기 · 이미지 저장·복사</div></div>`;
+        <div class="bnd actionhint">눌러서 ${stale.length}건 목록 보기 · 캡처·복사</div></div>`;
     }
     if(blank.length){
       h += `<div class="bneed"><div class="bnh">작업 내용이 안 적힌 완료건 <b>${blank.length}건</b></div>
@@ -23897,7 +23897,7 @@ function openExecMetric(label){
     <div class="slist">${body||'<div class="card">해당 건이 없습니다.</div>'}</div>
 	    <div class="media-tools sticky" role="toolbar" aria-label="목록 도구">
 	      <button class="icon-btn" onclick="printExecMetric()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>
-	      <button class="icon-btn primary" onclick="saveExecMetric()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
+	      <button class="icon-btn primary" onclick="saveExecMetric()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>
 	      <button class="icon-btn" onclick="copyExecMetric()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>
 	      <button class="icon-btn excel" onclick="exportMetricXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button>
 	    </div>`);
@@ -23993,7 +23993,7 @@ function openAssignee(name, source){
     (l.length?helpBox(l[0].issue):'')+
 	    '<div class="media-tools sticky" role="toolbar" aria-label="담당자 목록 도구">'+
 	      '<button class="icon-btn" onclick="printAssignee()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>'+
-	      '<button class="icon-btn primary" onclick="captureAssignee()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureAssignee()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
 	      '<button class="icon-btn" onclick="copyAssigneeImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>'+
 	      '<button class="icon-btn excel" onclick="exportAssigneeXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button></div>');
 }
@@ -24017,7 +24017,7 @@ function openMine(idx){
 	  const cap = rows.length
 	    ? '<div class="media-tools" role="toolbar" aria-label="내 확인 상세 목록 도구" style="margin-top:12px">'+
 	      '<button class="icon-btn" onclick="printMineDetail()" title="인쇄" aria-label="인쇄"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-printer"/></svg></button>'+
-	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="이미지 저장" aria-label="이미지 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
+	      '<button class="icon-btn primary" onclick="captureMineDetail()" title="캡처" aria-label="캡처"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-earmark-arrow-down"/></svg></button>'+
 	      '<button class="icon-btn" onclick="copyMineDetailImage()" title="이미지 복사 — 카톡·메일에 그대로 붙여넣기" aria-label="이미지 복사"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-copy"/></svg></button>'+
 	      '<button class="icon-btn excel" onclick="exportMineDetailXlsx()" title="엑셀 저장" aria-label="엑셀 저장"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-file-spreadsheet"/></svg></button></div>'
 	    : '';
@@ -25123,7 +25123,7 @@ async function copyPngBlob(blob){
     toast('이미지를 클립보드에 복사했습니다 · 카톡에 바로 붙여넣을 수 있습니다');
     return true;
   }catch(e){
-    notice('이 브라우저에서는 이미지 복사가 제한됩니다. 이미지 저장 기능을 이용해 주세요.');
+    notice('이 브라우저에서는 이미지 복사가 제한됩니다. 캡처 기능을 이용해 주세요.');
     return false;
   }
 }

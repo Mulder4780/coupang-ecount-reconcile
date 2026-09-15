@@ -3182,7 +3182,7 @@ def t50_stale_completion_drilldown_and_capture():
     live = open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
     for token in ("function openStaleBrief(", "onclick=\"openStaleBrief()\"",
                   "window._briefMetric", "눌러서 ${stale.length}건 목록 보기",
-                  "이미지 저장", "이미지로 전달", "r.담당자?' · '+r.담당자"):
+                  "캡처·복사", "이미지로 전달", "r.담당자?' · '+r.담당자"):
         assert token in live, token + " 누락"
     assert ".bneed.actionable" in live and 'role="button"' in live
 
@@ -3560,7 +3560,7 @@ def t58_check_hub_detail_and_capture():
 
     # 현재 필터 결과를 기존 캡처 엔진에 넘겨 이미지 저장·전달 기능을 그대로 쓴다.
     assert "rows:rows.map(checkMetricRow)" in live and "openExecMetric(label)" in live
-    assert "현재 목록 보기" in live and "이미지 복사" in live and "이미지 저장" in live
+    assert "현재 목록 보기" in live and "이미지 복사" in live and "캡처" in live
     # 아이콘 참조 방식(<img> → 스프라이트 <use>)이 바뀌어도 깨지지 않게 **아이콘 이름**으로 본다.
     assert "media-tools" in live and "#i-bootstrap-copy" in live
     # 모바일 탭바: 크기 **숫자를 고정하지 않는다**(2026-07-30 아이콘을 키우자 이 줄이 깨졌다).
@@ -6742,7 +6742,7 @@ def t124_no_duplicate_menus():
         "도구줄의 복사 버튼 이름이 통일되지 않았다"
     cal = idx[idx.index('id="calTools"'):]
     cal = cal[: cal.index("</div>")]
-    for lbl in ("새로고침", "링크 복사", "이미지 저장", "이미지 복사", "엑셀 저장"):
+    for lbl in ("새로고침", "링크 복사", "캡처", "이미지 복사", "엑셀 저장"):
         assert 'aria-label="%s"' % lbl in cal, "캘린더 도구줄에 '%s' 가 없다" % lbl
     head = idx[idx.index('<section class="view" id="v-calendar"'):]
     head = head[: head.index('id="calTools"')]
@@ -44913,7 +44913,7 @@ def t273_calendar_capture_is_three_pages_and_never_drops_reasons():
             "대표 캡처 3쪽/사유 전체 규칙 누락: " + token
     for forbidden in ("lines.slice(0,perCol*subCols)", "clip(reason", "A4 두 장"):
         assert forbidden not in cap, "대표 캡처가 다시 사유를 자르거나 행을 버림: " + forbidden
-    assert 'title="대표 보고 이미지 저장 (A4 세 장 · 사유 전체)"' in live
+    assert 'title="대표 보고 캡처 (A4 세 장 · 사유 전체)"' in live
     print("[273] 대표 캡처 3쪽 분리 · 정기점검/돌발AS 전 건 · 사유 전체 줄바꿈 · 누락 시 저장 중단 OK")
 
 
@@ -45279,7 +45279,7 @@ def t300_camp_screen_never_calls_a_missing_helper():
         "'불러오지 못했습니다' 가 그리기 뒤에도 걸린다 — 두 실패가 다시 한 통에 있다")
 
     # ④ 못 그려도 엑셀·이미지가 산다는 사실을 화면이 말한다([169]).
-    assert "[엑셀 저장]" in seg and "이미지 저장" in seg, (
+    assert "[엑셀 저장]" in seg and "[캡처]" in seg, (
         "그리기 실패 안내가 '엑셀·이미지는 그대로 된다'를 안 말한다 — "
         "형님이 보고를 포기하게 된다")
 
