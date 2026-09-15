@@ -36077,6 +36077,10 @@ def t529_sanitizer_issues():
     assert html.index("data-v=\"sanitizer\" onclick=\"routeNav('sanitizer')\"") > nav, \
         "[529] 왼쪽 메뉴 리모컨 아래에 없다"
     assert 'title="캡처"' in html and 'title="보고 캡처"' not in html, "[529] 단추 글자가 '캡처' 가 아니다"
+    cap = html[html.index("async function sanCapture("):html.index("async function loadReports(")]
+    assert "W=A4W, PH=A4H" in cap and "const A4W = 794, A4H = 1123" in html, \
+        "[529] 캡처가 A4 세로 규격을 캘린더 캡처와 같이 빌려 쓰지 않는다([162])"
+    assert "${i+1} / ${pages.length}" in cap, "[529] 여러 장일 때 몇 장째인지 안 적는다"
     for fid in ("sanQ_kind", "sanQ_site", "sanQ_state", "sanQ_from", "sanQ_to", "sanQ_text"):
         assert 'id="%s"' % fid in html, "[529] 필터 %s 가 없다" % fid
     assert "'발행완료_건','발행완료_공급가'" not in html.split("const SAN_LABEL=")[0][-200:], \

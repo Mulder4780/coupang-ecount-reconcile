@@ -19989,65 +19989,75 @@ function sanCsv(){
 }
 /* 대표용 캡처 — 어느 현장에 얼마 · 전체 얼마 · 날짜 · 상태를 한 장에 (2026-09-15 지시).
    화면 필터를 그대로 따른다: 걸러 본 것이 곧 보고하는 것이다. */
-async function sanCapture(){
+async function sanCapture(opt){
+  opt=opt||{};
   if(!SAN) await renderSanitizer();
   const d=SAN||{}, q=sanQ();
   const deals=sanDeals(d).filter(r=>sanPass(r,q,{site:'현장',state:'상태'}));
   const kinds=[...new Set(deals.map(r=>r.구분))];
   const issues=(d.문제||[]).filter(i=>!q.kind||(i.제목+i.설명).indexOf(q.kind)>=0||!/세척기|소독기/.test(i.제목));
-  const S=2,W=1040,M=28,F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
-  const RH=30, TB=(n)=>34+RH+RH*Math.max(1,n)+26;
-  const H=96+20+72+30+TB(kinds.length+1)+TB(deals.length+kinds.length+1)+TB(issues.length)+50;
-  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
-  const x=cv.getContext('2d'); x.scale(S,S);
+  /* A4 세로 (2026-09-15 지시 "A4 용지 세로 방향으로") — 크기는 캘린더 대표보고 캡처의
+     A4W·A4H 를 **빌린다**([162] — 두 캡처가 같은 규격이어야 한다). 좌우 여백도 같은 1cm.
+     넘치면 다음 장으로 넘기고 표 머리줄을 다시 그린다. 장마다 "n / 전체" 를 적는다. */
+  const S=2, W=A4W, PH=A4H, M=Math.round(W/21), BOT=PH-40, F=(z,w)=>`${w||400} ${z}px ${uiFont()}`;
+  const RH=22, pages=[]; let x=null, y=0;
   const clip=(t,w)=>{ t=String(t==null?'':t); if(x.measureText(t).width<=w) return t; while(t&&x.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
-  const right=(t,xr,y)=>{ x.textAlign='right'; x.fillText(t,xr,y); x.textAlign='left'; };
+  const right=(t,xr,yy)=>{ x.textAlign='right'; x.fillText(t,xr,yy); x.textAlign='left'; };
   const won=v=>(typeof v==='number')?Math.round(v).toLocaleString('ko-KR'):'-';
   const sum=a=>a.reduce((s,r)=>s+(r.공급가||0),0), cnt=a=>a.reduce((s,r)=>s+(r.대수||0),0);
-  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
-  // 머리
-  x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,96);
-  x.fillStyle='#fff'; x.font=F(24,700); x.fillText('쿠팡 세척기 · 소독기 납품 현황',M,42);
-  x.font=F(13); x.fillStyle='#C9D5FA';
-  x.fillText(`보고일 ${todayISO()}  ·  조건 ${sanQText(q)}  ·  자료 기준 ${String(d.만든시각||'-').replace('T',' ').slice(0,16)}`,M,70);
+  const newPage=()=>{
+    const cv=document.createElement('canvas'); cv.width=W*S; cv.height=PH*S; pages.push(cv);
+    x=cv.getContext('2d'); x.scale(S,S); x.fillStyle='#fff'; x.fillRect(0,0,W,PH);
+    const first=pages.length===1;
+    x.fillStyle='#0E1B3F'; x.fillRect(0,0,W,first?76:40);
+    x.fillStyle='#fff';
+    if(first){
+      x.font=F(21,700); x.fillText('쿠팡 세척기 · 소독기 납품 현황',M,36);
+      x.font=F(10.5); x.fillStyle='#C9D5FA';
+      x.fillText(clip(`보고일 ${todayISO()}  ·  조건 ${sanQText(q)}  ·  자료 기준 ${String(d.만든시각||'-').replace('T',' ').slice(0,16)}`,W-M*2),M,60);
+      y=96;
+    }else{ x.font=F(13,700); x.fillText('쿠팡 세척기 · 소독기 납품 현황 (계속)',M,26); y=62; }
+  };
+  newPage();
   // 핵심 숫자 넷
   const done=deals.filter(r=>r.상태==='발행완료'), open=deals.filter(r=>r.상태!=='발행완료');
   const kpi=[['전체 대수',cnt(deals)+'대','#0E1B3F'],['전체 금액',won(sum(deals))+'원','#0E1B3F'],
              ['발행 완료',won(sum(done))+'원','#15803D'],['미발행',won(sum(open))+'원','#C2410C']];
-  const kw=(W-M*2-12*3)/4; let y=116;
-  kpi.forEach(([t,v,c],i)=>{ const kx=M+i*(kw+12);
-    x.fillStyle='#F3F4F6'; x.fillRect(kx,y,kw,72);
-    x.fillStyle='#475467'; x.font=F(13); x.fillText(t,kx+14,y+24);
-    x.fillStyle=c; x.font=F(22,700); x.fillText(clip(v,kw-28),kx+14,y+56); });
-  y+=72+30;
-  /* 표 그리기 한 곳 — 머리줄·줄무늬·칸선·금액 오른쪽 정렬. rows: {c:[…], kind:'sum'|'total'|'', col:{칸번호:색}} */
+  const kw=(W-M*2-8*3)/4;
+  kpi.forEach(([t,v,c],i)=>{ const kx=M+i*(kw+8);
+    x.fillStyle='#F3F4F6'; x.fillRect(kx,y,kw,58);
+    x.fillStyle='#475467'; x.font=F(10.5); x.fillText(t,kx+10,y+19);
+    x.fillStyle=c; x.font=F(16,700); x.fillText(clip(v,kw-20),kx+10,y+45); });
+  y+=58+24;
+  /* 표 그리기 한 곳 — 칸 너비 합 = W-2M(718). 긴 글은 칸 안에서 … 로 줄인다(줄바꿈 없음). */
   const table=(title,cols,rows,empty)=>{
-    x.fillStyle='#101828'; x.font=F(16,700); x.fillText(title,M,y+20); y+=34;
     const xs=[]; let cx=M; cols.forEach(c=>{ xs.push(cx); cx+=c.w; });
-    const cell=(txt,i,yy,bold,color)=>{ const c=cols[i]; x.font=F(13,bold?700:400); x.fillStyle=color||'#101828';
-      const t=clip(txt,c.w-16); if(c.al==='r'){ right(t,xs[i]+c.w-8,yy); } else x.fillText(t,xs[i]+8,yy); };
-    x.fillStyle='#0E1B3F'; x.fillRect(M,y,W-M*2,RH);
-    cols.forEach((c,i)=>cell(c.t,i,y+20,true,'#fff'));
-    y+=RH;
+    const cell=(txt,i,yy,bold,color)=>{ const c=cols[i]; x.font=F(10,bold?700:400); x.fillStyle=color||'#101828';
+      const t=clip(txt,c.w-12); if(c.al==='r') right(t,xs[i]+c.w-6,yy); else x.fillText(t,xs[i]+6,yy); };
+    const head=(more)=>{ x.fillStyle='#101828'; x.font=F(13,700); x.fillText(title+(more?' (계속)':''),M,y+15); y+=24;
+      x.fillStyle='#0E1B3F'; x.fillRect(M,y,W-M*2,RH); cols.forEach((c,i)=>cell(c.t,i,y+15,true,'#fff')); y+=RH; };
+    if(y+24+RH*2>BOT) newPage();
+    head(false);
     if(!rows.length) rows=[{c:[empty||'없음'],kind:'empty'}];
     rows.forEach((r,ri)=>{
+      if(y+RH>BOT){ newPage(); head(true); }
       x.fillStyle=r.kind==='total'?'#DBEAFE':r.kind==='sum'?'#EEF2F7':(ri%2?'#F9FAFB':'#fff');
       x.fillRect(M,y,W-M*2,RH);
-      if(r.kind==='empty'){ x.font=F(13); x.fillStyle='#667085'; x.fillText(r.c[0],M+8,y+20); }
-      else r.c.forEach((v,i)=>cell(v,i,y+20,r.kind==='sum'||r.kind==='total',(r.col||{})[i]));
-      x.strokeStyle='#E5E7EB'; x.strokeRect(M,y,W-M*2,RH);
+      if(r.kind==='empty'){ x.font=F(10); x.fillStyle='#667085'; x.fillText(r.c[0],M+6,y+15); }
+      else r.c.forEach((v,i)=>cell(v,i,y+15,r.kind==='sum'||r.kind==='total',(r.col||{})[i]));
+      x.lineWidth=0.6; x.strokeStyle='#D0D5DD'; x.strokeRect(M,y,W-M*2,RH);
+      if(r.kind!=='empty'){ x.beginPath(); xs.slice(1).forEach(xx=>{ x.moveTo(xx,y); x.lineTo(xx,y+RH); }); x.stroke(); }
       y+=RH;
     });
-    x.strokeStyle='#CBD5E1'; x.beginPath(); xs.slice(1).forEach(xx=>{ x.moveTo(xx,y-RH*rows.length); x.lineTo(xx,y); }); x.stroke();
-    y+=26;
+    y+=20;
   };
   const stateCol={'발행완료':'#15803D','주문등록':'#C2410C','장부':'#1D4ED8'};
   // ① 구분별 요약
   const sumRows=kinds.map(k=>{ const a=deals.filter(r=>r.구분===k), dn=a.filter(r=>r.상태==='발행완료'), op=a.filter(r=>r.상태!=='발행완료');
     return {c:[k,dn.length+'건',won(sum(dn)),cnt(op)+'대',won(sum(op)),won(sum(a)),a.map(r=>r.일자).sort().pop()||'']}; });
   if(kinds.length) sumRows.push({kind:'total',c:['합계',done.length+'건',won(sum(done)),cnt(open)+'대',won(sum(open)),won(sum(deals)),deals.map(r=>r.일자).sort().pop()||'']});
-  table('구분별 요약',[{t:'구분',w:120},{t:'발행 완료',w:100,al:'r'},{t:'발행 완료 금액(원)',w:170,al:'r'},
-    {t:'미발행 대수',w:110,al:'r'},{t:'미발행 금액(원)',w:170,al:'r'},{t:'전체 금액(원)',w:170,al:'r'},{t:'최근 거래일',w:144}],
+  table('구분별 요약',[{t:'구분',w:80},{t:'발행 완료',w:64,al:'r'},{t:'발행 완료 금액(원)',w:130,al:'r'},
+    {t:'미발행 대수',w:70,al:'r'},{t:'미발행 금액(원)',w:130,al:'r'},{t:'전체 금액(원)',w:130,al:'r'},{t:'최근 거래일',w:114}],
     sumRows,'조건에 맞는 건이 없습니다');
   // ② 현장별 금액
   const siteRows=[];
@@ -20055,18 +20065,27 @@ async function sanCapture(){
     a.forEach(r=>siteRows.push({c:[r.현장||'-',k,r.품목,r.대수+'대',won(r.공급가),r.일자,r.상태],col:{6:stateCol[r.상태]}}));
     siteRows.push({kind:'sum',c:[k+' 소계','','',cnt(a)+'대',won(sum(a)),'','']}); });
   if(deals.length) siteRows.push({kind:'total',c:['전체 합계','','',cnt(deals)+'대',won(sum(deals)),'','']});
-  table('현장별 금액',[{t:'현장',w:250},{t:'구분',w:80},{t:'품목',w:200},{t:'대수',w:70,al:'r'},
-    {t:'공급가(원)',w:160,al:'r'},{t:'날짜',w:110},{t:'상태',w:114}],
+  table('현장별 금액',[{t:'현장',w:180},{t:'구분',w:50},{t:'품목',w:150},{t:'대수',w:50,al:'r'},
+    {t:'공급가(원)',w:110,al:'r'},{t:'날짜',w:80},{t:'상태',w:98}],
     siteRows,'조건에 맞는 건이 없습니다 (관리 장부·ERP 거래 모두 없음)');
-  // ③ 확인할 문제
+  // ③ 확인할 문제 — 근거는 파일 이름만(경로·여러 파일은 첫 것)
   const gcol={'높음':'#DC2626','보통':'#D97706','참고':'#667085'};
-  table('확인할 문제 '+issues.length+'건',[{t:'등급',w:70},{t:'문제',w:300},{t:'핵심 내용',w:440},{t:'근거',w:174}],
-    issues.map(i=>({c:[i.등급,i.제목,i.설명,String(i.근거||'').split(/[\\/]/).pop()],col:{0:gcol[i.등급]}})),'확인할 문제 없음');
-  // 바닥
-  y=H-26; x.font=F(11); x.fillStyle='#667085';
-  x.fillText(clip('금액은 공급가(VAT 별도) · 발행 완료 = 이카운트 세금계산서 확인 · 미발행 = 주문 전표·관리 장부 중 계산서 확인 전 · 근거: 이카운트 판매·계산서·주문 전표, 공유폴더 견적, 앱 관리 장부',W-M*2),M,y);
-  const blob=await new Promise(r=>cv.toBlob(r,'image/png'));
-  saveOrOpen(blob,`세척기소독기_보고_${todayISO()}.png`);
+  const base=s=>String(s||'').split(/ · |, /)[0].split(/[\\/]/).pop();
+  table('확인할 문제 '+issues.length+'건',[{t:'등급',w:44},{t:'문제',w:210},{t:'핵심 내용',w:320},{t:'근거',w:144}],
+    issues.map(i=>({c:[i.등급,i.제목,i.설명,base(i.근거)],col:{0:gcol[i.등급]}})),'확인할 문제 없음');
+  // 장마다 바닥글 — 쪽 번호는 전체 장 수를 안 뒤에 적는다
+  pages.forEach((cv,i)=>{ const c=cv.getContext('2d');
+    c.font=F(9); c.fillStyle='#667085'; c.textAlign='left';
+    c.fillText('금액은 공급가(VAT 별도) · 발행 완료 = 이카운트 세금계산서 확인 · 미발행 = 주문 전표·관리 장부 중 계산서 확인 전',M,PH-20);
+    c.textAlign='right'; c.font=F(10.5,700); c.fillStyle='#101828'; c.fillText(`${i+1} / ${pages.length}`,W-M,PH-20); c.textAlign='left'; });
+  const out={pages:pages.length,width:W*S,height:PH*S};
+  if(opt.dry) return out;
+  for(let i=0;i<pages.length;i++){
+    const blob=await new Promise(r=>pages[i].toBlob(r,'image/png'));
+    saveOrOpen(blob,`세척기소독기_보고_${todayISO()}${pages.length>1?'_'+(i+1)+'of'+pages.length:''}.png`);
+  }
+  if(typeof toast==='function') toast(`세척기·소독기 보고를 A4 세로 ${pages.length}장으로 저장했습니다`);
+  return out;
 }
 
 async function loadReports(){
