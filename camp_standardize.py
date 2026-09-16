@@ -102,15 +102,57 @@ def paren_conflict(a, b):
     return norm("|".join(pa)) != norm("|".join(pb))
 
 
-def plan_rows(rows, custs):
+PROJ_COL = "프로젝트NO"
+
+
+def queue_key(r, archive=None):
+    """이 행을 **보관본에서 찾을 열쇠** → ("열이름", "값") (분담판 [448]).
+
+    ★ 왜 필요한가 (2026-09-16 실측). 보관본의 ID 칸(`점검ID`·`접수ID`)은 **엑셀 수식**
+      이고, 그 파일은 기계가 만들기만 해서 사람이 한 번도 안 열었다 — 그래서 계산값이
+      없다(v633 757·758행 `점검ID=None`). `ledger_writer` 는 `'='` 로 시작하거나 빈
+      칸을 열쇠로 안 쓰므로, 그런 행을 가리킨 항목은 **`행 없음` 으로 조용히 버려진다**
+      (실측 최근 19건). 업무값은 앱 DB(정본)에 제대로 들어가 있어 손실은 없지만,
+      보관본 사본만 옛 표기로 남는다.
+
+    ★ **유일할 때만** 프로젝트NO 로 돌린다([172]). `ledger_writer` 는 같은 열쇠가 여러
+      줄이면 **첫 줄**을 쓴다 — 같은 프로젝트가 두 행인 경우가 실제로 있고(인계 문서의
+      `UJ2601393`), 그때 짐작으로 고르면 사람이 보는 줄이 아닌 곳에 값이 박힌다.
+      **틀린 줄에 박히는 것은 빈칸보다 나쁘다.**
+
+    ★ **보관본에 ID 가 살아 있으면 예전 그대로다** — 멀쩡한 쪽의 동작은 안 바꾼다.
+
+    ★ `archive` 를 못 만들었으면(못 읽음·검증이 안 준다) **옛 열쇠 그대로**다([169]) —
+      모른다고 프로젝트NO 로 넘어가면 그때가 바로 짐작이다.
+
+    archive: {시트: {"ids": {…}, "proj": {프로젝트NO: 몇 줄}}}
+    """
+    sheet, rid = r["sheet"], str(r["id"])
+    old = (ID_COL[sheet], rid)
+    if not archive:
+        return old
+    seen = archive.get(sheet) or {}
+    if rid in (seen.get("ids") or ()):
+        return old                          # 보관본이 그 ID 를 안다 — 바꿀 이유가 없다
+    proj = str(r.get("proj") or "").strip()
+    if proj and (seen.get("proj") or {}).get(proj) == 1:
+        return (PROJ_COL, proj)
+    return old                              # 못 가른다 — 옛 열쇠로 두고 skip 사유를 남긴다
+
+
+def plan_rows(rows, custs, archive=None):
     """행 목록 + ERP 거래처 → (바꿀 큐 항목, 리포트 자료). 순수 함수 — 검증이 주입한다.
 
-    rows: [{"sheet","id","camp","src"}]  · custs: load_customers() 모양
+    rows: [{"sheet","id","camp","src","proj"}]  · custs: load_customers() 모양
+    archive: 보관본이 실제로 가진 열쇠(`collect_rows` 가 만든다) — `queue_key` 참고
     """
     tables = build_tables(custs)
     verdicts = {}                       # camp -> match_camp 결과 (캠프명 단위 판정)
     items, changes = [], []
-    buckets = {"std": 0, "diff": 0, "multi": {}, "none": {}, "junk": {}}
+    # 열쇠바꿈/열쇠못바꿈 — 바꾼 건수와 **못 바꾼 건수를 둘 다** 센다([169]·[273]).
+    #   조용히 넘어가면 "다 들어갔다"로 읽힌다.
+    buckets = {"std": 0, "diff": 0, "multi": {}, "none": {}, "junk": {},
+               "열쇠바꿈": 0, "열쇠못바꿈": 0}
     paren_watch = []
     for r in rows:
         camp = str(r.get("camp") or "").strip()
@@ -135,8 +177,15 @@ def plan_rows(rows, custs):
         elif st == "diff":
             buckets["diff"] += 1
             c = v["cust"]
+            kcol, kval = queue_key(r, archive)
+            if kcol != ID_COL[r["sheet"]]:
+                buckets["열쇠바꿈"] += 1
+            elif archive and str(r["id"]) not in ((archive.get(r["sheet"]) or {}).get("ids") or ()):
+                # 보관본이 이 ID 를 모르는데 프로젝트NO 로도 못 갈랐다 — 이 항목은
+                # 예전처럼 '행 없음' 으로 버려진다. 그 사실을 숫자로 남긴다([273]).
+                buckets["열쇠못바꿈"] += 1
             items.append({
-                "sheet": r["sheet"], "key": str(r["id"]), "key_col": ID_COL[r["sheet"]],
+                "sheet": r["sheet"], "key": kval, "key_col": kcol,
                 "col": "캠프명", "value": c["name"], "vtype": "text",
                 "only_if_empty": False,
                 "evidence": f"ERP 거래처등록 {c['code']} · {v['how']} · 이전값 '{camp}'",
@@ -153,8 +202,14 @@ def plan_rows(rows, custs):
 
 
 def collect_rows():
-    """실데이터 행 수집 — 정본(앱 DB) 우선, Excel 은 DB 에 없는 행만 보탠다."""
+    """실데이터 행 수집 — 정본(앱 DB) 우선, Excel 은 DB 에 없는 행만 보탠다.
+
+    돌려주는 것: (행 목록, 관리대장 파일명, **보관본이 실제로 가진 열쇠**).
+    셋째 것은 `queue_key` 가 쓴다([448]) — 보관본을 어차피 한 번 여는 김에 같이
+    센다(따로 열면 Z: 를 두 번 훑는다 · [168]).
+    """
     rows, seen = [], set()
+    archive = {}
     import app_store
     for sheet, idcol in ID_COL.items():
         try:
@@ -168,7 +223,8 @@ def collect_rows():
             seen.add((sheet, rid))
             camp = str(r.get("캠프명") or "").strip()
             if camp:
-                rows.append({"sheet": sheet, "id": rid, "camp": camp, "src": "db"})
+                rows.append({"sheet": sheet, "id": rid, "camp": camp, "src": "db",
+                             "proj": str(r.get(PROJ_COL) or "").strip()})
     # Excel 보강 — 아직 DB 에 못 들어온 옛 행. 관리대장은 **읽기 전용**으로만 연다.
     import warnings
     warnings.filterwarnings("ignore")
@@ -185,17 +241,32 @@ def collect_rows():
         ix = {h: i for i, h in enumerate(hdr) if h}
         if "캠프명" not in ix or idcol not in ix:
             continue
+        # 보관본이 실제로 가진 열쇠를 센다([448]). ID 칸은 수식이라 값이 없을 수 있고,
+        # `ledger_writer` 는 `'='` 로 시작하는 값을 열쇠로 안 쓴다 — 같은 규칙으로 센다.
+        mine = archive.setdefault(sheet, {"ids": set(), "proj": {}})
+        pix = ix.get(PROJ_COL)
         for row in ws.iter_rows(min_row=5, values_only=True):
             rid = row[ix[idcol]] if ix[idcol] < len(row) else None
             rid = str(rid).strip() if rid is not None else ""
+            if rid and not rid.startswith("="):
+                mine["ids"].add(rid)
+            if pix is not None and pix < len(row):
+                pv = row[pix]
+                pv = str(pv).strip() if pv is not None else ""
+                if pv and not pv.startswith("="):
+                    mine["proj"][pv] = mine["proj"].get(pv, 0) + 1
             if not rid or (sheet, rid) in seen:
                 continue
             camp = row[ix["캠프명"]] if ix["캠프명"] < len(row) else None
             camp = str(camp).strip() if camp is not None else ""
             if camp:
-                rows.append({"sheet": sheet, "id": rid, "camp": camp, "src": "xlsx"})
+                pv = ""
+                if pix is not None and pix < len(row) and row[pix] is not None:
+                    pv = str(row[pix]).strip()
+                rows.append({"sheet": sheet, "id": rid, "camp": camp, "src": "xlsx",
+                             "proj": "" if pv.startswith("=") else pv})
     wb.close()
-    return rows, os.path.basename(master)
+    return rows, os.path.basename(master), archive
 
 
 def write_reports(report, master, erp_src, n_rows, queued):
@@ -251,12 +322,17 @@ def main():
     if not custs:
         print("ERP 거래처등록 원본을 찾지 못함 — 표준의 근거가 없어 아무것도 하지 않는다")
         return 1
-    rows, master = collect_rows()
-    items, report = plan_rows(rows, custs)
+    rows, master, archive = collect_rows()
+    items, report = plan_rows(rows, custs, archive)
     b = report["buckets"]
     print(f"캠프명 있는 행 {len(rows)} (ERP 거래처 {len(custs)} · {erp_src})")
     print(f"이미 표준 {b['std']} · 바꿀 것 {len(items)}행/{len(report['mapping'])}종 · "
           f"후보 여럿 {len(b['multi'])}종 · ERP 없음 {len(b['none'])}종 · 입력오류 {len(b['junk'])}종")
+    # 열쇠 갈래를 **둘 다** 적는다([169]·[273]) — 못 바꾼 것을 안 적으면 "다 들어갔다"로 읽힌다.
+    if b.get("열쇠바꿈") or b.get("열쇠못바꿈"):
+        print(f"보관본 열쇠: 프로젝트NO 로 돌린 것 {b.get('열쇠바꿈', 0)}행 · "
+              f"못 가른 것 {b.get('열쇠못바꿈', 0)}행(보관본에 그 ID 도 없고 "
+              f"프로젝트NO 도 유일하지 않다 — 예전처럼 '행 없음'으로 남는다)")
     for c in report["changes"][:5]:
         print(f"   {c['sheet']} {c['id']}: '{c['before']}' → '{c['after']}' [{c['code']}]")
     queued = False

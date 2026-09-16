@@ -36544,6 +36544,77 @@ def t532_console_does_not_hardcode_archive_schedule():
           "빈도는 한 곳 · 못 읽으면 시각을 안 지어냄")
 
 
+def t533_camp_standard_archive_key_falls_back_to_project():
+    """[533] 캠프명 표준화의 **보관본 열쇠**는 ID 가 죽었을 때만, 유일할 때만 바뀐다.
+
+    2026-09-16 실측: 보관본(v633)의 `점검ID` 는 엑셀 수식이고 계산값이 없다(757·758행
+    `None`). `ledger_writer` 는 빈 값·`'='` 로 시작하는 값을 열쇠로 안 쓰므로 그 행을
+    가리킨 항목이 `행 없음` 으로 버려졌다(최근 19건). 업무값은 앱 DB(정본)에 제대로
+    들어가 있어 손실은 없었지만 보관본 사본만 옛 표기로 남았다.
+
+    지키는 계약 여섯:
+      ① `archive` 가 없으면 **예전 그대로** — 모른다고 프로젝트NO 로 넘어가지 않는다([169])
+      ② 보관본이 그 ID 를 알면 **예전 그대로**([172] — 멀쩡한 쪽은 안 건드린다)
+      ③ ID 가 없고 프로젝트NO 가 **그 시트에서 유일**할 때만 프로젝트NO 로 돌린다
+      ④ 같은 프로젝트가 **여러 줄**이면 안 바꾼다 — `ledger_writer` 는 첫 줄을 쓰므로
+         짐작으로 고르면 **사람이 보는 줄이 아닌 곳**에 값이 박힌다([172])
+      ⑤ 바꾼 건수와 **못 바꾼 건수를 둘 다** 숫자로 남긴다([169]·[273])
+      ⑥ 계기 자기시험([272]) — 유일성 문을 빼면 ④가 잡힌다
+    """
+    import camp_standardize as CS
+
+    custs = [{"code": "CU001", "name": "양주2캠프(봉양동)"}]
+    live = {"ids": {"PM-OLD"}, "proj": {"UJ-ONE": 1, "UJ-DUP": 2}}
+
+    def row(sheet, rid, proj):
+        return {"sheet": sheet, "id": rid, "camp": "양주2캠프", "proj": proj}
+
+    # ① 근거가 없으면 예전 그대로
+    assert CS.queue_key(row("04_정기점검", "PM-NEW", "UJ-ONE")) == ("점검ID", "PM-NEW")
+    assert CS.queue_key(row("04_정기점검", "PM-NEW", "UJ-ONE"), {}) == ("점검ID", "PM-NEW"),         "빈 근거를 '프로젝트NO 로 가도 된다'로 읽으면 그때가 짐작이다([169])"
+    # ② 보관본이 그 ID 를 안다 → 예전 그대로
+    arch = {"04_정기점검": live}
+    assert CS.queue_key(row("04_정기점검", "PM-OLD", "UJ-ONE"), arch) == ("점검ID", "PM-OLD")
+    # ③ ID 가 죽었고 프로젝트NO 가 유일 → 돌린다
+    assert CS.queue_key(row("04_정기점검", "PM-NEW", "UJ-ONE"), arch) == ("프로젝트NO", "UJ-ONE")
+    # ④ 같은 프로젝트가 두 줄 → 안 바꾼다
+    assert CS.queue_key(row("04_정기점검", "PM-NEW", "UJ-DUP"), arch) == ("점검ID", "PM-NEW")
+    assert CS.queue_key(row("04_정기점검", "PM-NEW", ""), arch) == ("점검ID", "PM-NEW"),         "프로젝트NO 가 비면 댈 근거가 없다"
+
+    # ⑤ 숫자 둘 — plan_rows 가 실제로 세는지 **불러서** 잰다([295])
+    rows = [row("04_정기점검", "PM-NEW", "UJ-ONE"),    # 돌림
+            row("04_정기점검", "PM-NEW2", "UJ-DUP"),   # 못 바꿈
+            row("04_정기점검", "PM-OLD", "UJ-ONE")]    # 예전 그대로(셋 다 아님)
+    items, report = CS.plan_rows(rows, custs, arch)
+    b = report["buckets"]
+    assert len(items) == 3 and b["열쇠바꿈"] == 1 and b["열쇠못바꿈"] == 1,         f"바꾼 것·못 바꾼 것을 둘 다 세야 한다: {b}"
+    assert {(i["key_col"], i["key"]) for i in items} == {
+        ("프로젝트NO", "UJ-ONE"), ("점검ID", "PM-NEW2"), ("점검ID", "PM-OLD")}, items
+    keyless = CS.plan_rows(rows, custs)[1]["buckets"]
+    assert keyless["열쇠바꿈"] == 0 and keyless["열쇠못바꿈"] == 0,         "근거가 없으면 바꾼 것도 못 바꾼 것도 없다 — 0 은 '모름'이 아니라 '안 했다'다"
+
+    # ⑥ 계기 자기시험 — 유일성 문을 빼면 ④가 잡히는가([272])
+    real = CS.queue_key
+    try:
+        def loose(r, archive=None):
+            sheet, rid = r["sheet"], str(r["id"])
+            if not archive:
+                return (CS.ID_COL[sheet], rid)
+            seen = archive.get(sheet) or {}
+            if rid in (seen.get("ids") or ()):
+                return (CS.ID_COL[sheet], rid)
+            proj = str(r.get("proj") or "").strip()
+            return (CS.PROJ_COL, proj) if proj else (CS.ID_COL[sheet], rid)
+        CS.queue_key = loose
+        caught = CS.queue_key(row("04_정기점검", "PM-NEW", "UJ-DUP"), arch) != ("점검ID", "PM-NEW")
+    finally:
+        CS.queue_key = real                      # 모듈 속성은 프로세스 전체의 것이다([371])
+    assert caught, "④가 눈멀었다 — 유일성 문을 빼도 안 잡힌다"
+
+    print("  ✔ [533] 캠프명 보관본 열쇠 — 근거 없으면 그대로 · ID 살아 있으면 그대로 · "
+          "유일할 때만 프로젝트NO · 겹치면 손 뗌 · 바꾼 것/못 바꾼 것 둘 다 셈")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51583,6 +51654,7 @@ if __name__ == "__main__":
     t530_canonical_erp_index_path_is_one_place()
     t531_settings_screen_holds_only_settings()
     t532_console_does_not_hardcode_archive_schedule()
+    t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
