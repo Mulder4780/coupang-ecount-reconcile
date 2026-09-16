@@ -20623,7 +20623,23 @@ const CAMP_ROLES = [
 ];
 function campRoles(r){
   r = r || {};
-  return CAMP_ROLES.map(([k, label, hint]) => ({ 키:k, 라벨:label, 설명:hint, p:(r[k]||{}) }));
+  /* ★ `보완` 은 **서버가 준 판정**이다(camp_contacts.fill_gaps · [314]). 여기서 다시
+     판단하지 않는다([162]) — 화면이 스스로 '이건 보완일 것' 이라 치면 표·엑셀·캡처가
+     서로 다른 말을 한다. 열쇠 모양은 `"담당자 메일"` 처럼 **역할 + 공백 + 칸**이다. */
+  const sup = (r.보완 && typeof r.보완 === 'object') ? r.보완 : {};
+  return CAMP_ROLES.map(([k, label, hint]) => ({
+    키:k, 라벨:label, 설명:hint, p:(r[k]||{}),
+    보완:{ 이름: sup[k+' 이름']||'', 전화: sup[k+' 전화']||'', 메일: sup[k+' 메일']||'' } }));
+}
+/* 이 캠프에서 보완으로 채운 칸 수 — 표·엑셀·캡처가 **같은 수**를 말하게 한 곳에서 센다([162]). */
+function campSupCount(r){
+  const sup = (r && r.보완 && typeof r.보완 === 'object') ? r.보완 : {};
+  return Object.keys(sup).length;
+}
+/* 보완 출처를 사람 말로 한 줄 — 엑셀·툴팁이 같이 쓴다. 없으면 빈 글자다(지어내지 않는다 · [169]). */
+function campSupText(r){
+  const sup = (r && r.보완 && typeof r.보완 === 'object') ? r.보완 : {};
+  return Object.keys(sup).map(k => k + ': ' + sup[k]).join(' · ');
 }
 function campHasPerson(p){ return !!(p && (p.이름 || p.전화 || p.메일)); }
 /* 호기를 글자로 만드는 자리는 **하나**다 — 표·엑셀·이미지가 갈리면 같은 캠프가
@@ -20784,18 +20800,26 @@ async function campCodeCopy(v){
   catch(e){ toast('복사하지 못했습니다 — 코드는 '+v+' 입니다'); }
 }
 
-function campCell(p, label){ p = p || {};
+/* ★ **보완 딱지** (2026-08-19 지시 · 분담판 [123]). ERP 거래처등록·사람 명부에서
+   채운 값은 **원문에 적힌 값과 똑같이 보였다** — 그러면 사람이 "이 메일은 밴드에
+   적힌 것"이라 믿는다([169] · 채운 것을 원문처럼 보이게 하지 않는다).
+   ★ 판정은 서버가 준 `보완` 그대로다([162]) — 여기서 다시 고르지 않는다. */
+function campSupTag(src){
+  if(!src) return '';
+  return ' <span class="badge" title="' + esc2('원문에 없어 ' + src + ' 에서 채운 값입니다 — 밴드 접수 글에 적힌 값이 아닙니다') + '">보완</span>';
+}
+function campCell(p, label, sup){ p = p || {}; sup = sup || {};
   /* ★ 이름표(`data-label`)는 **폰에서 카드로 설 때** 머리글을 대신한다.
      넓은 화면에서는 CSS 가 안 그리므로 표 모양은 한 톨도 안 바뀐다. */
   const L = ' data-label="'+esc2(label||'')+'"';
   if(!campHasPerson(p)) return '<td class="norm"'+L+'>모름</td>';
-  return '<td'+L+'><div>'+esc2(p.이름||'이름 모름')+'</div>'
-    + '<div>'+(p.전화 ? '<a href="tel:'+esc2(p.전화)+'">'+esc2(p.전화)+'</a>'
+  return '<td'+L+'><div>'+esc2(p.이름||'이름 모름')+(p.이름?campSupTag(sup.이름):'')+'</div>'
+    + '<div>'+(p.전화 ? '<a href="tel:'+esc2(p.전화)+'">'+esc2(p.전화)+'</a>'+campSupTag(sup.전화)
                      : '<span class="norm">전화 모름</span>')+'</div>'
     /* 이메일은 **글자로만** 둔다 — 메일 링크(mailto)는 앱에서 밖으로 나가는 길이라 검증 [34] 가
        막는다(공유는 사람이 수신자를 고르는 navigator.share 만 허용). 전화 tel: 은
        기기 전화앱을 열 뿐 아무것도 보내지 않아 그대로 둔다. 다시 링크로 바꾸지 말 것. */
-    + '<div>'+(p.메일 ? '<span class="mailtxt">'+esc2(p.메일)+'</span>'
+    + '<div>'+(p.메일 ? '<span class="mailtxt">'+esc2(p.메일)+'</span>'+campSupTag(sup.메일)
                      : '<span class="norm">이메일 모름</span>')+'</div></td>'; }
 const chr34b = ' <span class="badge warn" title="WHY">확인 필요</span>';
 const chr34m = ' <button class="badge campmore" data-canon="CANON" onclick="event.stopPropagation();campFoldToggle(this.dataset.canon)" title="LIST">ARROW 합친 표기 NUM개</button>';
@@ -20814,7 +20838,7 @@ function campSubRow(c){
     + '<svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-pencil-square"/></svg>수정</button> ↳ ' + esc2(String(c.캠프명||"")) + '</div>'
     + '<div class="camptag"><span class="badge">합쳐진 옛 표기</span></div></td>'
     + '<td data-label="호기">' + campUnits(c) + '</td>'
-    + campRoles(c).map(x=>campCell(x.p, x.라벨)).join("")
+    + campRoles(c).map(x=>campCell(x.p, x.라벨, x.보완)).join("")
     + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">' + String(c.정기점검건수||0) + '</td>'
     + '<td data-label="최근작업일">' + esc2(c.최근작업일||"") + '</td></tr>';
 }
@@ -20997,7 +21021,7 @@ function renderCampList(){
           + campFoldBadges(r)
           + '</div></td>'
         + '<td data-label="호기">'+campUnits(r)+'</td>'
-        + campRoles(r).map(x=>cell(x.p, x.라벨)).join('')
+        + campRoles(r).map(x=>cell(x.p, x.라벨, x.보완)).join('')
         + '<td data-label="정기점검 접수 (밴드·카톡 누적 글 수)">'+(r.정기점검건수||0)+'</td>'
         + '<td data-label="최근작업일">'+esc2(r.최근작업일||'')+'</td>'
         + '</tr>' + campFoldChildren(r); }).join('')
@@ -21216,7 +21240,21 @@ function campReportHead(rows){
               두 파일을 나란히 놓고 "왜 다르지"가 된다([169]). */
            sub: `총 ${n}개 · 기준 ${stamp}`
                 + (campFoldOn() ? " · 정기점검 스케줄 원본(정본) 기준으로 옛 표기를 합침"
-                                : " · 밴드에서 본 표기 그대로(안 묶음)") };
+                                : " · 밴드에서 본 표기 그대로(안 묶음)")
+                /* ★ 보완과 **보류를 같이** 적는다(분담판 [123]). 보류를 빼면 '다 채웠다'로
+                   읽힌다 — 후보가 여럿이라 못 고른 칸은 아직 사람이 정할 몫이다([169]).
+                   ★ 숫자는 **서버가 센 것**을 그대로 쓴다([162]) — 화면이 다시 세면
+                     표에 안 나온 캠프까지 세거나 빠뜨려 두 수가 갈린다. */
+                + campSupSummaryText() };
+}
+/* 서버가 준 합계를 한 줄로. **못 읽으면 아무 말도 안 한다**([169] — 0 이라 적으면
+   '보완이 없다'는 거짓이 된다). */
+function campSupSummaryText(){
+  const d = CAMPS || {};
+  const 합 = d.보완합계, 보류 = d.보완보류;
+  if(typeof 합 !== 'number') return '';
+  return ` · 보완 ${합}칸`
+       + (typeof 보류 === 'number' ? ` · 후보가 여럿이라 보류 ${보류}칸(사람이 고를 몫)` : '');
 }
 /* 엑셀은 **앱 전체가 쓰는 그 함수**를 그대로 쓴다 — 새로 만들면 사본이 둘 된다([162]). */
 function campsXlsx(){
@@ -21252,6 +21290,9 @@ function campsXlsx(){
     o['추정 거래처코드'] = V(r.추정코드);
     o['코드확실성'] = campCodeText(r);
     o['코드근거'] = V(r.코드근거);
+    /* ★ 채운 값과 원문 값을 **엑셀에서도** 가른다([169] · 분담판 [123]).
+       빈 칸은 화면과 같은 낱말 `모름` 이 아니라 '원문 그대로'다 — 뜻이 다르다. */
+    o['보완출처'] = campSupText(r) || '원문 그대로(보완 없음)';
     o['정기점검 접수 글수'] = r.정기점검건수||0; o['최근작업일'] = V(r.최근작업일);
     /* '직책 미상'은 옛 양식이라 원문에 직책이 없는 것이다 — 비고에도 한 번 더 적는다. */
     o['비고'] = [r.이름확인필요 ? '캠프명 확인 필요' : '',
@@ -21346,6 +21387,11 @@ async function campsCapture(){
     "현장책임 이메일이 대부분 비어 있는 것은 자료가 빠진 것이 아니라 접수 양식이 그 칸을 적지 않기 때문입니다 — 이메일은 안전관리 쪽에 적혀 옵니다.",
     "담당자(직책 미상)는 옛 접수 양식(2023~2024) 글의 한 사람으로, 원문에 현장책임인지 안전관리인지 적혀 있지 않습니다."
   ];
+  /* ★ 보완한 칸은 **각주 한 줄**로만 밝힌다(분담판 [123]). 열을 늘리면 캔버스 폭이
+     모자라 저장이 거부된다([273]) — 그림에서는 '몇 칸이 채운 값인가'만 알면 된다.
+     ★ **한 칸도 없으면 아무 말도 안 한다**([170] — 늘 뜨는 줄은 아무도 안 읽는다). */
+  const _sup = (rows||[]).reduce((s,r)=>s+campSupCount(r), 0);
+  if(_sup) notes.push("이 표의 " + _sup + "칸은 밴드 접수 글에 없어 ERP 거래처등록·사람 명부에서 채운 값입니다 — 화면 표에는 '보완' 딱지로 표시됩니다.");
   /* 한 장에 들어가는 줄 수는 캔버스 안전 면적에서 나온다 — iOS 는 약 1,678만 픽셀에서
      저장이 실패한다. 각주가 최대 두 줄 더 붙을 수 있으므로 그만큼을 미리 빼 둔다.
      ★ **넘치면 자르지 않고 장을 늘린다** (2026-08-18 지시: "장수가 여러장 되도 좋으니

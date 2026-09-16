@@ -36615,6 +36615,141 @@ def t533_camp_standard_archive_key_falls_back_to_project():
           "유일할 때만 프로젝트NO · 겹치면 손 뗌 · 바꾼 것/못 바꾼 것 둘 다 셈")
 
 
+def t534_camp_supplement_is_marked_not_disguised():
+    """보완으로 채운 담당자 칸은 **원문처럼 보이지 않는다** — node 로 실행해 잰다([295]).
+
+    2026-08-19 지시("모름 표시되어있는 부분 밴드 및 erp, 원본 데이터등 전수 조사해서
+    반영")로 채우기는 [314] 가 끝냈다(실측 250칸). 남은 구멍은 **화면**이었다 —
+    채운 값이 밴드 접수 글에 적힌 값과 **똑같이 보여서**, 사람이 "이 메일은 밴드에
+    적힌 것"이라 믿는다([169] · 채운 것을 원문처럼 보이게 하지 않는다).
+
+    ★ 판정은 서버가 준 `보완` 그대로다([162]) — 화면이 다시 고르면 표·엑셀·캡처가
+      서로 다른 말을 한다.
+    ★ 진짜 `reports/캠프_담당자.json` 은 한 글자도 안 읽는다([247]·[211]) —
+      그 파일 모양의 **표본**으로만 잰다. 실데이터에 매면 보완이 0 인 날 빨개진다.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    import proc_guard
+
+    page = os.path.join(ROOT, "webapp", "index.html")
+    with open(page, encoding="utf-8") as fh:
+        html = fh.read()
+
+    # 재려는 함수만 떼어 온다 — 줄 번호가 아니라 **이름**으로 자른다(옆 창이 고쳐도
+    # 엉뚱한 조각을 안 집는다 · 2026-08-27 실사고).
+    def cut(start, end):
+        i = html.index(start)
+        return html[i:html.index(end, i + len(start))]
+
+    src = "\n".join([
+        "const esc2 = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')"
+        ".replace(/>/g,'&gt;').replace(/\"/g,'&quot;');",
+        "let CAMPS = {};",
+        cut("const CAMP_ROLES = [", "function campHasPerson"),
+        cut("function campHasPerson(p)", "\n/*"),
+        cut("function campSupTag(src)", "const chr34b"),
+        cut("function campSupSummaryText(){", "\n/* 엑셀은"),
+    ])
+
+    probe = r"""
+const r = {캠프명:'표본', 현장책임:{이름:'김',전화:'010-0000-0000',메일:'a@b.c'},
+           안전관리:{이름:'이',전화:'',메일:'d@e.f'},
+           담당자:{이름:'박',전화:'010-1111-1111',메일:'g@h.i'},
+           보완:{'담당자 메일':'ERP 거래처등록','현장책임 메일':'사람 명부(같은 이름)'}};
+const clean = {캠프명:'원문', 현장책임:{이름:'최',전화:'010-2222-2222',메일:''},
+               안전관리:{}, 담당자:{}};
+const roles = campRoles(r);
+const html  = roles.map(x=>campCell(x.p, x.라벨, x.보완)).join('');
+const plain = campRoles(clean).map(x=>campCell(x.p, x.라벨, x.보완)).join('');
+CAMPS = {보완합계:250, 보완보류:119}; const sumBoth = campSupSummaryText();
+CAMPS = {보완합계:250};              const sumOne  = campSupSummaryText();
+CAMPS = {};                          const sumNone = campSupSummaryText();
+console.log(JSON.stringify({
+  tags: (html.match(/>보완</g)||[]).length,
+  plainTags: (plain.match(/>보완</g)||[]).length,
+  count: campSupCount(r), plainCount: campSupCount(clean),
+  text: campSupText(r),
+  tip: (html.match(/title="([^"]*)">보완</)||[])[1] || '',
+  sumBoth, sumOne, sumNone,
+  // 딱지가 붙은 칸이 **메일 두 곳**인지 — 전화·이름에 잘못 붙으면 엉뚱한 값을 의심한다
+  roleMail: roles.map(x=>x.보완.메일||''),
+}));
+"""
+    def run(js_src):
+        """node 로 돌려 마지막 줄 JSON 을 돌려준다 — 없으면 None(못 쟀다)."""
+        if not shutil.which("node"):
+            return None
+        box = tempfile.mkdtemp(prefix="t534-")
+        try:
+            jp = os.path.join(box, "run.js")
+            with open(jp, "w", encoding="utf-8") as fh:
+                fh.write(js_src)
+            pr = subprocess.Popen([shutil.which("node"), jp], stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT,
+                                  **proc_guard.background_popen_kwargs())
+            try:
+                txt = pr.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc_guard.kill_tree(pr.pid)
+                raise AssertionError("[534] node 하네스가 60초 안에 안 끝났다")
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+        assert "{" in txt, "[534] 실행 실패:" + txt[-1200:]
+        return json.loads(txt.strip().splitlines()[-1])
+
+    node = shutil.which("node")
+    got = None
+    if not node:
+        # ★ 못 쟀으면 **못 쟀다고 적는다**([169]) — 구조 검사(⑥⑦)는 그대로 돈다.
+        print("… [534] node 가 없어 실행 확인은 건너뜀(구조 검사만)")
+    else:
+        got = run(src + probe)
+        # ⑧ 계기 자신을 시험한다([272]) — 딱지를 붙이는 줄을 빼면 ①이 정말 잡는가
+        hurt = run(src.replace("campSupTag(sup.메일)", "''")
+                      .replace("campSupTag(sup.전화)", "''")
+                      .replace("campSupTag(sup.이름)", "''") + probe)
+        assert hurt and hurt["tags"] == 0, "①이 눈멀었다 — 딱지를 빼도 그대로 세어진다"
+
+    if got is not None:
+         # ① 보완한 칸에만 딱지가 붙는다 — 원문만 있는 줄에는 **하나도** 안 붙는다([172])
+        assert got["tags"] == 2, f"보완 2칸인데 딱지가 {got['tags']}개다"
+        assert got["plainTags"] == 0, "원문 그대로인 줄에 '보완' 딱지가 붙었다 — 멀쩡한 값을 의심하게 만든다"
+
+        # ② 어디서 채웠는지 **그 자리에서** 말한다([169]) — 딱지만 붙이면 사람이 못 묻는다
+        assert "ERP 거래처등록" in got["text"] and "사람 명부" in got["text"], got["text"]
+        assert got["tip"] and "밴드 접수 글에 적힌 값이 아닙니다" in got["tip"], got["tip"]
+
+        # ③ 세는 자리는 하나다([162]) — 표·엑셀·캡처가 같은 수를 말한다
+        assert got["count"] == 2 and got["plainCount"] == 0, got
+
+        # ④ 머리글이 **보류를 같이** 적는다 — 안 적으면 '다 채웠다'로 읽힌다
+        assert "250" in got["sumBoth"] and "119" in got["sumBoth"], got["sumBoth"]
+        assert "보류" in got["sumBoth"], got["sumBoth"]
+        # 보류를 못 읽으면 그 부분만 빠진다(지어내지 않는다)
+        assert "250" in got["sumOne"] and "119" not in got["sumOne"], got["sumOne"]
+        # ★ 아무것도 못 읽으면 **아무 말도 안 한다** — '0칸'이라 적으면 거짓이다([169])
+        assert got["sumNone"] == "", f"못 읽었는데 수를 지어낸다: {got['sumNone']}"
+
+        # ⑤ 딱지가 붙은 칸이 실제로 그 칸이다 — 엉뚱한 칸에 붙으면 멀쩡한 값을 의심한다
+        assert got["roleMail"][0] and got["roleMail"][2] and not got["roleMail"][1], got["roleMail"]
+
+    # ⑥ 엑셀에도 그 사실이 실린다([169] — 표만 알고 엑셀은 모르면 받아 본 사람이 속는다)
+    assert "o['보완출처'] = campSupText(r)" in html, "엑셀에 '보완출처' 열이 없다"
+    assert "원문 그대로(보완 없음)" in html, "엑셀 빈 칸의 뜻이 안 적혀 있다"
+
+    # ⑦ 캡처는 **열을 안 늘린다**([273] — 폭이 모자라면 저장 자체가 거부된다)
+    # ⚠ `const notes=[` 는 이 파일에 둘이다 — **캠프 캡처 쪽**을 집어야 한다.
+    #   앞의 것을 집으면 엉뚱한 조각을 재면서 아무것도 안 잰다([309]).
+    cap = cut("\"'모름'은 담당자가 없는 것이 아니라", "const foot = k =>")
+    assert "campSupCount" in cap, "캡처 각주가 보완을 안 적는다"
+    assert "cols.push" not in cap, "캡처에 열을 늘렸다 — 폭이 모자라면 저장이 거부된다([273])"
+
+    print("  ✔ [534] 보완 칸은 딱지·출처로 드러난다 — 원문 줄엔 0개 · 표·엑셀·캡처가 "
+          "같은 수 · 못 읽으면 안 지어냄")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51654,6 +51789,7 @@ if __name__ == "__main__":
     t530_canonical_erp_index_path_is_one_place()
     t531_settings_screen_holds_only_settings()
     t532_console_does_not_hardcode_archive_schedule()
+    t534_camp_supplement_is_marked_not_disguised()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
