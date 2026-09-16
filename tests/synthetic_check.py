@@ -36406,6 +36406,69 @@ def t530_canonical_erp_index_path_is_one_place():
     print("  ✔ [530] ERP 정본 색인 경로 한 곳 — 읽는 곳 4 + 이름 1 · API 색인과 분리")
 
 
+def t531_settings_screen_holds_only_settings():
+    """설정 화면에는 **설정만** 있다 — 실제 화면 파일을 읽어서 잰다([295]) (2026-08-15 지시).
+
+    형님 지시: *"설정 기능을 고도화해서 앱의 설정 전체 컨트롤 할 수 있게,
+    설정이랑 관계 없는건 넣지 말고 정리해"*. 설계는 `docs/SPEC_설정화면.md` 이고
+    2026-09-16 형님이 방향을 **'정리 우선(설정만 남긴다)'** 으로 정하셨다
+    (분담판 [103] 허브 타일 살리기는 그래서 안 한다).
+
+    ★ 화면은 이미 그렇게 돼 있다 — 이 검사는 **되돌아가는 것을 막는다**.
+      예전에 여기 `routeNav()` 업무화면 바로가기가 16개 있었고, 그 복제는
+      **조용히 낡았다**([165]): 새 화면을 만들어도 단추는 안 늘고, 화면을 지워도
+      단추는 남고, 아무 오류도 안 났다. 다시 늘기 시작하면 여기서 잡는다.
+    ★ 가르는 근거 한 줄(설계 2절): *"이 값을 바꿔도 업무 자료는 한 글자도 안
+      바뀌는가"* — 예면 설정이고, 아니면 업무 화면이다.
+    ★ 진짜 설정값·업무 자료는 한 글자도 안 건드린다([247]) — 화면 파일만 읽는다.
+    """
+    path = os.path.join(ROOT, "webapp", "index.html")
+    with open(path, encoding="utf-8") as fh:
+        page = fh.read()
+
+    def view(view_id):
+        i = page.index('id="%s"' % view_id)
+        return page[i:page.index("</section>", i)]
+
+    settings = view("v-settings")
+    run = view("v-run")
+
+    # ① 업무 화면 바로가기를 복제하지 않는다 — 길 안내는 왼쪽 메뉴 몫이다
+    assert settings.count("routeNav(") == 0, (
+        f"설정 화면에 업무화면 바로가기가 {settings.count('routeNav(')}개 돌아왔다 — "
+        "사이드바가 이미 하는 일이고, 이 복제는 조용히 낡는다([165])")
+
+    # ② 글꼴 카드는 **옮긴 것이지 복제한 것이 아니다**([162])
+    assert settings.count("data-fontkey") >= 6, "설정 화면에 글꼴 카드가 없다"
+    assert run.count("data-fontkey") == 0 and run.count("setFontPreset") == 0, (
+        "[실행] 탭에 글꼴 카드가 남아 있다 — 두 곳에 두면 한쪽만 고쳐진다")
+
+    # ③ 판정을 새로 만들지 않고 **이미 있는 것을 부른다**([162])
+    for fn in ("setFontPreset", "toggleTheme", "installState"):
+        assert fn in settings, f"설정 화면이 {fn} 을 안 부른다 — 같은 판단을 또 적으면 갈린다"
+
+    # ④ 담당자에게는 설정 메뉴가 안 보인다([279] — 화면 표시로 권한을 만들지 않는다)
+    assert "body.staff-mode .tabbar button.settings-nav{display:none!important}" in page, (
+        "담당자 화면에서 설정 메뉴 숨김 규칙이 사라졌다")
+
+    # ⑤ 설정 화면에서 업무값을 쓰는 길을 만들지 않는다 (업무 정본은 앱 DB 이고
+    #    설정은 이 기기 것이다 — 2026-08-10 정본 규칙)
+    for api in ("/api/staff/entry", "/api/ledger"):
+        assert api not in settings, f"설정 화면이 업무 쓰기 {api} 를 부른다"
+
+    # ⑥ 계기 자신을 시험한다([272]) — 타일이 하나라도 돌아오면 정말 잡히는가
+    hurt = settings.replace("<h3>앱</h3>", '<h3>앱</h3><button onclick="routeNav(\'v-ledger\')">')
+    caught = False
+    try:
+        assert hurt.count("routeNav(") == 0
+    except AssertionError:
+        caught = True
+    assert caught, "①이 눈멀었다 — 바로가기를 되살려도 안 잡힌다"
+
+    print("  ✔ [531] 설정 화면엔 설정만 — 바로가기 0 · 글꼴은 옮김(사본 없음) · "
+          "판정은 빌림 · 담당자 숨김 · 업무 쓰기 없음")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51439,6 +51502,7 @@ if __name__ == "__main__":
     t528_camp_urgency_chain()
     t529_sanitizer_issues()
     t530_canonical_erp_index_path_is_one_place()
+    t531_settings_screen_holds_only_settings()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")
