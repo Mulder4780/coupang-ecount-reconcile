@@ -46090,6 +46090,53 @@ def t301_camp_edits_survive_the_round():
           "낙관잠금·감사로그·새 캠프 추가 · 5분 회차 자동 갱신 ✅")
 
 
+_T119_PAN_HARNESS = r"""
+const __html = require('fs').readFileSync(__IDX__, 'utf8');
+const __i0 = __html.indexOf("function flowVisualStageDown(");
+const __i1 = __html.indexOf("function flowVisualNodeDown(");
+if (__i0 < 0 || __i1 <= __i0) { console.log('빈곳 누름 블록을 못 찾음'); process.exit(1); }
+let __blk = __html.slice(__i0, __i1);
+if (__BREAK__) { __blk = __blk.replace("if(FLOW_VIS_MODE!=='select')return;", ""); }
+
+function mkEl(){ const ls={}; return {scrollLeft:0, scrollTop:0,
+  addEventListener(t,f){(ls[t]=ls[t]||[]).push(f);},
+  removeEventListener(t,f){ls[t]=(ls[t]||[]).filter(x=>x!==f);},
+  setPointerCapture(){}, fire(t,ev){(ls[t]||[]).slice().forEach(f=>f(ev));},
+  count(t){return (ls[t]||[]).length;} }; }
+const sc = mkEl(), stage = mkEl();
+function $(id){ return id==='flowVisualScroll'?sc:id==='flowVisualStage'?stage:null; }
+let FLOW_VIS_MODE='select', FLOW_VIS_SELECTED=null;
+function flowVisualPoint(e){ return {x:e.clientX, y:e.clientY}; }
+function flowVisualSelectionUpdate(){}
+const empty = {closest(){ return null; }};
+const api = eval(__blk + "\n;({flowVisualStageDown})");
+
+let n=0; function must(c,m){ if(!c){ console.log('FAIL: '+m); process.exit(1);} n++; }
+function drag(mode){ FLOW_VIS_MODE=mode; sc.scrollLeft=200; sc.scrollTop=100;
+  api.flowVisualStageDown({button:0, clientX:150, clientY:100, pointerId:7, target:empty});
+  stage.fire('pointermove',{clientX:90, clientY:60}); stage.fire('pointerup',{});
+  return [sc.scrollLeft, sc.scrollTop]; }
+
+// ① select 모드에서 빈 곳을 끌면 작업면이 민다 — 손가락 반대 방향으로 따라온다
+const s = drag('select');
+must(s[0]===260 && s[1]===140, 'select 모드 빈 곳 끌기가 작업면을 안 민다: '+s);
+// ② 손을 떼면 손잡이가 전부 빠진다 — 뒤에 움직여도 안 밀린다
+sc.scrollLeft=0; stage.fire('pointermove',{clientX:10, clientY:10});
+must(sc.scrollLeft===0, '손을 뗀 뒤에도 작업면이 계속 밀린다');
+must(stage.count('pointermove')===0 && stage.count('pointerup')===0, '손잡이가 안 빠졌다');
+// ③ arrow 모드는 안 민다 — 빈 곳 누름이 '연결 취소'라 미는 손짓과 섞이면 안 된다
+const a = drag('arrow');
+must(a[0]===200 && a[1]===100, 'arrow 모드에서 빈 곳 끌기가 작업면을 밀었다: '+a);
+// ④ 단계 위에서 시작한 누름은 안 민다(맨 위에서 빠진다)
+FLOW_VIS_MODE='select'; sc.scrollLeft=200;
+api.flowVisualStageDown({button:0, clientX:150, clientY:100, pointerId:7,
+  target:{closest(){ return {}; }}});
+stage.fire('pointermove',{clientX:90, clientY:60});
+must(sc.scrollLeft===200 && stage.count('pointermove')===0, '단계를 누른 손가락이 작업면까지 밀었다');
+console.log('ALL OK '+n);
+"""
+
+
 _T302_FLOW_HARNESS = r"""
 const __html = require('fs').readFileSync(__IDX__, 'utf8');
 const __i0 = __html.indexOf("function flowVisualNode(");
@@ -46260,9 +46307,34 @@ def t302_flow_canvas_only_edits_in_its_own_window():
                     "미리보기에 손잡이를 일부러 달았는데도 검사가 통과했다 — "
                     "이 검사는 아무것도 안 재고 있다:\n" + out[-800:])
 
+    # ⑧ [119] 편집기 안에서는 **빈 곳을 끌면 작업면이 민다** (2026-09-17).
+    #    작업면이 touch-action:none 이라 폰은 손가락으로 스크롤을 못 했다.
+    #    select 모드에서만 · 단계 위 누름은 안 섞임 · 손을 떼면 손잡이가 빠짐을
+    #    **실행해서** 재고([295]), 모드 문을 빼면 잡히는지까지 본다([272]).
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, brk, want in (("pan_ok.js", "false", True), ("pan_bad.js", "true", False)):
+            jp = os.path.join(tmp, name)
+            with open(jp, "w", encoding="utf-8") as fh:
+                fh.write(_T119_PAN_HARNESS.replace("__IDX__", idx).replace("__BREAK__", brk))
+            proc = subprocess.Popen([node, jp], stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                out = proc.communicate(timeout=60)[0].decode("utf-8", "replace")
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out = proc.communicate(timeout=20)[0].decode("utf-8", "replace")
+            ok = ("ALL OK" in out and proc.returncode == 0)
+            if want:
+                assert ok, "도면 빈 곳 끌기 실행 확인 실패:\n" + out[-1500:]
+            else:
+                assert not ok, (
+                    "select 모드 문을 일부러 뺐는데도 검사가 통과했다 — "
+                    "이 검사는 아무것도 안 재고 있다:\n" + out[-800:])
+
     print("  [302] 도면 — 편집은 별도 창(layerOpen)에서만 · "
           "닫혀 있을 때는 누르지도 끌리지도 않는 미리보기 · "
-          "본문 스크롤 살아 있음 · 그리는 자리는 하나 ✅")
+          "본문 스크롤 살아 있음 · 그리는 자리는 하나 · 빈 곳 끌면 작업면이 민다[119] ✅")
 
 
 def t299_kakao_evidence_reaches_the_capture():
