@@ -423,7 +423,24 @@ def _log(st):
 
 
 def ack():
+    """사람이 '확인했다'고 도장을 찍는다 — **자국도 같이 다시 재고 적는다** (분담판 [437]).
+
+    ★ 2026-09-10 실측: 여기서 `_ensure_regressed` 를 안 불러 **화면과 자국이 어긋났다.**
+      `--print` 는 지금 캐시로 다시 재서 되돌아감 0건을 보여 주는데, `--ack` 뒤의
+      `reports/밴드_재수집.json` 에는 잘린 요약으로 판정된 **5건이 그대로** 남았다.
+      그 파일을 읽는 다음 사람은 없는 되돌아감을 사실로 읽는다([165] 모양 —
+      화면은 멀쩡한데 파일만 틀려서 아무 오류도 안 난다).
+
+    ★ **못 읽으면 자국을 안 지운다**([169]) — `_still_regressed` 가 캐시를 못 읽으면
+      그대로 돌려준다. 모름을 근거로 진짜 되돌아감을 지우면 **그 글은 아무도 안 본다.**
+
+    ★ 비싼 것은 밴드 캐시 읽기인데(`_cache_posts`) **사람이 부르는 길**이라 괜찮다.
+      바뀐 글이 없으면 `_ensure_regressed` 가 캐시를 아예 안 읽는다([168]).
+    """
     st = load_state()
+    rc = st.get("최근변경")
+    if isinstance(rc, dict):
+        _ensure_regressed(rc)            # 화면(`--print`)과 같은 판정을 자국에도 적는다([162])
     st["확인함"] = True
     st["확인시각"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     save_state(st)
@@ -498,8 +515,18 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     if a.ack:
-        ack()
+        st = ack()
         print("확인 처리했습니다 — 인계 문서 맨 위 배너를 내립니다.")
+        # 자국을 다시 잰 결과를 **숫자로** 말한다([169]·[273]) — 조용히 지우면
+        # "원래 없었다"로 읽힌다.
+        rc = st.get("최근변경") or {}
+        again = rc.get("되돌아감_되살아난것") or []
+        if again:
+            print(f"  되돌아감에서 내린 글 {len(again)}건 — 지금 캐시가 '작업완료'라 말한다: "
+                  + ", ".join(again[:5]) + (" …" if len(again) > 5 else ""))
+        left = rc.get("되돌아감")
+        if left:
+            print(f"  아직 되돌아감으로 남은 글 {len(left)}건 — 확인이 필요합니다")
         return 0
     if a.plan:
         tg, floor = plan(a.days, a.limit)

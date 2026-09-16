@@ -10544,6 +10544,31 @@ def t152_band_recollect_window():
         assert len(_d2["되돌아감"]) == 1, _d2["되돌아감"]
     finally:
         RC._cache_posts = _cp                   # 모듈 속성은 프로세스 전체의 것이다([371])
+    # (h)(i) --ack 도 같은 판정을 거쳐 **자국에 적는다** (분담판 [437] · 2026-09-10 실측).  화면(`--print`)은 지금 캐시로 다시 재서 0건을 보여 주는데 `ack()` 가 `_ensure_regressed` 를 안 불러 자국에는 5건이 그대로 남았다 — 화면과 파일이 어긋나면 그 파일을 읽는 다음 사람이 없는 되돌아감을 사실로 읽는다([165]).
+    #   ★ 진짜 자국(reports/밴드_재수집.json)에는 한 글자도 안 쓴다([247]) — 임시 경로로만.
+    _real_state, _real_cp = RC.STATE, RC._cache_posts
+    try:
+        RC.STATE = os.path.join(tempfile.mkdtemp(prefix="t437_"), "밴드_재수집.json")
+        RC._cache_posts = lambda bands: _live
+        RC.save_state({"확인함": False, "최근변경": {"바뀐글": ["90610953/7001"],
+                       "변경상세": _rows,
+                       "되돌아감": [{"글": "90610953/7001", "was": "작업완료",
+                                   "now": "접수·예정"}]}})
+        _ak = RC.ack()
+        assert _ak["확인함"] is True and _ak.get("확인시각")
+        _disk = json.load(open(RC.STATE, encoding="utf-8"))["최근변경"]
+        assert _disk["되돌아감"] == [], "(h) ack 가 자국의 되돌아감을 안 걸렀다 — 화면과 파일이 어긋난다"
+        assert _disk.get("되돌아감_되살아난것") == ["90610953/7001"], _disk.get("되돌아감_되살아난것")
+        # (i) 캐시를 못 읽으면 **자국을 안 지운다**([169]) — 모름으로 진짜를 지우면 아무도 안 본다
+        RC._cache_posts = lambda bands: {}
+        RC.save_state({"확인함": False, "최근변경": {"바뀐글": ["90610953/7001"],
+                       "변경상세": _rows,
+                       "되돌아감": [{"글": "90610953/7001", "was": "작업완료",
+                                   "now": "접수·예정"}]}})
+        RC.ack()
+        assert len(json.load(open(RC.STATE, encoding="utf-8"))["최근변경"]["되돌아감"]) == 1
+    finally:
+        RC.STATE, RC._cache_posts = _real_state, _real_cp   # 프로세스 전체의 것이다([371])
     print("  [152] 밴드 재수집 08:00 — 30일 창·바뀐 것만·인계 맨 위·유령밴드 차단 ✅")
 
 
