@@ -4855,8 +4855,9 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
 	      </div>
 	      <!-- ★ 누르기 전에도 왜 안 되는지 말한다([240]). 2026-08-15 에 이 줄을 [설정]→'앱'
 	           으로만 옮겼다가 2026-08-16 에 되살렸다 — 설정 메뉴는
-	           `body.staff-mode .tabbar button.settings-nav{display:none!important}` 로
-	           **담당자 화면에서 통째로 숨는다.** 그런데 앱을 설치해야 하는 사람이
+	           2026-09-16 까지 `body.staff-mode … settings-nav{display:none!important}` 로
+	           **담당자 화면에서 통째로 숨었다**(지금은 '이 기기' 구역만 열린다 — [106]).
+	           그때도 앱을 설치해야 하는 사람이
 	           바로 담당자(류지영·오종현)라, 옮기고 나니 그들에게는 **대체 자리가 없었다** —
 	           단추는 있는데 누르기 전까지 왜 막혔는지 알 길이 없다([240] 이 막으려던 그 사고).
 	           판단은 여기서 새로 만들지 않는다: refreshInstallStatus() 가 installState()
@@ -5349,7 +5350,19 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   .feat-desc{grid-column:2;font-size:.8125rem;color:var(--ink-3);line-height:1.45;overflow-wrap:anywhere}
   .tabbar button.settings-nav{display:none}
   @media(min-width:900px){.tabbar button.settings-nav{display:flex}}
-  body.staff-mode .tabbar button.settings-nav{display:none!important}
+  /* 담당자(류지영·오종현)에게도 설정을 연다 — **'이 기기' 구역만** (2026-09-16 지시).
+     전에는 메뉴를 통째로 숨겨서 담당자는 글꼴·화면 밝기를 **아예 못 바꿨다**.
+     ★ 여는 근거는 설계 2절의 가르는 한 줄이다 — *"이 값을 바꿔도 업무 자료는 한
+       글자도 안 바뀌는가"*. 글꼴·밝기는 이 브라우저의 localStorage 뿐이라 연다.
+     ★ 화면 표시로 권한을 만들지 않는다([279]) — 관리자 여부는 여전히 서버 서명
+       역할이 정한다. 여기서 감추는 것은 **보기 편하라고**이지 그것이 자물쇠는
+       아니다. 관리자 전용 동작은 서버가 각각 다시 묻는다. */
+  body.staff-mode #v-settings .settings-card:not([data-staff="ok"]){display:none}
+  body.staff-mode #v-settings .settings-hero .settings-eyebrow{display:none}
+  /* 안내 문구 두 벌 — 담당자에게는 안 보이는 것을 있다고 적지 않는다([169]) */
+  #v-settings .staff-only{display:none}
+  body.staff-mode #v-settings .staff-only{display:block}
+  body.staff-mode #v-settings .staff-hide{display:none}
   @media(max-width:700px){#v-settings .settings-grid{grid-template-columns:1fr}
     #v-settings .settings-card.wide{grid-column:auto}#v-settings .settings-facts{grid-template-columns:112px minmax(0,1fr)}
     #v-settings .settings-hero{padding:19px}}
@@ -5358,7 +5371,10 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
     <div class="settings-hero">
       <span class="settings-eyebrow">관리자 전용 설정</span>
       <h2 id="settingsTitle">설정</h2>
-      <p>관리자 권한, 보안 PIN과 운영 도구를 한곳에서 관리합니다.</p>
+      <!-- 담당자에게는 '이 기기' 구역만 보이므로 안내도 그 말만 한다([169]) —
+           안 보이는 것을 있다고 적으면 사람이 그것을 찾으러 다닌다. -->
+      <p class="staff-hide">관리자 권한, 보안 PIN과 운영 도구를 한곳에서 관리합니다.</p>
+      <p class="staff-only">글꼴과 화면 밝기를 이 기기에서만 바꿉니다 — 업무 자료는 하나도 바뀌지 않습니다.</p>
     </div>
     <div class="settings-grid">
       <!-- ══ A. 이 기기 ══════════════════════════════════════════════════════
@@ -5366,7 +5382,7 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
            **업무 자료는 한 글자도 안 바뀐다.** 그것이 '설정'과 '업무 화면'을
            가르는 기준이다(2026-08-15 지시: "설정이랑 관계 없는건 넣지 마라").
            글꼴 카드는 [실행] 탭에서 **옮겨 온** 것이다(사본이 아니다). -->
-      <article class="settings-card wide">
+      <article class="settings-card wide" data-staff="ok">
         <div class="settings-card-head"><div><h3>이 기기</h3><p>글꼴·화면 밝기·카드 배치 — 이 브라우저에서만 바뀌고 업무 자료는 하나도 바뀌지 않습니다.</p></div></div>
 
         <div class="set-sub">글꼴</div>
@@ -10797,7 +10813,15 @@ function applyView(v){
      이미 감싼 이름은 건너뛰므로 값이 거의 안 든다. */
   try{ installBusyButtons(); }catch(e){}
   if(CAL_ONLY) v='calendar';        // 전용 모드에서는 어떤 경로로 불려도 캘린더뿐이다
-  if(v==='settings' && staffSlug) v='ryu'; // 담당자 주소에서 관리자 설정을 URL로 우회하지 못한다
+  /* 담당자 주소에서도 [설정]을 연다 — **'이 기기' 구역만** ([106] · 2026-09-16 지시).
+     2026-09-16 까지는 여기서 'ryu' 로 되돌려 담당자가 글꼴·화면 밝기를 아예 못 바꿨다.
+     ★ 감추는 것은 `body.staff-mode` 의 CSS 이고 **그것은 자물쇠가 아니다**([279]).
+       관리자 구역의 동작(권한 확인·PIN 변경·관리자 모드 종료)은 전부 서버가 서명한
+       역할을 다시 묻는다 — 화면 표시로 권한을 만들지 않는다.
+     ★ 그래서 여기서 그 표시를 **확실히 켜 둔다.** initStaffCenter() 가 이미 켜지만,
+       그것을 못 탄 경로로 들어와도 관리자 구역이 드러나면 안 된다([169] — 못 켠 것을
+       '켜졌겠지'로 치지 않는다). */
+  if(v==='settings' && staffSlug) document.body.classList.add('staff-mode');
   // 조직도는 .shell 밖의 body 직속 화면이다. 조직도를 열었는데 빈 .shell을 남기면
   // 모바일에서 108px짜리 가짜 상단 공간이 생긴다. 화면 전환과 함께 정확히 접고 복구한다.
   document.body.classList.toggle('org-view',v==='org');

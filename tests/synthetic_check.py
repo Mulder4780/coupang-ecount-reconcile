@@ -36447,9 +36447,19 @@ def t531_settings_screen_holds_only_settings():
     for fn in ("setFontPreset", "toggleTheme", "installState"):
         assert fn in settings, f"설정 화면이 {fn} 을 안 부른다 — 같은 판단을 또 적으면 갈린다"
 
-    # ④ 담당자에게는 설정 메뉴가 안 보인다([279] — 화면 표시로 권한을 만들지 않는다)
-    assert "body.staff-mode .tabbar button.settings-nav{display:none!important}" in page, (
-        "담당자 화면에서 설정 메뉴 숨김 규칙이 사라졌다")
+    # ④ 담당자에게는 **'이 기기' 구역만** 보인다 (2026-09-16 지시 · 분담판 [106]).
+    #    전에는 설정 메뉴를 통째로 숨겨 담당자가 글꼴·밝기를 아예 못 바꿨다.
+    #    ★ 화면 표시로 권한을 만들지 않는다([279]) — 감추는 것은 보기 편하라고이지
+    #      자물쇠가 아니다. 관리자 전용 동작은 서버가 각각 다시 묻는다.
+    assert 'body.staff-mode #v-settings .settings-card:not([data-staff="ok"]){display:none}' in page, (
+        "담당자에게 관리자 구역까지 열렸다 — '이 기기' 만 열어야 한다")
+    staff_cards = re.findall(r'<article class="settings-card[^"]*"([^>]*)>', settings)
+    opened = [c for c in staff_cards if 'data-staff="ok"' in c]
+    assert len(opened) == 1, (
+        f"담당자에게 열린 구역이 {len(opened)}개다 — '이 기기' 하나여야 한다")
+    # 안내 문구도 담당자가 보는 것만 말한다([169]) — 안 보이는 것을 있다고 적지 않는다
+    assert settings.count("staff-only") == 1 and settings.count("staff-hide") == 1, (
+        "담당자용/관리자용 안내가 짝이 안 맞는다")
 
     # ⑤ 설정 화면에서 업무값을 쓰는 길을 만들지 않는다 (업무 정본은 앱 DB 이고
     #    설정은 이 기기 것이다 — 2026-08-10 정본 규칙)
@@ -36466,7 +36476,7 @@ def t531_settings_screen_holds_only_settings():
     assert caught, "①이 눈멀었다 — 바로가기를 되살려도 안 잡힌다"
 
     print("  ✔ [531] 설정 화면엔 설정만 — 바로가기 0 · 글꼴은 옮김(사본 없음) · "
-          "판정은 빌림 · 담당자 숨김 · 업무 쓰기 없음")
+          "판정은 빌림 · 담당자는 '이 기기' 만 · 업무 쓰기 없음")
 
 
 def t532_console_does_not_hardcode_archive_schedule():
@@ -45341,8 +45351,12 @@ def t279_admin_settings_uses_server_role_and_local_logout():
         'id="v-settings"', 'id="adminModeState"', "function loadAdminSettings(",
         "fetch('/api/auth/session'", "session.role==='admin'", "function adminModeLogout(",
         "fetch('/api/auth/logout'", "localStorage.removeItem('cw_dev_auth')",
-        "body.staff-mode .tabbar button.settings-nav{display:none!important}",
-        "if(v==='settings' && staffSlug) v='ryu'", "관리자 PIN 변경",
+        # 2026-09-16([106]): 담당자에게 **'이 기기' 구역만** 연다. 통째 숨김은
+        # 걷혔지만 안전장치는 그대로다 — 관리자 구역은 담당자에게 안 보이고,
+        # **진짜 자물쇠는 서버 서명 역할**이다(아래 세션 확인 토큰들 · [279]).
+        'body.staff-mode #v-settings .settings-card:not([data-staff="ok"]){display:none}',
+        "if(v==='settings' && staffSlug) document.body.classList.add('staff-mode')",
+        "관리자 PIN 변경",
     ):
         assert token in live, "관리자 설정 안전장치가 빠졌다: " + token
     assert "localStorage.setItem('isAdmin'" not in live and 'localStorage.setItem("isAdmin"' not in live, (
