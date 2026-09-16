@@ -62,7 +62,9 @@ if hasattr(sys.stdout, "reconfigure"):          # 무인 회차는 stdout 이 No
         pass
 
 REPORTS = os.path.join(ROOT, "reports")
-CANON = os.path.join(REPORTS, "ERP판매_프로젝트색인.json")     # 정본(사람 내보내기)
+from erp_sales_index import canon_index_path   # 정본 경로는 한 곳([162])
+
+CANON = canon_index_path()                                    # 정본(사람 내보내기)
 API = os.path.join(REPORTS, "ERP판매_API색인.json")            # API 가 만든 것
 OUT_JSON = os.path.join(REPORTS, "ERP_API대조.json")
 OUT_MD = os.path.join(REPORTS, "ERP_API대조.md")

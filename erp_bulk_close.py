@@ -53,7 +53,9 @@ if hasattr(sys.stdout, "reconfigure"):
 STATUS = "완료(관리자 일괄지시 · ERP 전표 있음)"
 REPORT = os.path.join(ROOT, "reports", "ERP단서_일괄완료.json")
 CACHE = os.path.join(ROOT, "reports", ".앱캐시_issues.json")
-ERP_INDEX = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json")
+from erp_sales_index import canon_index_path   # 정본 경로는 한 곳([162])
+
+ERP_INDEX = canon_index_path()
 
 # `settlement_completion` 이 **이미 매일 닫는** 단계. 여기서 또 닫으면 그 도구의
 # 정직한 근거를 이 도구의 낱말로 덮어쓴다([169]) — 그러니 건너뛴다.

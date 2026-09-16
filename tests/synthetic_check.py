@@ -27893,9 +27893,18 @@ def t423_erp_breaks_the_tie_for_duplicate_projects():
     #   ([301]-9·[302]·[309]·[332]·[339]·[370]·[272]·[399]). 안 걷으면 위 독스트링의
     #   "`erp_sales_index.build()` 를 부르면 …" 이라는 **경고 문장 자체**가 위반으로 잡힌다.
     _code = _t370_code_only(_src)
+    # ★ 얼리는 것은 **계약**이지 구현이 아니다([39]·[219]). 막으려는 것은
+    #   *회차가 Z: 를 다시 훑는 것*(=`build()` 호출)이지 '그 모듈 이름을 적는 것'이
+    #   아니다 — 경로 상수 하나를 빌려 오는 것은 Z: 를 한 번도 안 읽는다([100]·[162]).
+    #   그래서 **경로를 빌리는 줄만** 걷어내고 나머지 언급을 여전히 막는다.
+    _code = _code.replace("from erp_sales_index import canon_index_path", "")
     assert "erp_sales_index" not in _code, (
         "회차가 ERP 색인을 **다시 만든다** — Z: 를 재귀로 훑으면 5분 회차가 그만큼 "
         "느려진다([168]). 회차가 만들어 둔 파일만 읽는다")
+    # 계기 자기시험([272]) — `build()` 를 되살리면 위 줄이 정말 잡는가
+    _hurt = _t370_code_only(_src + "\n_x = erp_sales_index.build()\n")
+    assert "erp_sales_index" in _hurt.replace(
+        "from erp_sales_index import canon_index_path", ""), "이 검사가 눈멀었다"
 
     # ⑨~⑫ **ERP 자료가 아직 안 닿은 구간**은 "없다" 가 아니다 (2026-09-02 실사고).
     #   실측: 색인 마지막 전표일 2026-08-05 인데 UJ2601393(완료 8/10)·UJ2601416
@@ -36317,6 +36326,85 @@ def t528_camp_urgency_chain():
 
     assert not bad, "캠프 긴급도 체인이 깨졌다: " + " · ".join(bad)
     print(chr(9989) + " [528] 캠프가 말한 급함이 색인 → 행 → 화면까지 간다")
+
+def t530_canonical_erp_index_path_is_one_place():
+    """ERP 정본 색인 경로는 **한 곳**에서 온다 — 실행으로 잰다([295]) (2026-08-14 지시).
+
+    왜(SPEC_ERP_API_검증.md 6절): 정본은 *사람이 ERP 화면에서 내보낸 엑셀*이고
+    API 로 받은 것은 `ERP판매_API색인.json` 에 따로 둔다. 그 경로를 읽는 곳이
+    아홉 군데(앱 화면·정산·대조·회차)인데 각자 문자열로 적고 있었다 —
+    갈아타는 날 한 곳만 고치면 **오류는 안 나고 화면마다 다른 숫자**가 나온다([165]).
+
+    ★ 진짜 색인 파일은 한 글자도 안 읽는다([247]·[211]) — 경로 값만 대 본다.
+    """
+    import erp_sales_index as ESI
+    import erp_api_parity as PARITY
+    import band_canonical
+    import erp_bulk_close
+    import local_ai
+    import app_server
+    from session_scope import code_only   # 주석·독스트링 걷어내기([301]-9)
+
+    canon = ESI.canon_index_path()
+
+    # ① 정본은 정본 이름이다 — API 색인으로 바뀌지 않았다
+    assert os.path.basename(canon) == ESI.CANON_INDEX_NAME, canon
+    assert "API" not in os.path.basename(canon), (
+        f"정본 경로가 API 색인을 가리킨다: {canon}")
+
+    # ② 읽는 곳이 전부 같은 경로를 쓴다 — 한 곳에서 왔다는 증거
+    users = {
+        "band_canonical.ERP_INDEX": band_canonical.ERP_INDEX,
+        "erp_bulk_close.ERP_INDEX": erp_bulk_close.ERP_INDEX,
+        "erp_api_parity.CANON": PARITY.CANON,
+        "app_server.ERP_PRJ_INDEX": app_server.ERP_PRJ_INDEX,
+    }
+    for name, got in users.items():
+        assert got == canon, f"{name} 가 다른 경로를 본다: {got} != {canon}"
+
+    # ③ 이름만 쓰는 곳도 같은 이름에서 온다
+    assert local_ai.SOURCES["ERP색인"]["glob"] == ESI.CANON_INDEX_NAME, (
+        local_ai.SOURCES["ERP색인"]["glob"])
+
+    # ④ API 색인은 **다른 자리**다 — 같아지면 정본이 덮인다
+    assert PARITY.API != canon, "API 색인이 정본과 같은 파일을 가리킨다"
+    assert "API" in os.path.basename(PARITY.API), PARITY.API
+
+    # ⑤ 경로를 손으로 다시 짓는 곳이 없다([162]). 이것은 '지금 그렇게 짜여 있을 뿐'이
+    #    아니라 **되돌아가면 안 되는 사실**이라 글자로 잰다([219] 가 가르는 물음).
+    for rel in ("band_canonical.py", "erp_bulk_close.py", "erp_api_parity.py",
+                "settlement_completion.py", "local_ai.py", "webapp/app_server.py",
+                "automation_pipeline.py"):
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as _fh:
+            src = _fh.read()
+        # ★ 주석·독스트링을 먼저 걷어낸다([301]-9) — 이 저장소가 열두 번 밟은 자리다.
+        #   설명 글은 경로를 그대로 적어도 되고, 그것까지 세면 이 검사가 잔소리가 된다.
+        body = code_only(src, ".py")
+        for line in body.splitlines():
+            if "CANON_INDEX_NAME" in line or ESI.CANON_INDEX_NAME not in line:
+                continue
+            # 사람에게 보여 주는 안내 문구에 파일 이름이 들어가는 것은 괜찮다 —
+            # 막으려는 것은 **경로를 다시 짓는 것**이다([172] 좁히는 것도 고장이다).
+            if "join(" in line or '/ "' in line:
+                raise AssertionError(
+                    f"{rel} 가 정본 경로를 손으로 짓는다: {line.strip()[:90]}")
+
+    # ⑥ 계기 자신을 시험한다([272]) — 한 곳이 API 색인으로 갈아타면 정말 잡히는가
+    orig = band_canonical.ERP_INDEX
+    try:
+        band_canonical.ERP_INDEX = PARITY.API
+        caught = False
+        try:
+            assert band_canonical.ERP_INDEX == canon
+        except AssertionError:
+            caught = True
+        assert caught, "②가 눈멀었다 — API 색인으로 바꿔도 안 잡힌다"
+    finally:
+        band_canonical.ERP_INDEX = orig   # 모듈 속성은 프로세스 전체의 것이다([371])
+    assert band_canonical.ERP_INDEX == canon
+
+    print("  ✔ [530] ERP 정본 색인 경로 한 곳 — 읽는 곳 4 + 이름 1 · API 색인과 분리")
+
 
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
@@ -51350,6 +51438,7 @@ if __name__ == "__main__":
     t527_band_urgency_parse()
     t528_camp_urgency_chain()
     t529_sanitizer_issues()
+    t530_canonical_erp_index_path_is_one_place()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

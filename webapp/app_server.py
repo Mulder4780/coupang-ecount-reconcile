@@ -39,6 +39,7 @@ sys.path.insert(0, ROOT)
 # sys.path 를 세운 **뒤에** 임포트해야 한다 — 위로 올리면 ecount 모듈을 못 찾는다.
 from ecount_reconcile import master_stream, master_book
 from pct_fmt import pct, pct_text          # 비율 표기 단일 규칙 (2026-08-05 지시)
+from erp_sales_index import CANON_INDEX_NAME, canon_index_path  # 정본 색인 경로는 한 곳([162])
 PY = sys.executable
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
@@ -5243,7 +5244,7 @@ def _issue_dependency_stamp():
         raw = json.dumps(resolutions, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":"), default=str).encode("utf-8")
         parts = ["resolution=" + hashlib.sha256(raw).hexdigest()]
-        for name in ("ERP판매_프로젝트색인.json", "ERP원장대조_상태.json"):
+        for name in (CANON_INDEX_NAME, "ERP원장대조_상태.json"):
             p = os.path.join(ROOT, "reports", name)
             h = hashlib.sha256()
             with open(p, "rb") as f:
@@ -6908,8 +6909,7 @@ def _erp_sales_index():
     if now - _ERP_IDX["at"] < 300 and _ERP_IDX["data"]:
         return _ERP_IDX["data"]
     try:
-        with open(os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json"),
-                  encoding="utf-8") as f:
+        with open(canon_index_path(), encoding="utf-8") as f:
             _ERP_IDX["data"] = json.load(f).get("index") or {}
     except Exception:
         _ERP_IDX["data"] = {}
@@ -7025,8 +7025,7 @@ def _issue_truth_rows(rows):
     except Exception:
         resolutions = {}
     try:
-        with open(os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json"),
-                  encoding="utf-8") as f:
+        with open(canon_index_path(), encoding="utf-8") as f:
             sales = json.load(f).get("index") or {}
     except Exception:
         sales = {}
@@ -7402,7 +7401,7 @@ def _build_erpdocs():
 #   근거를 나란히 놓고 판단은 사람이 한다([172] — 잘못 지목하면 멀쩡한 값을 고치러 간다).
 # ★ 여기서 Z: 를 훑지 않는다([168]). 읽는 것은 이미 만들어진 캐시·리포트 파일뿐이다.
 KIM_TABLE_PATH = os.path.join(ROOT, "reports", "김미영_매출실적_2026.json")
-ERP_PRJ_INDEX = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json")
+ERP_PRJ_INDEX = canon_index_path()
 
 
 def _deposit_daily():

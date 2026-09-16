@@ -55,6 +55,7 @@ ERP 를 대 보고 원장을 뒤져서 **이미 디스크에 있는 사실**을 
 검증 [181].
 """
 import os
+import sys
 import re
 import io
 import json
@@ -62,6 +63,8 @@ import glob
 from datetime import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ROOT)
+from erp_sales_index import CANON_INDEX_NAME   # 정본 색인 이름은 한 곳([162])
 REPORT_DIR = os.environ.get("COUPANG_REPORT_DIR") or os.path.join(ROOT, "reports")
 LOG = os.path.join(REPORT_DIR, "앱_자문기록.json")
 LOG_MAX = 500          # 기록은 굴러간다 — 무한히 쌓아 두면 읽는 쪽이 느려진다
@@ -80,7 +83,7 @@ SOURCES = {
     "회차":     {"glob": ".daily_run.progress.json", "한도시간": 26},
     "오기입":   {"glob": "오기입_확인.json",        "한도시간": 48},
     "교차":     {"glob": "카톡_밴드_교차.json",     "한도시간": 48},
-    "ERP색인":  {"glob": "ERP판매_프로젝트색인.json", "한도시간": 72},
+    "ERP색인":  {"glob": CANON_INDEX_NAME,          "한도시간": 72},
     "PO근거":   {"glob": "po_objective_evidence.json", "한도시간": 48},
     "PO대조":   {"glob": "PO대조_*.md",             "한도시간": 48},
     "취소":     {"glob": "접수취소_확인.md",         "한도시간": 48},

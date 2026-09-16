@@ -539,7 +539,8 @@ def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
     # The sales index is deterministic business content, so hash its bytes and
     # combine it with the actual intake edges instead of its mtime.
     erp_files = _erp_drop_files(root, include_user_drop=include_user_drop)
-    erp_content_markers = [root / "reports" / "ERP판매_프로젝트색인.json"]
+    from erp_sales_index import CANON_INDEX_NAME   # 정본 이름은 한 곳([162])
+    erp_content_markers = [root / "reports" / CANON_INDEX_NAME]
     erp_name = re.compile(
         r"(?i)^(?:[A-Za-z0-9]{12,20}|E[A-Z]*\d{3,6}[A-Z]?|ECTAX\d+[A-Z]?)\.xlsx$"
     )

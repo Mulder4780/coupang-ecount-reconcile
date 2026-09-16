@@ -29,7 +29,19 @@ try:
 except Exception:
     pass
 
-OUT = os.path.join(ROOT, "reports", "ERP판매_프로젝트색인.json")
+CANON_INDEX_NAME = "ERP판매_프로젝트색인.json"
+OUT = os.path.join(ROOT, "reports", CANON_INDEX_NAME)
+
+
+def canon_index_path():
+    """정본 색인 파일의 경로 — **이 한 곳**이 정한다([162]).
+
+    정본은 *사람이 ERP 화면에서 내보낸 엑셀*이고(SPEC_ERP_API_검증.md 1절),
+    API 로 받은 것은 `ERP판매_API색인.json` 에 따로 둔다. 읽는 곳이 아홉 군데라
+    (앱 화면·정산·대조·회차) 경로를 각자 적으면 갈아타는 날 **한 곳만 고쳐
+    화면마다 다른 숫자**가 나온다 — 오류는 안 나고 숫자만 갈린다.
+    """
+    return OUT
 UJ = re.compile(r"UJ\d{7}")
 # 진행 단계 순서 — 작은 값이 덜 진행된 것. 합칠 때 **가장 덜 진행된 상태**를 남긴다.
 ORDER = {"1.미확인": 1, "확인": 2, "2.메일발송": 3, "3.오더처리": 4,

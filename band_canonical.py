@@ -173,8 +173,9 @@ def _is_done(value: Any) -> bool:
 
 
 _ERP_IDX = None
-ERP_INDEX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "reports", "ERP판매_프로젝트색인.json")
+from erp_sales_index import canon_index_path   # 정본 경로는 한 곳([162])
+
+ERP_INDEX = canon_index_path()
 
 
 def _erp_index():

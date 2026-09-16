@@ -121,8 +121,8 @@ def erp_sales_index():
     #   중 450건이 ERP 로는 이미 발행/수금완료였다). 내용으로 판별해 만든 색인
     #   `erp_sales_index.py` 산출물을 먼저 읽는다.
     try:
-        idx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "reports", "ERP판매_프로젝트색인.json")
+        from erp_sales_index import canon_index_path   # 경로는 한 곳([162])
+        idx_path = canon_index_path()
         with open(idx_path, encoding="utf-8") as fh:
             idx = json.load(fh).get("index") or {}
         if idx:
