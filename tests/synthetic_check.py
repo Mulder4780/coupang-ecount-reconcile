@@ -36750,6 +36750,64 @@ console.log(JSON.stringify({
           "같은 수 · 못 읽으면 안 지어냄")
 
 
+def t535_text_scale_dial_comes_from_one_table():
+    """글자 크기 손잡이 — **표 하나**에서 CSS·단추가 만들어진다([162]·[246]).
+
+    [72] 가 `html{font-size:calc(16px * var(--ui-scale,1))}` 까지 넣어 두고 **고르는
+    손잡이가 없던** 자리다(분담판 [184]). 손잡이를 붙이면 갈릴 자리가 둘이 된다 —
+    표(`font_switch.UI_SCALES`)와 화면 단추. **하나만 늘면 오류가 안 난다**:
+    표만 늘면 고를 단추가 없고, 단추만 늘면 눌러도 아무 일이 안 난다(둘 다 조용하다).
+
+    ★ 진짜 화면 파일은 **읽기만** 한다([247]) — `--sync` 를 돌리지 않는다.
+    ★ 모듈 표를 목으로 갈면 `finally` 로 되돌린다([371]).
+    """
+    import font_switch as FS
+
+    page = os.path.join(ROOT, "webapp", "index.html")
+    with open(page, encoding="utf-8") as fh:
+        html = fh.read()
+
+    # ① 표가 비어 있지 않고 '기본'(배율 1)이 있다 — 되돌릴 자리가 없으면 손잡이가 덫이다
+    assert FS.UI_SCALES, "글자 크기 표가 비었다"
+    assert FS.UI_SCALE_DEFAULT in FS.UI_SCALES, FS.UI_SCALE_DEFAULT
+    assert FS.UI_SCALES[FS.UI_SCALE_DEFAULT]["값"] == "1", (
+        "기본 배율이 1 이 아니다 — 안 고른 사람의 화면이 바뀐다([172])")
+
+    # ② 화면 단추가 표와 **글자까지** 같다 = `--sync` 가 끝나 있다([246]).
+    #    실행해서 만들어 보고 파일과 대 본다([295] — 글자 검사가 아니라 결과 검사다).
+    eol = "\r\n" if "\r\n" in html else "\n"
+    want = FS.scale_cards(eol)
+    assert want in html, (
+        "화면의 글자 크기 단추가 표와 다르다 — `python webapp/font_switch.py --sync` 를 돌려야 한다")
+
+    # ③ 배율 값은 **단추에 실려** 온다 — 화면 JS 가 숫자를 손으로 적으면 사본이 둘 된다
+    for k, s in FS.UI_SCALES.items():
+        assert ('data-scalekey="%s"' % k) in html, k
+        assert ('data-scaleval="%s"' % s["값"]) in html, (k, s["값"])
+    assert "getAttribute('data-scaleval')" in html, (
+        "화면 JS 가 배율을 단추에서 안 읽는다 — 값을 두 곳에 적으면 언젠가 갈린다([162])")
+
+    # ④ 이 기기 설정 초기화가 이 열쇠도 지운다 — 안 넣으면 '초기화'가 거짓말이 된다
+    assert "'csos_ui_scale'" in html, "초기화 열쇠 목록에 csos_ui_scale 이 없다"
+
+    # ⑤ 모르는 이름은 **아무것도 안 바꾼다**([169]·[246] — 0건 성공 금지)
+    assert "모르는 글자 크기입니다" in html, (
+        "모르는 배율 이름을 조용히 넘긴다 — 사람은 눌렀는데 안 바뀐 줄 안다")
+
+    # ⑥ 계기 자기시험([272]) — 표에 하나 더하면 ②가 정말 잡는가
+    saved = dict(FS.UI_SCALES)
+    try:
+        FS.UI_SCALES["s175"] = {"이름": "시험", "값": "1.75", "설명": "시험"}
+        assert FS.scale_cards(eol) not in html, "②가 눈멀었다 — 표가 늘어도 안 잡는다"
+    finally:
+        FS.UI_SCALES.clear()
+        FS.UI_SCALES.update(saved)      # 모듈 표는 프로세스 전체의 것이다([371])
+    assert FS.scale_cards(eol) in html, "되돌리기 실패 — 표가 원래대로 안 돌아왔다"
+
+    print("  ✔ [535] 글자 크기 손잡이 — 표 %d개가 단추와 같은 집합 · 값은 단추에서 읽음 · "
+          "초기화 열쇠 포함 · 모르는 이름 거절" % len(FS.UI_SCALES))
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51790,6 +51848,7 @@ if __name__ == "__main__":
     t531_settings_screen_holds_only_settings()
     t532_console_does_not_hardcode_archive_schedule()
     t534_camp_supplement_is_marked_not_disguised()
+    t535_text_scale_dial_comes_from_one_table()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

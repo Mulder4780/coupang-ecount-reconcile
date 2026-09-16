@@ -5410,6 +5410,31 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
         </div>
         <p class="sub" id="fontNow">확인 중…</p>
 
+        <!-- 글자 크기 — [72] 가 넣어 둔 `--ui-scale` 을 **고르는 손잡이**다(분담판 [184]).
+             표는 webapp/font_switch.py 의 `UI_SCALES` 한 곳이고 이 단추는 거기서
+             만들어진다([162]·[246]) — 손으로 고치면 다음 `--sync` 에 덮인다. -->
+        <div class="set-sub">글자 크기</div>
+        <div class="ui-cards" id="scaleCards">
+        <!-- ▼ 글자 크기 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (SCALE-CARDS:BEGIN) -->
+        <button class="ui-card" type="button" data-scalekey="s90" data-scaleval="0.9" onclick="setUiScale(&#39;s90&#39;)">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>조금 작게</b><span>한 화면에 더 많이 보입니다</span><span class="norm">기본의 0.9배 — 이 기기에서만</span></span></button>
+        <button class="ui-card" type="button" data-scalekey="s100" data-scaleval="1" onclick="setUiScale(&#39;s100&#39;)">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>기본</b><span>지금 쓰던 크기 그대로입니다</span><span class="norm">기본의 1배 — 이 기기에서만</span></span></button>
+        <button class="ui-card" type="button" data-scalekey="s110" data-scaleval="1.1" onclick="setUiScale(&#39;s110&#39;)">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>조금 크게</b><span>글씨가 한 단계 커집니다</span><span class="norm">기본의 1.1배 — 이 기기에서만</span></span></button>
+        <button class="ui-card" type="button" data-scalekey="s125" data-scaleval="1.25" onclick="setUiScale(&#39;s125&#39;)">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>크게</b><span>멀리서도 읽힙니다</span><span class="norm">기본의 1.25배 — 이 기기에서만</span></span></button>
+        <button class="ui-card" type="button" data-scalekey="s150" data-scaleval="1.5" onclick="setUiScale(&#39;s150&#39;)">
+          <span class="ui-card-ic"><svg aria-hidden="true"><use href="#i-bootstrap-check-lg"/></svg></span>
+          <span class="ui-card-tx"><b>아주 크게</b><span>표는 옆으로 밀어서 봅니다</span><span class="norm">기본의 1.5배 — 이 기기에서만</span></span></button>
+      <!-- ▲ (SCALE-CARDS:END) -->
+        </div>
+        <p class="sub" id="scaleNow">확인 중…</p>
+
         <!-- 화면 밝기 — toggleTheme() 은 세 상태를 **도는** 단추라 원하는 값을 못
              고른다. 그래서 setThemeMode(m) 를 따로 두되, 속은 applyTheme 를 그대로
              부른다([162] — 판정을 새로 만들지 않는다). -->
@@ -6154,6 +6179,65 @@ function setFontPreset(key){
 }
 /* 예전 이름 — 다른 코드가 부를 수 있으므로 남긴다(뜻은 그대로다). */
 function setFontLegacy(on){ setFontPreset(on ? 'legacy' : 'basic'); }
+
+/* ── 글자 크기 배율 (분담판 [184] — [72] 의 남은 반쪽) ──────────────────────
+   [72] 가 `html{font-size:calc(16px * var(--ui-scale,1))}` 까지 넣어 두었는데
+   그 값을 **고르는 손잡이가 없었다**. 기본 1 이라 안전했지만 아무도 못 썼다.
+   ★ 배율 값은 화면이 안 적는다 — 단추의 `data-scaleval` 에 실려 온다. 표는
+     `font_switch.UI_SCALES` 한 곳이고([162]) 여기는 그 값을 쓸 뿐이다.
+   ★ **이 기기에서만**이다(localStorage) — 업무 자료는 한 글자도 안 바뀐다. */
+function setUiScale(key){
+  const box = document.getElementById('scaleCards');
+  const btn = box && box.querySelector('[data-scalekey="'+key+'"]');
+  /* 모르는 이름이면 **아무것도 안 한다**([169]·[246] — 0건 성공 금지).
+     조용히 기본으로 되돌리면 사람은 눌렀는데 안 바뀐 줄 안다. */
+  if(!btn){ if(typeof toast === 'function') toast('모르는 글자 크기입니다: ' + key); return; }
+  const v = btn.getAttribute('data-scaleval') || '1';
+  const r = document.documentElement;
+  if(v === '1') r.style.removeProperty('--ui-scale');
+  else r.style.setProperty('--ui-scale', v);
+  try{ localStorage.setItem('csos_ui_scale', key); }catch(e){}
+  uxEvent('tap', 'uiscale-' + key);
+  markScalePick();
+  if(typeof toast === 'function'){
+    const b = btn.querySelector('b');
+    toast((b ? b.textContent : key) + ' 로 바꿨습니다 — 이 기기에서만');
+  }
+}
+/* 지금 고른 것을 화면에 표시한다 — 안 보이면 눌러 놓고도 계속 다시 누른다. */
+function markScalePick(){
+  const box = document.getElementById('scaleCards');
+  if(!box) return;
+  let cur = 's100';
+  try{ cur = localStorage.getItem('csos_ui_scale') || 's100'; }catch(e){}
+  if(!box.querySelector('[data-scalekey="'+cur+'"]')) cur = 's100';
+  box.querySelectorAll('[data-scalekey]').forEach(b => {
+    const on = b.getAttribute('data-scalekey') === cur;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const line = document.getElementById('scaleNow');
+  if(line){
+    const b = box.querySelector('[data-scalekey="'+cur+'"] b');
+    line.textContent = '지금: ' + (b ? b.textContent : cur) + ' · 이 브라우저에서만 기억합니다';
+  }
+}
+/* 부팅 때 되살린다. ★ **카드가 그려지기 전에도** 배율은 걸려야 한다 —
+   안 그러면 화면이 기본 크기로 한 번 그려졌다가 튄다. 그래서 값은 표에서
+   못 찾더라도 저장된 열쇠에서 바로 읽어 건다(열쇠 이름이 곧 배율이 아니므로
+   카드가 생긴 뒤 markScalePick 이 다시 맞춘다). */
+try{
+  const _sk = localStorage.getItem('csos_ui_scale');
+  if(_sk && _sk !== 's100'){
+    const _m = String(_sk).match(/^s(\d{2,3})$/);
+    if(_m) document.documentElement.style.setProperty('--ui-scale', String(Number(_m[1]) / 100));
+  }
+}catch(e){}
+try{
+  if(document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', markScalePick);
+  else markScalePick();
+}catch(e){}
 /* 지금 고른 것을 화면에 표시한다. '무엇이 켜져 있나'를 안 보여 주면
    사람이 눌러 놓고도 바뀌었는지 몰라 계속 다시 누른다. */
 function markFontPick(){
@@ -6755,7 +6839,7 @@ watchSystemTheme(true);
    비어 보이는데, 화면에는 "되돌렸습니다" 라고 뜬다([169]).
    점(.)이 든 열쇠라 `csos_` 접두어 검색에도 안 걸렸다 — 이름 모양이 다르면
    눈으로도 안 보인다. */
-const DEVICE_PREF_KEYS = ['csos_font_preset','csos_font_legacy','cw_theme',
+const DEVICE_PREF_KEYS = ['csos_font_preset','csos_font_legacy','csos_ui_scale','cw_theme',
   'csos_dashboard_layout_v2','csos_dashboard_layout_v1','csos_center_layout_v1',
   'csos_org_order_v1','csos_help_open','csos_sec_folded',
   'csos_list_group','csos_install_hint_off','qp_hint',

@@ -284,6 +284,69 @@ def _esc(s):
              .replace('"', "&quot;"))
 
 
+# ── 글자 크기 배율 (2026-08-20 형님 지시 [72] 의 남은 반쪽 · 분담판 [184]) ──────
+#    [72] 가 `html{font-size:calc(16px * var(--ui-scale,1))}` 까지 넣어 두었는데
+#    **그 값을 고르는 손잡이가 없었다** — 기본 1 이라 안전했지만 아무도 못 썼다.
+#    ★ 표는 **여기 한 곳**이다([162]·[246]). 화면에 이름을 손으로 적으면, 배율을
+#      하나 더한 날 단추만 늘거나 값만 늘면서 **오류가 안 난다**.
+#    ★ CSS 프리셋을 안 만든다 — 글꼴과 달리 이 층은 **값 하나**(`--ui-scale`)라
+#      화면 JS 가 그 값을 그대로 설정하면 된다. 없는 층을 만들지 않는다([172]).
+UI_SCALES = {
+    "s90":  {"이름": "조금 작게", "값": "0.9",  "설명": "한 화면에 더 많이 보입니다"},
+    "s100": {"이름": "기본",      "값": "1",    "설명": "지금 쓰던 크기 그대로입니다"},
+    "s110": {"이름": "조금 크게", "값": "1.1",  "설명": "글씨가 한 단계 커집니다"},
+    "s125": {"이름": "크게",      "값": "1.25", "설명": "멀리서도 읽힙니다"},
+    "s150": {"이름": "아주 크게", "값": "1.5",  "설명": "표는 옆으로 밀어서 봅니다"},
+}
+UI_SCALE_DEFAULT = "s100"
+
+SCALE_BEGIN = "<!-- ▼ 글자 크기 단추 — font_switch.py 가 만든다. 손으로 고치지 말 것 (SCALE-CARDS:BEGIN) -->"
+SCALE_END = "<!-- ▲ (SCALE-CARDS:END) -->"
+SCALE_RE = re.compile(re.escape(SCALE_BEGIN) + r".*?" + re.escape(SCALE_END), re.S)
+# ★ 고르는 화면은 **앱 하나**다 — 폰 사본(docs/app.html)에는 글꼴 카드도 없다([74]).
+#   거기까지 넣을지는 형님 판단이라 여기서 정하지 않는다([169]).
+SCALE_FILES = (os.path.join("webapp", "index.html"),)
+
+
+def scale_cards(eol="\n"):
+    """글자 크기 단추들 — 글꼴 카드와 **같은 모양**(ui-card)이라 나란히 선다."""
+    L = [SCALE_BEGIN]
+    for k, s in UI_SCALES.items():
+        ic = "i-bootstrap-check-lg"
+        # 배율 값을 **단추에 싣는다** — 화면 JS 가 값을 적으면 사본이 둘 된다([162]).
+        L.append('        <button class="ui-card" type="button" data-scalekey="%s"'
+                 ' data-scaleval="%s" onclick="setUiScale(&#39;%s&#39;)">'
+                 % (k, _esc(s["값"]), k))
+        L.append('          <span class="ui-card-ic"><svg aria-hidden="true">'
+                 '<use href="#%s"/></svg></span>' % ic)
+        # ★ 배율을 **숫자로도** 적는다 — '크게'가 얼마나 큰지는 낱말로 안 전해진다.
+        L.append('          <span class="ui-card-tx"><b>%s</b><span>%s</span>'
+                 '<span class="norm">기본의 %s배 — 이 기기에서만</span></span></button>'
+                 % (_esc(s["이름"]), _esc(s["설명"]), _esc(s["값"])))
+    L.append("      " + SCALE_END)
+    return eol.join(L)
+
+
+def sync_scale_cards():
+    """화면의 글자 크기 단추를 표와 맞춘다. 바뀐 파일 목록을 돌려준다.
+
+    ★ 자리를 못 찾으면 **조용히 넘어가지 않는다**([169]) — 표만 늘고 화면은
+      그대로인데 아무 오류도 안 나는 자리다.
+    """
+    out = []
+    for rel in SCALE_FILES:
+        text = _read(rel)
+        eol = _eol(text)
+        want = scale_cards(eol)
+        if not SCALE_RE.search(text):
+            raise RuntimeError("%s 에 글자 크기 단추 자리(SCALE-CARDS)가 없다" % rel)
+        new = SCALE_RE.sub(lambda m: want, text, count=1)
+        if new != text:
+            _write(rel, new)
+            out.append(rel)
+    return out
+
+
 def preset_cards(eol="\n", style="app"):
     """글꼴 단추들. **표 하나에서 만들어진다** — 화면마다 모양만 다르다.
 
@@ -438,7 +501,7 @@ def main():
         return 0
     if arg == "--sync":
         changed = sync_presets()
-        for r in sync_cards():
+        for r in sync_cards() + sync_scale_cards():
             if r not in changed:
                 changed.append(r)
         print("프리셋 블록·화면 단추를 표와 맞췄습니다 — 고친 파일 %d개%s"
