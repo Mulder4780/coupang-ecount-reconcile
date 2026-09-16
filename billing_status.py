@@ -50,6 +50,20 @@ LADDER = ["작업완료", "거래명세서발행", "세금계산서발행", "청
 REPORT = os.path.join(ROOT, "reports", "청구상태_반영.md")
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def plan():
     """무엇을 어떻게 바꿀지 정한다(엑셀·DB 를 건드리지 않는다)."""
     import ecount_reconcile as R
@@ -143,7 +157,7 @@ def write_report(p):
         f.write("| 정산 상태 | 건수 |\n|---|---|\n")
         for k, n in sorted(p["대상아님"].items(), key=lambda x: -x[1]):
             f.write("| %s | %d |\n" % (k, n))
-        f.write("\n※ 엑셀은 열지 않습니다. `--queue` 로 넣으면 11:00·15:00 회차가 반영합니다.\n")
+        f.write("\n※ 엑셀은 열지 않습니다. `--queue` 로 넣으면 보관본 회차가 씁니다 — " + _archive_when() + "\n")
     return REPORT
 
 
@@ -168,7 +182,7 @@ def main(argv=None):
         return 0
     import ledger_db
     added = ledger_db.enqueue(items, source="billing_status", ingest_prefix="billstat")
-    print("  대기열 %d건 (11:00·15:00 회차가 반영)" % added)
+    print("  대기열 %d건 (Excel 보관본은 %s)" % (added, _archive_when()))
     return 0
 
 

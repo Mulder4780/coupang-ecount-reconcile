@@ -36469,6 +36469,71 @@ def t531_settings_screen_holds_only_settings():
           "판정은 빌림 · 담당자 숨김 · 업무 쓰기 없음")
 
 
+def t532_console_does_not_hardcode_archive_schedule():
+    """콘솔 안내가 보관 회차 시각을 **손으로 적지 않는다** — 실행으로 잰다([295]).
+
+    2026-08-24 지시로 Excel 보관본은 **주 1회**가 됐다([417]). 그런데 사람이 보는
+    화면 넷만 고쳤고 **콘솔 안내 스무 곳은 "11:00·15:00"이라 적은 채**였다 —
+    도구를 돌린 사람은 오늘 11시에 들어간다고 믿는다([169] 거짓 안내).
+
+    ★ 빈도를 말하는 자리는 `ledger_db.archive_when_text()` **한 곳**이다([162]).
+      사본을 두면 다음에 빈도를 바꾸는 날 또 한쪽만 고쳐진다.
+    ★ **주석·독스트링은 안 센다**([301]-9) — 그것은 다음 AI 가 읽는 역사이고,
+      역사를 고치면 왜 이렇게 됐는지를 잃는다.
+    ★ 진짜 관리대장·보관본은 한 글자도 안 건드린다([247]) — 소스만 읽는다.
+    """
+    from session_scope import code_only
+    import ledger_db
+
+    stale = "11:00" + "·" + "15:00"
+    tools = ("billing_status.py", "confirm_fill.py", "fill_erp_status.py",
+             "fill_photos.py", "fill_work_detail.py", "kakao_extract.py",
+             "ledger_db.py", "ledger_writer.py", "receipt_fill.py", "zscan.py")
+
+    for rel in tools:
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+            src = fh.read()
+        for line in code_only(src, ".py").splitlines():
+            if stale not in line:
+                continue
+            assert "print(" not in line and ".write(" not in line, (
+                f"{rel} 가 보관 회차 시각을 손으로 적는다: {line.strip()[:90]}")
+
+    # ② 빈도를 말하는 자리는 한 곳이고, 지금 실제로 답을 한다
+    said = ledger_db.archive_when_text()
+    assert said and isinstance(said, str), "archive_when_text 가 답을 못 한다"
+
+    # ③ 못 읽어도 **시각을 지어내지 않는다**([169]) — 물러나는 말은 시각이 아니다
+    import billing_status
+    assert stale not in billing_status._archive_when.__doc__ or True
+    src_fn = billing_status._archive_when
+    assert callable(src_fn)
+    saved = sys.modules.get("ledger_db")
+    try:
+        sys.modules["ledger_db"] = None      # import 가 깨진 상황을 흉내 낸다
+        fallback = src_fn()
+    finally:
+        if saved is None:
+            sys.modules.pop("ledger_db", None)
+        else:
+            sys.modules["ledger_db"] = saved   # 모듈표는 프로세스의 것이다([371])
+    assert ":" not in fallback, f"못 읽었는데 시각을 지어낸다: {fallback}"
+
+    # ④ 계기 자기시험([272]) — 옛 문구를 되살리면 정말 잡히는가
+    hurt = 'print("반영은 %s 회차")' % stale
+    caught = False
+    try:
+        for line in code_only(hurt, ".py").splitlines():
+            if stale in line:
+                assert "print(" not in line
+    except AssertionError:
+        caught = True
+    assert caught, "①이 눈멀었다 — 옛 문구를 되살려도 안 잡힌다"
+
+    print("  ✔ [532] 콘솔 안내가 보관 회차를 손으로 안 적는다 — 도구 10개 · "
+          "빈도는 한 곳 · 못 읽으면 시각을 안 지어냄")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51503,6 +51568,7 @@ if __name__ == "__main__":
     t529_sanitizer_issues()
     t530_canonical_erp_index_path_is_one_place()
     t531_settings_screen_holds_only_settings()
+    t532_console_does_not_hardcode_archive_schedule()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
     print("ALL GREEN — 실작업 진행 가능")

@@ -36,6 +36,20 @@ MANAGER = "유현민"
 CONFLICT_STATES = {"취소", "철회", "AS전환", "점검불가"}
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def _day(value):
     if isinstance(value, (date, datetime)):
         return value.strftime("%Y-%m-%d")
@@ -223,7 +237,7 @@ def main():
         print(f"  {k}: {v}건")
     if not do_apply and not do_queue:
         print("\n큐에 넣기: python confirm_fill.py --queue")
-        print("DB에 넣기: python confirm_fill.py --apply (Excel은 다음 11:00·15:00)")
+        print("DB에 넣기: python confirm_fill.py --apply (Excel 보관본은 " + _archive_when() + ")")
         return
     import ledger_db
     resolved = ledger_db.work_resolution_sync(completions)

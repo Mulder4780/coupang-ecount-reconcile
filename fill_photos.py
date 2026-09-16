@@ -40,6 +40,20 @@ TARGET = [("02_돌발AS접수", "사진등록"), ("04_정기점검", "점검사�
 VALUE = "등록"          # 두 열 모두 기존 값이 '등록' 이다(유효성 목록 안)
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def band_photo_counts():
     """프로젝트NO → 밴드 글의 사진 장수(여러 글이면 가장 많은 쪽)."""
     from band_extract import load_records
@@ -112,7 +126,7 @@ def main():
         print("채울 것 없음")
         return 0
     from ledger_writer import queue_add
-    print("큐 적재:", queue_add(items), "개 셀 → ledger_db --intake 후 11:00·15:00 원장 반영")
+    print("큐 적재:", queue_add(items), "개 셀 → ledger_db --intake · Excel 보관본은", _archive_when())
     return 0
 
 

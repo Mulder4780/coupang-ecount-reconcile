@@ -38,6 +38,20 @@ PENDING = os.path.join(UPD_DIR, "pending_updates.json")
 HDR_ROW, FIRST = 4, 5
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def col_letter(n):
     s = ""
     while n > 0:
@@ -602,7 +616,7 @@ def main():
         moved = ledger_db.intake_json(source=os.environ.get("CSOS_AI") or "legacy-command")
         state = ledger_db.status()
         print(f"즉시 엑셀 반영 차단 — DB 적재 {moved}건 / 대기 {state.get('대기', 0)}건")
-        print(f"다음 엑셀 반영: {state.get('다음반영', '11:00·15:00')}")
+        print(f"다음 Excel 보관본: {state.get('다음반영') or _archive_when()}")
         return
     # 실제 원장 쓰기 게이트를 통과한 뒤에도 다른 AI가 원장을 잡고 있으면 멈춘다.
     from claim_guard import require

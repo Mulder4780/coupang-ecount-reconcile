@@ -36,6 +36,20 @@ EXTRACT_DATE_FIELDS = ("예정일", "신청일자", "완료일")
 sys.path.insert(0, BASE_DIR)
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def _load_reconcile():
     """kakao/kakao_reconcile.py 의 parse_export 재사용 (내보내기 형식 파싱은 한 곳에만 둔다)."""
     path = os.path.join(BASE_DIR, "kakao", "kakao_reconcile.py")
@@ -698,7 +712,7 @@ def main():
         print("\n등록 대상 %d건 / 셀 %d개" % (len(plan), len(queue)))
         if queue:
             from ledger_writer import queue_add
-            print("큐 적재:", queue_add(queue), "개 셀 → ledger_db --intake 후 11:00·15:00 원장 반영")
+            print("큐 적재:", queue_add(queue), "개 셀 → ledger_db --intake · Excel 보관본은", _archive_when())
     return 0
 
 

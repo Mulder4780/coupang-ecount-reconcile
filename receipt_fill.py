@@ -43,6 +43,20 @@ DEPOSIT_PARSE_CACHE = os.path.join(REPORT_DIR, "receipt_rows.json")
 DEPOSIT_DAILY_NAME = "입금_집계.json"
 
 
+def _archive_when():
+    """Excel 보관본을 **언제** 만드나 — 판정은 `ledger_db` 한 곳에서 빌린다([162]).
+
+    빈도는 2026-08-24 지시로 주 1회가 됐는데([417]) 이 콘솔 안내는 "11:00·15:00"
+    이라 적고 있었다 — 사본을 두면 빈도를 바꾼 날 한쪽만 고쳐져 **거짓을 말한다**.
+    못 읽으면 시각을 지어내지 않는다([169]).
+    """
+    try:
+        from ledger_db import archive_when_text
+        return archive_when_text()
+    except Exception:
+        return "보관 회차"
+
+
 def _load_json(path, default):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -689,7 +703,7 @@ def main():
         print("적재할 항목 없음")
         return 0
     from ledger_writer import queue_add
-    print("큐 적재:", queue_add(items), "개 셀 → ledger_db --intake 후 11:00·15:00 원장 반영")
+    print("큐 적재:", queue_add(items), "개 셀 → ledger_db --intake · Excel 보관본은", _archive_when())
     return 0
 
 

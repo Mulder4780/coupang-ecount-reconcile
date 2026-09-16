@@ -3280,7 +3280,7 @@ def main():
         n = handoff_add(title, detail, supersede=sup)
         print("19시트 인수인계 DB 예약:", "추가 1건" if n else "이미 같은 예약 있음",
               "(같은 제목의 앞선 대기는 내림)" if sup else "")
-        print("Excel 기록은 다음 11:00·15:00 회차 마지막에 수행")
+        print("Excel 보관본은 %s 회차 마지막에 만든다" % archive_when_text())
         return
     if "--apply" in sys.argv:
         with apply_lock():
