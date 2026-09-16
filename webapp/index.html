@@ -12519,6 +12519,21 @@ function flowVisualStageDown(e){
     stage.addEventListener('pointercancel',up); return;
   }
   FLOW_VIS_SELECTED=null; flowVisualSelectionUpdate();
+  // ★ [119] 빈 작업면을 끌면 **작업면을 민다** (2026-09-17).
+  //   작업면은 1400×820 에 touch-action:none 이라 폰은 손가락으로 .flow-vscroll 을
+  //   못 민다 — 왼쪽 밖 단계에 가려면 스크롤바를 끌어야 했다.
+  //   ★ select 모드에서만 건다 — add·draw 는 위에서 이미 돌아갔고, arrow 는
+  //     빈 곳 누름이 '연결 취소'라 미는 손짓과 겹치면 안 된다([172]).
+  //   ★ 단계·선·획 위에서 시작한 누름은 맨 위에서 이미 빠졌다 — 끌기와 안 섞인다.
+  if(FLOW_VIS_MODE!=='select')return;
+  const sc=$('flowVisualScroll'), stage=$('flowVisualStage'); if(!sc||!stage)return;
+  const x0=e.clientX, y0=e.clientY, l0=sc.scrollLeft, t0=sc.scrollTop;
+  try{stage.setPointerCapture(e.pointerId);}catch(_){}
+  const move=ev=>{sc.scrollLeft=l0-(ev.clientX-x0); sc.scrollTop=t0-(ev.clientY-y0);};
+  const up=()=>{stage.removeEventListener('pointermove',move);
+    stage.removeEventListener('pointerup',up); stage.removeEventListener('pointercancel',up);};
+  stage.addEventListener('pointermove',move); stage.addEventListener('pointerup',up);
+  stage.addEventListener('pointercancel',up);
 }
 function flowVisualNodeDown(e,id){
   e.preventDefault(); e.stopPropagation();
