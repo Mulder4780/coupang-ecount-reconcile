@@ -394,6 +394,16 @@ def main(argv: list[str] | None = None) -> int:
         + (" (이미 받음)" if v.get("cached") else "") if v.get("count") is not None
         else f"{v['label']} 실패({v.get('갈래', '모름')})"
         for v in result.get("sources", {}).values())
+    # ★ **안 한 것을 했다고 적지 않는다**([169]). 자동 수집 중단이면 이 길은 바깥을
+    #   한 번도 안 부르고 돌아오는데, 예전에는 그것도 "수집·DB 반영 완료" 라고 적었다 —
+    #   사람은 방금 ERP 를 읽어 온 줄 안다(실측 2026-09-16). 건너뛴 것은 **실패가
+    #   아니지만 완료도 아니다** — 갈래를 따로 적고 되돌리는 법을 같이 말한다.
+    if result.get("skipped"):
+        why = str(result.get("why") or "").strip()
+        print("ERP API 건너뜀 — 바깥을 한 번도 안 불렀습니다"
+              + (" (" + why + ")" if why else "")
+              + " · 사람이 명령할 때만 돕니다: python erp_api_collect.py --force")
+        return 0
     print(("ERP API 캐시 재사용" if result.get("cached") else
            "ERP API 수집·DB 반영 완료" if result.get("ok") else "ERP API 일부 실패")
           + (" · " + detail if detail else ""))

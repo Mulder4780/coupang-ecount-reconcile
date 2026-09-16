@@ -36808,6 +36808,70 @@ def t535_text_scale_dial_comes_from_one_table():
           "초기화 열쇠 포함 · 모르는 이름 거절" % len(FS.UI_SCALES))
 
 
+def t536_skipped_erp_collection_is_not_called_done():
+    """ERP 수집을 **건너뛴 회차를 '완료'라 적지 않는다** — 실행으로 잰다([295]).
+
+    2026-09-08 지시로 ERP 자동 수집이 멈춰 있다. 그 길은 이카운트를 **한 번도 안
+    부르고** 돌아오는데, 예전에는 그것도 `"ERP API 수집·DB 반영 완료"` 라고 찍었다
+    (실측 2026-09-16) — 그 말을 본 사람은 방금 ERP 를 읽어 온 줄 안다([169]).
+
+    ★ 건너뛴 것은 **실패가 아니다**([293]·[170]) — 실패로 적으면 회차마다 가짜
+      경보가 인계 맨 위를 차지한다. 그래서 갈래를 따로 두고 **되돌리는 법**을
+      같이 말한다.
+    ★ 이카운트를 한 번도 안 부른다([247]·절대규칙 3) — `collect` 를 목으로 갈고
+      `finally` 로 되돌린다([371]).
+    """
+    import io as _io
+    import contextlib
+    import erp_api_collect as C
+
+    def run(fake):
+        real = C.collect
+        buf = _io.StringIO()
+        try:
+            C.collect = lambda *a, **k: fake
+            with contextlib.redirect_stdout(buf):
+                code = C.main([])
+        finally:
+            C.collect = real          # 모듈 속성은 프로세스 전체의 것이다([371])
+        return code, buf.getvalue()
+
+    # ① 건너뛴 회차 — '완료'라 적지 않고, 무엇을 안 했는지 말한다
+    code, out = run({"ok": True, "skipped": "collect_stopped",
+                     "why": "ERP 자동 수집 중단(시험)", "sources": {}})
+    assert "완료" not in out, "건너뛰었는데 '완료'라고 적는다 — 사람은 읽어 온 줄 안다([169])"
+    assert "건너뜀" in out, out
+    assert "한 번도 안 불렀습니다" in out, out
+    # ★ 왜 건너뛰었는지와 **되돌리는 법**을 같이 말한다 — 안 적으면 다시 켤 길을 잃는다
+    assert "ERP 자동 수집 중단(시험)" in out, out
+    assert "--force" in out, out
+    # ★ 건너뜀은 실패가 아니다 — 0 이 아니면 회차가 매번 빨갛게 적는다([170])
+    assert code == 0, f"건너뜀을 실패로 끝냈다(exit {code})"
+
+    # ② 진짜로 받아 온 회차는 예전 그대로다([172] — 좁히는 것도 고장이다)
+    code, out = run({"ok": True, "sources": {
+        "items": {"label": "품목", "count": 8101}}})
+    assert "수집·DB 반영 완료" in out and "8,101건" in out, out
+    assert code == 0, code
+
+    # ③ 일부 실패도 그대로 드러난다 — 조용히 '완료'로 뭉개지 않는다
+    code, out = run({"ok": False, "sources": {
+        "items": {"label": "품목", "count": 8101},
+        "po_list": {"label": "발주서", "count": None, "갈래": "요청 본문 형식"}}})
+    assert "일부 실패" in out and "발주서 실패(요청 본문 형식)" in out, out
+    assert code == 1, code
+
+    # ④ 계기 자기시험([272]) — 건너뜀 갈래를 빼면 ①이 정말 잡는가
+    src_path = os.path.join(ROOT, "erp_api_collect.py")
+    with open(src_path, encoding="utf-8") as fh:
+        src = fh.read()
+    assert 'if result.get("skipped"):' in src, (
+        "건너뜀 갈래가 사라졌다 — 그러면 건너뛴 회차가 다시 '완료'로 찍힌다")
+
+    print("  ✔ [536] 건너뛴 ERP 수집을 '완료'라 안 적는다 — 이유·되돌리는 법을 같이 말하고 "
+          "실패로도 안 센다 · 받아 온 회차는 그대로")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -51849,6 +51913,7 @@ if __name__ == "__main__":
     t532_console_does_not_hardcode_archive_schedule()
     t534_camp_supplement_is_marked_not_disguised()
     t535_text_scale_dial_comes_from_one_table()
+    t536_skipped_erp_collection_is_not_called_done()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
