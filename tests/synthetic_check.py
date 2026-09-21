@@ -36983,6 +36983,86 @@ def t537_nameless_tmp_band_dump_is_absorbed():
           "dump_ 이름으로 옮김 · 제 이름 덤프 그대로 · 회차 신호도 봄 · 자기시험")
 
 
+def t538_sop_book_and_pictures():
+    """업무별 절차서 책·사진/도면 — 실행으로 잰다([295] · 2026-09-22 형님 지시).
+
+    "돌발 AS, 정기점검 각각 파일 1개로" · "사진과 도면도 올려서 정리".
+    계약: ① 그림 칸이 담기고 빈 것은 버린다 ② 옛 판(그림 칸 없음)이 새 판과 같은
+    지문이다 — 아니면 자동 갱신이 매 회차 '바뀜'이 된다([170]) ③ 책은 적힌
+    **차례 그대로** 나온다 ④ 판에 없는 번호로 책을 못 만든다([169]) ⑤ 워드에
+    그림이 실제로 박힌다 · 없는 그림은 '못 넣음'이라 적는다(조용히 빼지 않는다)
+    ⑥ 빈 책은 파일을 안 만든다. 진짜 판·폴더는 안 건드린다([247] · 임시 판으로만).
+    """
+    import base64
+    import tempfile
+    import zipfile
+    import sop_store as S
+    import sop_export as X
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+    with tempfile.TemporaryDirectory() as tmp:
+        store = os.path.join(tmp, "sop.json")
+        img = os.path.join(tmp, "pic.png")
+        with open(img, "wb") as fh:
+            fh.write(png)
+
+        # ① 그림 칸
+        r = S.normalize({"제목": "가", "단계": ["첫", "둘"],
+                         "그림": [{"파일": img, "설명": "도면", "단계": 2},
+                                  {"파일": ""}, "끝그림.png"]})
+        assert [g["파일"] for g in r["그림"]] == [img, "끝그림.png"], r["그림"]
+        assert r["그림"][0]["단계"] == 2 and r["그림"][1]["단계"] == 0, r["그림"]
+
+        # ② 옛 판 지문 — 그림 칸이 없던 기록도 새 판과 같은 지문이어야 한다
+        old = {"제목": "나", "단계": ["x"]}
+        assert S._본문지문(S.normalize(old)) == S._본문지문(S.normalize(dict(old, 그림=[]))), \
+            "그림 칸이 없는 옛 판이 '바뀜'으로 읽힌다([170])"
+
+        a = S.put({"제목": "가 장", "단계": ["첫 단계", "둘째 단계"],
+                   "그림": [{"파일": img, "설명": "둘째 단계 도면", "단계": 2},
+                            {"파일": os.path.join(tmp, "없는.png"), "설명": "빠진 사진"}]}, store)
+        b = S.put({"제목": "나 장", "단계": ["하나"]}, store)
+        c = S.put({"제목": "다 장", "단계": ["하나"]}, store)
+
+        # ④ 없는 번호로 책을 못 만든다
+        try:
+            S.set_book("책", [a, "SOP-999"], store)
+            raise AssertionError("판에 없는 번호로 책을 만들었다 — 장이 말없이 빠진다([169])")
+        except ValueError:
+            pass
+
+        # ③ 적힌 차례 그대로
+        S.set_book("책", [c, a, b], store)
+        d = S.load(store)
+        got = [x["id"] for x in S.pick(d, 묶음="책")]
+        assert got == [c, a, b], got
+        # 계기 자기시험([272]) — 묶음 없이 고르면 다른 차례다(곧 ③이 정말 무엇을 잰다)
+        assert [x["id"] for x in S.pick(d)] != [c, a, b], "재료가 차례를 못 가른다 — ③이 아무것도 안 잰다"
+
+        # ⑤ 워드에 그림이 박히고, 없는 그림은 적힌다
+        out = os.path.join(tmp, "book.docx")
+        X.export_docx(out, store=store, 묶음="책")
+        with zipfile.ZipFile(out) as z:
+            media = [n for n in z.namelist() if n.startswith("word/media/")]
+            xml = z.read("word/document.xml").decode("utf-8")
+        assert len(media) == 1, media
+        assert "둘째 단계 도면" in xml and "그림을 넣지 못함" in xml, "그림 설명·못 넣음 표시가 없다"
+        assert xml.index("차례") < xml.index("다 장"), "책 앞에 차례가 없다"
+
+        # ⑥ 빈 책은 파일을 안 만든다
+        miss = os.path.join(tmp, "none.docx")
+        try:
+            X.export_docx(miss, store=store, 묶음="없는 책")
+            raise AssertionError("없는 책으로 파일을 만들었다")
+        except RuntimeError:
+            pass
+        assert not os.path.exists(miss)
+
+    print("  ✔ [538] 업무별 절차서 책·사진/도면 — 그림 칸 · 옛 판 지문 그대로 · 적힌 차례 · "
+          "없는 번호 거절 · 그림 실제 삽입/못 넣음 표시 · 빈 책 안 만듦 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52098,6 +52178,7 @@ if __name__ == "__main__":
     t535_text_scale_dial_comes_from_one_table()
     t536_skipped_erp_collection_is_not_called_done()
     t537_nameless_tmp_band_dump_is_absorbed()
+    t538_sop_book_and_pictures()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

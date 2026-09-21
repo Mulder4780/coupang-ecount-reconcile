@@ -54,7 +54,7 @@ CONFIG = os.path.join(REPORTS, "절차서_설정.json")
 # 절차서 한 건이 가지는 칸.  유니웍스로 넘길 때 이 목록이 곧 계약이다.
 칸 = ("id", "제목", "부위", "작업종류", "공구", "단계", "마무리",
       "주의사항", "출처", "밴드글번호", "작성자", "수정일",
-      "판", "원천지문", "자동생성", "이전판")
+      "판", "원천지문", "자동생성", "이전판", "그림")
 
 # 판을 올릴지 볼 때 **빼는** 칸.  ★ 여기에 시계·판 자신이 남아 있으면
 #   내용이 하나도 안 바뀌어도 매 회차 "바뀜"이 되어 아무도 안 본다([170]).
@@ -166,6 +166,24 @@ def normalize(row):
         r["판"] = 1
     r["원천지문"] = (r.get("원천지문") or "").strip()
     r["자동생성"] = bool(r.get("자동생성"))
+
+    # 사진·도면(2026-09-22 형님 지시 "사진과 도면도 올려서 정리").
+    # ★ 파일 자체는 담지 않고 **이름만** 담는다 — 판(JSON)이 사진으로 부풀면
+    #   화면이 그 판을 읽을 때마다 무거워진다.  파일은 `그림폴더()` 에 둔다.
+    # `단계` 는 그 그림이 붙을 작업 순서(0 이면 절차서 끝의 '사진·도면' 칸).
+    그림 = []
+    for g in (r.get("그림") or []):
+        if isinstance(g, str):
+            g = {"파일": g}
+        if not isinstance(g, dict) or not str(g.get("파일") or "").strip():
+            continue
+        try:
+            단 = int(g.get("단계") or 0)
+        except Exception:
+            단 = 0
+        그림.append({"파일": str(g["파일"]).strip(),
+                     "설명": str(g.get("설명") or "").strip(), "단계": max(0, 단)})
+    r["그림"] = 그림
     이전 = r.get("이전판") or []
     r["이전판"] = [x for x in 이전 if isinstance(x, dict)][-_판보관:]
     return r
@@ -314,8 +332,65 @@ def set_out_dir(path):
     return path
 
 
-def pick(d, ids=None, 부위=None, 작업종류=None):
-    """내보낼 것을 고른다.  아무 조건이 없으면 전부."""
+def 그림폴더():
+    """사진·도면 파일을 두는 자리 — 내보내기 폴더 아래 `그림`."""
+    return os.path.join(out_dir(), "그림")
+
+
+def 그림경로(name):
+    """담긴 이름을 실제 경로로.  절대경로면 그대로 쓴다."""
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    return name if os.path.isabs(name) else os.path.join(그림폴더(), name)
+
+
+# ── 묶음 — 업무별로 한 파일 (2026-09-22 형님 지시) ───────────────────────
+# "돌발 AS, 정기점검 각각 파일 1개로 업무 절차서를 만들어야돼".
+# ★ 어느 절차서가 어느 책에 **어떤 차례로** 들어가는지를 판 안에 적는다 —
+#   명령줄에만 두면 다음 사람이 같은 책을 다시 못 만든다([162]).
+#   한 절차서가 두 책에 들어가도 된다(공통 장은 사본을 안 만들고 같이 쓴다).
+def books(d=None):
+    d = d if d is not None else load()
+    out = []
+    for b in d.get("묶음") or []:
+        if isinstance(b, dict) and str(b.get("이름") or "").strip():
+            out.append({"이름": str(b["이름"]).strip(),
+                        "id": [str(x) for x in (b.get("id") or []) if str(x).strip()]})
+    return out
+
+
+def set_book(name, ids, path=None):
+    d = load(path)
+    if d.get("_못읽음"):
+        raise RuntimeError("절차서 판을 못 읽어 쓰지 않는다: " + d["_못읽음"])
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("묶음 이름이 없다")
+    있는 = {r.get("id") for r in d.get("절차서", [])}
+    없는 = [x for x in ids if x not in 있는]
+    if 없는:
+        # ★ 없는 번호를 조용히 빼지 않는다([169]) — 책에서 장이 말없이 사라진다
+        raise ValueError("판에 없는 번호: " + ", ".join(없는))
+    bs = [b for b in books(d) if b["이름"] != name]
+    bs.append({"이름": name, "id": list(ids)})
+    d["묶음"] = bs
+    save(d, path)
+    return name
+
+
+def pick(d, ids=None, 부위=None, 작업종류=None, 묶음=None):
+    """내보낼 것을 고른다.  아무 조건이 없으면 전부.
+
+    묶음을 주면 그 책에 적힌 **차례 그대로** 준다(부위 차례로 다시 섞지 않는다 —
+    절차서는 읽는 순서가 곧 일의 순서다).
+    """
+    if 묶음:
+        by_id = {r.get("id"): r for r in d.get("절차서", [])}
+        for b in books(d):
+            if b["이름"] == 묶음:
+                return [by_id[i] for i in b["id"] if i in by_id]
+        return []
     rows = list(d.get("절차서", []))
     if ids:
         want = set(ids)
