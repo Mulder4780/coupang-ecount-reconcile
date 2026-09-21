@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -246,6 +247,42 @@ def _validated_rows(client: EcountClient, endpoint: str, body: dict[str, Any]) -
     return [dict(row) for row in rows if isinstance(row, dict)]
 
 
+PAGE_LIMIT = 30          # 한 갈래가 영영 도는 것을 막는 상한(최대 3,000건)
+
+
+def _paged_rows(client: EcountClient, endpoint: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    """페이지를 끝까지 넘겨서 받는다.
+
+    ★ **한 장은 상한이지 끝이 아니다**([273] 조용히 자르지 않는다). 2026-09-21 실측:
+    30일치 발주서가 정확히 100건에서 멈췄고 앞 보름치(08-22~09-07)가 통째로 빠져
+    있었는데, 화면은 '발주서 100건'이라 적어 **아무도 못 알아챈다.**
+    ★ `ListParam` 이 없는 갈래(품목)는 예전 그대로 한 번만 부른다([172] — 문제
+    없는 쪽을 건드리지 않는다).
+    ★ 더 안 늘면 멈춘다 — 서버가 같은 장을 계속 주는 날 무한히 부르지 않는다.
+    """
+    page_param = body.get("ListParam")
+    if not isinstance(page_param, dict):
+        return _validated_rows(client, endpoint, body)
+    size = int(page_param.get("PAGE_SIZE") or 100)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for page in range(1, PAGE_LIMIT + 1):
+        page_param["PAGE_CURRENT"] = page
+        got = _validated_rows(client, endpoint, body)
+        fresh = 0
+        for row in got:
+            key = json.dumps(row, sort_keys=True, ensure_ascii=False, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+            fresh += 1
+        if len(got) < size or fresh == 0:
+            break
+        time.sleep(1.1)      # 조회는 1초에 한 번이 한도다(이카운트 전송기준)
+    return rows
+
+
 def collect(endpoints: list[str], days: int = 120, force: bool = False) -> dict[str, Any]:
     # ★ 자동 수집 중단이면 바깥(이카운트)을 안 부른다 (2026-09-08 형님 지시).
     #   `--force` 는 **사람이 명령한 길**이라 그대로 통과한다([387] 의 무인 통과와
@@ -278,7 +315,10 @@ def collect(endpoints: list[str], days: int = 120, force: bool = False) -> dict[
     client = EcountClient(cfg)
     client.login()
     today = date.today()
-    start = today - timedelta(days=max(1, int(days)))
+    # ★ 발주서조회는 **최대 30일**이다 — 매뉴얼(구매관리API > 발주서조회, 2026-09-21 확인)이
+    #   그보다 넓은 구간을 EXP00001 "Search Range Is Less Than 31" 로 거절한다.
+    #   부른 쪽이 더 긴 날수를 줘도 여기서 자른다(짐작으로 다시 보내지 않는다).
+    start = today - timedelta(days=min(max(1, int(days)), 30))
     result: dict[str, Any] = {
         "ok": True, "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "mode": "test" if cfg.get("auth", {}).get("IS_TEST") else "live",
@@ -300,15 +340,25 @@ def collect(endpoints: list[str], days: int = 120, force: bool = False) -> dict[
                 keep["cached"] = True
                 result["sources"][endpoint] = keep
                 continue
+        # ★ 날짜는 **ListParam 안**에 싣는다 — 매뉴얼이 그렇게 적었다(2026-09-21 확인:
+        #   Self-Customizing > 정보관리 > API인증키발급 > [API매뉴얼] > 구매관리API >
+        #   발주서조회). 예전에는 최상위에 실어 보내 EXP00001 로 거절당했다.
+        #   짐작으로 칸 이름을 바꿔 다시 부르지 않고, 매뉴얼이 적은 그대로만 보낸다.
         body = {} if endpoint == "items" else {
-            "BASE_DATE_FROM": start.strftime("%Y%m%d"),
-            "BASE_DATE_TO": today.strftime("%Y%m%d"),
+            "PROD_CD": "",
+            "CUST_CD": "",
+            "ListParam": {
+                "PAGE_CURRENT": 1,
+                "PAGE_SIZE": 100,
+                "BASE_DATE_FROM": start.strftime("%Y%m%d"),
+                "BASE_DATE_TO": today.strftime("%Y%m%d"),
+            },
         }
         # ★ 한 갈래가 죽어도 **다른 갈래의 성공을 지우지 않는다.** 예전에는 여기서
         #   그대로 올려서, 품목이 멀쩡히 들어왔는데도 리포트에는 그 사실이 통째로
         #   사라지고 `ok:false` 한 줄만 남았다(성공을 실패로 적는 자리).
         try:
-            rows = _validated_rows(client, endpoint, body)
+            rows = _paged_rows(client, endpoint, body)
         except Exception as exc:
             fields = getattr(exc, "fields", {})
             broken[endpoint] = fields.get("갈래", "모름")

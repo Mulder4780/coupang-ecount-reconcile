@@ -2559,6 +2559,24 @@ body.staff-mode .tabbar button.staff-worklog-nav{display:flex}
 /* 폰 하단바에는 칸이 없다 — 사이드바(≥900px)에서만 메뉴로 노출.
    폰은 대시보드 상단 타일(정기점검 대기·돌발AS)로 같은 화면에 들어간다. */
 @media(max-width:899px){ .tabbar .worktab-nav{display:none} }
+
+/* ★ 폰 하단바: 앞 네 칸 + [전체 메뉴] (2026-09-21 형님 지시 [131]).
+   실측 2026-09-21(375×812): 하단바가 **화면 두 개 너비**(scrollWidth 748 / 375)라
+   보이는 탭 열한 개 중 다섯 개 반만 보였고, 나머지는 오른쪽 밖이었다 —
+   가로 스크롤은 **끝을 안 알려 주므로** 거기에 무엇이 더 있는지 알 길이 없다.
+   게다가 위 한 줄 때문에 업무 탭 일곱(정기점검·돌발AS·전국캠프·리모컨…)은
+   폰에서 **아예 안 나왔다.** 이제 그 일곱도 [전체 메뉴] 안에서는 보인다.
+   ★ 넓은 화면(≥900px) 사이드바는 한 줄도 안 건드린다([172]).
+   ★ 어느 칸을 앞에 둘지는 **사람이 끈 탭 순서**(cw_tab_order)가 정한다 —
+     여기에 이름을 못 박으면 그 기능이 조용히 죽는다([162]). */
+/* ⚠ 기본 규칙이 **미디어쿼리보다 먼저** 와야 한다 — 뒤에 두면 같은 힘이라
+   나중 것이 이겨 폰에서도 [전체 메뉴]가 숨는다(2026-09-21 실측으로 그랬다). */
+.tabbar button.nav-more{display:none}
+@media(max-width:899px){
+  .tabbar{overflow-x:hidden}
+  .tabbar button.nav-rest{display:none!important}
+  .tabbar button.nav-more{display:flex}
+}
 /* 업로드 드롭존(업무센터·오종현 페이지 공용) */
 .wt-drop{border:2px dashed #B9C6DE;border-radius:14px;padding:22px 16px;text-align:center;
   display:grid;gap:7px;justify-items:center;background:var(--panel);transition:border-color .15s,background .15s}
@@ -3646,7 +3664,7 @@ button[aria-busy="true"]::after{
   <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1"/></symbol><symbol id="i-bootstrap-arrow-clockwise" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
   <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></symbol><symbol id="i-bootstrap-graph-up-arrow" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M0 0h1v15h15v1H0zm10 3.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4.9l-3.613 4.417a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61L13.445 4H10.5a.5.5 0 0 1-.5-.5"/></symbol></svg>
 <!-- 설정은 권한 키가 아니라 화면·운영 환경을 다루는 메뉴이므로 톱니바퀴로 구별한다. -->
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-bootstrap-gear" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z"/></symbol></svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-bootstrap-gear" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z"/></symbol><symbol id="i-bootstrap-grid-3x3-gap-fill" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1zM1 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1zM1 12a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm5 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z"/></symbol></svg>
 
 
 <div class="gate" id="gate">
@@ -5925,6 +5943,11 @@ Excel은 앱 DB 정본에서 자동 보관본으로 생성합니다.')">
   <div class="nav-spacer" aria-hidden="true"></div>
   <button class="settings-nav" data-v="settings" onclick="routeNav('settings')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-gear"/></svg>설정</button>
   <button class="calendar-nav" data-v="calendar" onclick="routeNav('calendar')"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-calendar-event-fill"/></svg>쿠팡 캘린더</button>
+  <!-- ★ 폰 전용 '전체 메뉴' 칸 (2026-09-21 형님 지시 [131]). data-v 를 **안 준다** —
+       탭 순서 끌기(group())·routeNav·qpFill 이 전부 `button[data-v]` 로 세므로
+       여기에 붙이면 이 칸이 화면 하나로 오해받는다. 넓은 화면에서는 CSS 가 숨긴다
+       (사이드바는 원래 전부 보이므로 이 칸이 필요 없다 · [172]). -->
+  <button class="nav-more" type="button" aria-haspopup="true" onclick="openAllMenu()"><svg class="bi" aria-hidden="true" focusable="false"><use href="#i-bootstrap-grid-3x3-gap-fill"/></svg>전체 메뉴</button>
 </nav>
 
 <script>
@@ -25833,6 +25856,14 @@ function qpFill(){
   const n=document.getElementById('qpNav'); n.innerHTML='';
   let cur=''; try{ cur=curView(); }catch(_){}
   document.querySelectorAll('.tabbar button[data-v]').forEach(t=>{
+    /* ★ **폰에서만 숨는 것과 기능·모드로 숨는 것을 가른다**(2026-09-21 [131]).
+       `worktab-nav` 는 폰 하단바에 칸이 없어 숨은 것이라 **여기서는 보여야** 하고,
+       `feat-off`(꺼진 기능)·담당자/류지영 모드가 숨긴 것은 **보이면 안 된다** —
+       숨긴 것을 되살리면 그 사람에게 없는 화면이 메뉴에 뜬다([172]).
+       `nav-rest` 는 이 메뉴가 스스로 접어 둔 표시라 판정에서 뺀다. */
+    if(t.classList.contains('feat-off')) return;
+    if(!t.classList.contains('worktab-nav') && !t.classList.contains('nav-rest')
+       && getComputedStyle(t).display === 'none') return;
     const v=t.dataset.v, b=document.createElement('button'); b.type='button';
     if(v===cur) b.className='cur';
     const svg=t.querySelector('svg');
@@ -25843,6 +25874,72 @@ function qpFill(){
     n.appendChild(b);
   });
 }
+/* ── 폰 하단바 = 앞 네 칸 + [전체 메뉴] ───────────────────────────────
+   2026-09-21 형님 지시 [131] ("메뉴이동이 편하게 잘보이고 잘 클릭할 수 있는 구조").
+   ★ **새 시트를 만들지 않았다**([162]) — 전체 메뉴는 이미 있던 퀵패널 하단
+     (`qpOpen('bot')`)이다. 그것은 화면 아래 가장자리를 끌어올려야 열려서
+     **보이지 않는 기능**이었다 — 이제 단추가 그 자리를 가리킨다.
+   ★ 어느 칸이 앞에 오는지는 **사람이 끈 탭 순서**가 정한다(cw_tab_order). */
+const NAV_KEEP = 4;                       // 하단바에 남기는 칸 수([전체 메뉴] 제외)
+
+function openAllMenu(){
+  try{ uxEvent('tap','nav-more',''); }catch(_){}
+  try{ qpOpen('bot','tab'); }catch(_){ try{ toast('메뉴를 열지 못했습니다'); }catch(__){} }
+}
+
+/* 앞 NAV_KEEP 개만 남기고 나머지를 접는다.
+   ★ **넓은 화면에서는 아무것도 안 한다**([172] — 사이드바는 원래 전부 보인다).
+     접어 둔 표시를 **반드시 걷어낸다**: 폰에서 접은 채 화면을 넓히면
+     사이드바에서 그 메뉴가 통째로 사라진다. */
+function navCompact(){
+  const bar = document.getElementById('tabbar');
+  if(!bar) return;
+  const all = [...bar.querySelectorAll('button[data-v]')];
+  const wide = window.matchMedia('(min-width:900px)').matches;
+  if(wide){ all.forEach(b=>b.classList.remove('nav-rest')); return; }
+  let kept = 0;
+  for(const b of all){
+    /* 이미 접힌 칸은 display:none 이라 '보이나'로 못 센다 — 표시를 먼저 걷고 잰다. */
+    b.classList.remove('nav-rest');
+    if(b.classList.contains('feat-off')) continue;
+    if(getComputedStyle(b).display === 'none') continue;   // 폰·모드가 숨긴 것
+    if(kept < NAV_KEEP){ kept++; continue; }
+    b.classList.add('nav-rest');
+  }
+}
+
+(function(){
+  /* ⚠ **제 변경에 제가 다시 불리면 안 된다** (2026-09-21 만들며 그대로 밟았다).
+     navCompact 가 `nav-rest` 클래스를 붙이는데 그 클래스 변경을 감시자가 보고
+     다시 부르면 **끝없이 돈다** — 화면이 통째로 멈춘다(실측: 페이지가 45초
+     동안 아무 스크립트도 답하지 못했다). 그래서 내가 고치는 동안에는 감시를
+     쉬게 하고, 한 박자 뒤에 다시 켠다. */
+  let busy = false;
+  const run = ()=>{
+    if(busy) return;
+    busy = true;
+    try{ navCompact(); }catch(_){}
+    setTimeout(()=>{ busy = false; }, 0);
+  };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+  window.addEventListener('resize', run);
+  /* 탭 순서를 끌어 바꾸거나 모드가 바뀌면 앞 네 칸도 달라진다 — 그때 다시 센다.
+     (순서 저장 쪽을 고치지 않는다: 그쪽은 제 일만 한다 · [162]) */
+  const bar = document.getElementById('tabbar');
+  /* ⚠ 하단바의 **class 는 감시하지 않는다** — navCompact 자신이 그 class 를
+     고치므로 감시하면 제 변경에 제가 다시 불린다(위 busy 와 같은 이유이고,
+     그쪽만으로는 진동이 안 멎는다). 순서가 바뀌는 것(childList)만 본다.
+     기능 켜짐/꺼짐(feat-off)은 부팅 때 정해지므로 첫 실행이 이미 본다. */
+  if(bar && window.MutationObserver){
+    new MutationObserver(run).observe(bar, {childList:true});
+  }
+  if(window.MutationObserver){
+    new MutationObserver(run).observe(document.body, {attributes:true,
+      attributeFilter:['class']});
+  }
+})();
+
 function qpOpen(w,how){
   qpFill();
   const el=qpEl(w), bg=document.getElementById('qpBg');
