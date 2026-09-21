@@ -11716,12 +11716,14 @@ self.addEventListener('fetch', e => {
                 import sop_store as _sop
                 _ss = _sop.summary()
                 _sr = _sop.pick(_sop.load())
+                # 업무별 책(묶음) — 이름과 장 수만 싣는다. 판정은 sop_store 한 곳([162]).
+                _sb = [{"이름": _b["이름"], "장수": len(_b["id"])} for _b in _sop.books()]
             except Exception as exc:
                 # ★ 못 읽은 것을 "0건"이라 하지 않는다([169]).
                 return self._send(200, {"ok": False,
                                         "error": "%s: %s" % (type(exc).__name__, exc),
                                         "요약": {}, "절차서": []})
-            return self._send(200, {"ok": True, "요약": _ss, "절차서": _sr})
+            return self._send(200, {"ok": True, "요약": _ss, "절차서": _sr, "묶음": _sb})
 
         if p == "/api/camps":
             # 전국 쿠팡캠프 · 담당자 목록 (2026-08-18 유수비 대표 지시).
@@ -12479,7 +12481,10 @@ self.addEventListener('fetch', e => {
                     _pth, _n = _sx.export(_body.get("갈래") or "docx",
                                           _body.get("경로") or None,
                                           부위=_body.get("부위") or None,
-                                          작업종류=_body.get("작업종류") or None)
+                                          작업종류=_body.get("작업종류") or None,
+                                          # 업무별 책 하나를 적힌 차례대로(2026-09-22).
+                                          # 없는 책 이름이면 sop_export 가 빈 파일 대신 막는다.
+                                          묶음=_body.get("묶음") or None)
                     return self._send(200, {"ok": True, "경로": _pth, "건수": _n})
             except Exception as exc:
                 # ★ 사유를 버리지 않는다([289]) — 왜 막혔는지 화면이 말해야 한다.

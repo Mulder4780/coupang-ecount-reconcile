@@ -20659,6 +20659,21 @@ async function renderSop(force){
   h += '<p class="sub">담긴 절차서 <b>' + (sum.건수 || 0) + '건</b>'
      + (sum.갱신 ? ' · 갱신 ' + esc2(sum.갱신) : '')
      + ' · 내보낼 폴더 <code>' + esc2(sum.내보내기폴더 || '') + '</code></p>';
+  /* 업무별 책 — 서버가 준 이름 그대로 단추를 만든다(화면이 이름을 못 박지 않는다 · [162]).
+     책이 없으면 이 줄을 아예 안 그린다 — 빈 칸을 '책 0권'처럼 보이지 않게. */
+  const 책들 = Array.isArray(d.묶음) ? d.묶음 : [];
+  if(책들.length){
+    h += '<div class="card"><p><b>업무별 책</b> — 한 업무를 한 파일로, 적힌 차례대로 만듭니다.</p>';
+    /* 책 이름을 onclick 글자 안에 넣지 않는다 — 이름에 따옴표가 섞이면 단추가 조용히
+       죽는다. 차례 번호만 싣고, 누를 때 SOP.묶음 에서 이름을 꺼낸다. */
+    책들.forEach(function(b, i){
+      h += '<div class="toolbar" style="margin:6px 0"><span style="flex:1 1 auto;min-width:0">'
+         + esc2(String(b.이름 || '')) + ' <span class="sub">' + (b.장수 || 0) + '장</span></span>'
+         + '<button class="btn" data-book="' + i + '" data-fmt="docx" onclick="sopExportBook(this)">워드</button>'
+         + '<button class="btn" data-book="' + i + '" data-fmt="pptx" onclick="sopExportBook(this)">PPT</button></div>';
+    });
+    h += '</div>';
+  }
   if(!rows.length){
     h += '<div class="card"><p>아직 담긴 절차서가 <b>한 건도 없습니다.</b></p>'
        + '<p class="sub">차동호 팀장이 작업별 절차(공구·순서·마무리)를 적어 주시면 담습니다.'
@@ -20692,12 +20707,22 @@ async function sopAct(body){
   }
   return j;
 }
-async function sopExport(fmt){
+async function sopExport(fmt, 책){
   const 이름 = {docx:'워드', pptx:'PPT', json:'유니웍스 넘김 자료'}[fmt] || fmt;
+  /* 책(묶음)을 주면 그 업무 한 권만, 적힌 차례대로 만든다(2026-09-22 형님 지시
+     "돌발 AS, 정기점검 각각 파일 1개로"). 안 주면 예전 그대로 전부다([172]). */
+  const 앞 = 책 ? ('「' + 책 + '」 ') : '';
   try{
-    const j = await sopAct({동작:'내보내기', 갈래:fmt});
-    toast(이름 + ' ' + j.건수 + '건을 만들었습니다 — ' + j.경로);
-  }catch(e){ toast(이름 + '를 못 만들었습니다 — ' + e.message); }
+    const body = {동작:'내보내기', 갈래:fmt};
+    if(책) body.묶음 = 책;
+    const j = await sopAct(body);
+    toast(앞 + 이름 + ' ' + j.건수 + '장을 만들었습니다 — ' + j.경로);
+  }catch(e){ toast(앞 + 이름 + '를 못 만들었습니다 — ' + e.message); }
+}
+function sopExportBook(btn){
+  const b = ((SOP && SOP.묶음) || [])[+btn.dataset.book];
+  if(!b || !b.이름){ toast('그 책을 못 찾았습니다 — 새로고침 뒤 다시 눌러 주세요.'); return; }
+  return sopExport(btn.dataset.fmt, b.이름);
 }
 async function sopSetDir(){
   const now = ((SOP && SOP.요약) || {}).내보내기폴더 || '';
