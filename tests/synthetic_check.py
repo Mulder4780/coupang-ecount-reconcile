@@ -36897,6 +36897,92 @@ def t536_skipped_erp_collection_is_not_called_done():
           "실패로도 안 센다 · 받아 온 회차는 그대로")
 
 
+def t537_nameless_tmp_band_dump_is_absorbed():
+    """이름 없는 밴드 덤프(<uuid>.tmp)도 흡수한다 — 실행으로 잰다([295] · 분담판 [451]).
+
+    2026-09-21 실측: 앱 내장 브라우저의 `__grabSave()` 가 덤프를 `dump_*.json` 이
+    아니라 `<uuid>.tmp` 로 남겼다. `download_intake` 는 이름으로만 찾아서 **한 건도 안
+    걸리면서 오류도 안 났다**([165]) — 118건이 손으로 이름을 붙일 때까지 못 들어갔다.
+
+    계약 넷: ① 내용이 덤프인 .tmp 만 잡는다(받는 중·남의 .tmp 는 안 건드린다 · [172])
+    ② 옮길 때 `dump_*.json` 이름을 준다(convert_dump 는 그 이름만 읽는다)
+    ③ 제 이름 덤프는 예전 그대로다 ④ 회차 신호도 .tmp 를 본다([300]).
+    진짜 Z:·다운로드는 안 건드린다([247] · 임시 폴더와 목으로만 · `finally` 로 되돌린다 [371]).
+    """
+    import json as _json
+    import tempfile
+    import download_intake as D
+    import source_dirs as S
+    import automation_pipeline as A
+
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "dl")
+        os.makedirs(src)
+        good = os.path.join(src, "5f0c1d2e-aaaa.tmp")
+        with open(good, "w", encoding="utf-8") as fh:
+            _json.dump({"band": "90610953", "name": "시험", "posts": {"1": {"text": "x"}}}, fh)
+        half = os.path.join(src, "b1.tmp")           # 받는 중인 덤프 — 끝까지 안 읽힌다
+        with open(half, "w", encoding="utf-8") as fh:
+            fh.write('{"band":"90610953","posts":{"1":')
+        other = os.path.join(src, "c2.tmp")          # 남의 .tmp
+        with open(other, "wb") as fh:
+            fh.write(b"PK" + bytes(40))
+        named = os.path.join(src, "dump_20260921_84789192.json")
+        with open(named, "w", encoding="utf-8") as fh:
+            _json.dump({"band": "84789192", "posts": {}}, fh)
+
+        saved = (D._sources, S.ORIGIN_ROOT, S.BAND_DIR)
+        try:
+            D._sources = lambda: [src]
+            S.ORIGIN_ROOT = tmp
+            S.BAND_DIR = os.path.join(tmp, "band")
+            moves = D.plan_moves()
+        finally:
+            D._sources, S.ORIGIN_ROOT, S.BAND_DIR = saved     # [371]
+
+        picked = {os.path.basename(m[0]): m for m in moves}
+        # ① 내용이 덤프인 것만 — 받는 중·남의 .tmp 는 손대지 않는다
+        assert "5f0c1d2e-aaaa.tmp" in picked, "이름 없는 덤프를 못 집었다([165]): %r" % list(picked)
+        assert "b1.tmp" not in picked and "c2.tmp" not in picked, (
+            "덤프가 아닌 .tmp 까지 쓸어 간다([172]): %r" % list(picked))
+        # ② 옮길 때 convert_dump 가 읽는 이름을 준다
+        mv = picked["5f0c1d2e-aaaa.tmp"]
+        assert len(mv) > 3 and mv[3].startswith("dump_") and mv[3].endswith("t_90610953.json"), mv
+        dst = os.path.join(tmp, "out")
+        done, failed = D.apply([mv])
+        assert not failed and os.path.exists(os.path.join(dst if False else mv[1], mv[3])), (done, failed)
+        # ③ 제 이름 덤프는 예전 그대로다([172])
+        assert "dump_20260921_84789192.json" in picked
+        assert len(picked["dump_20260921_84789192.json"]) == 3
+
+        # ④ 회차 신호 — .tmp 만 있어도 밴드 갈래가 깨어난다([300])
+        good2 = os.path.join(src, "d3.tmp")
+        with open(good2, "w", encoding="utf-8") as fh:
+            _json.dump({"band": "84789192", "posts": {}}, fh)
+        real_dl = A._desktop_download_files
+        try:
+            A._desktop_download_files = lambda pat: [
+                __import__("pathlib").Path(p) for p in __import__("glob").glob(os.path.join(src, pat))]
+            sig = [os.path.basename(str(p)) for p in A._desktop_band_dumps()]
+        finally:
+            A._desktop_download_files = real_dl                  # [371]
+        assert "d3.tmp" in sig and "c2.tmp" not in sig, sig
+
+        # ⑤ 계기 자기시험([272]) — 넷째 칸(이름)을 버리던 옛 apply 면 ②가 정말 잡는가
+        again = os.path.join(src, "e4.tmp")
+        with open(again, "w", encoding="utf-8") as fh:
+            _json.dump({"band": "90610953", "posts": {}}, fh)
+        old_dst = os.path.join(tmp, "old")
+        D.apply([(again, old_dst, "옛 동작")])                    # 셋째 칸까지만 — 옛 모양
+        left = os.listdir(old_dst)
+        assert left == ["e4.tmp"], "옛 동작 재현이 어긋났다: %r" % left
+        assert not any(n.startswith("dump_") for n in left), (
+            "옛 동작에서도 dump_ 이름이 나온다 — 이 검사는 아무것도 안 잰다")
+
+    print("  ✔ [537] 이름 없는 밴드 덤프(.tmp)도 흡수 — 내용으로만 · 받는 중/남의 .tmp 는 안 건드림 · "
+          "dump_ 이름으로 옮김 · 제 이름 덤프 그대로 · 회차 신호도 봄 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52011,6 +52097,7 @@ if __name__ == "__main__":
     t534_camp_supplement_is_marked_not_disguised()
     t535_text_scale_dial_comes_from_one_table()
     t536_skipped_erp_collection_is_not_called_done()
+    t537_nameless_tmp_band_dump_is_absorbed()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

@@ -72,6 +72,41 @@ def _erp_filename(name):
                 or re.fullmatch(r"ECTAX\d+[A-Z]?", stem))
 
 
+_TMP_DUMP_HEAD = re.compile(rb'^\s*\{\s*"band"\s*:\s*"(\d+)"')
+
+
+def tmp_band_dump(path):
+    """이름을 못 받은 밴드 덤프(<uuid>.tmp)인가 — 밴드 번호를, 아니면 None 을 준다([451]).
+
+    2026-09-21 실측: 앱 내장 브라우저에서 `__grabSave()` 가 내려받은 덤프가
+    `dump_` 로 시작하는 .json 이 아니라 **`<uuid>.tmp`** 로 남았다. 내용은 멀쩡한 덤프인데
+    이름으로만 찾으니 한 건도 안 걸리면서 오류도 안 났다([165]) — 그날 118건이
+    손으로 이름을 붙여 줄 때까지 캐시에 못 들어갔다.
+    ★ 이름이 아니라 **내용**으로 본다 — 머리가 `{"band":"<숫자>"` 이고 통째로
+      JSON 으로 읽히며 `posts` 가 있을 때만이다. 받는 중인 다른 .tmp 는 끝까지
+      안 읽혀 여기서 떨어진다(남의 파일을 쓸어 가지 않는다 · [172]).
+    ★ 판정은 여기 한 곳이다 — 회차의 신호(automation_pipeline)도 이것을 빌린다([162]).
+    """
+    try:
+        with open(path, "rb") as fh:
+            m = _TMP_DUMP_HEAD.match(fh.read(64))
+        if not m:
+            return None
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict) or not isinstance(data.get("posts"), dict):
+            return None
+        return m.group(1).decode("ascii")
+    except (OSError, ValueError):
+        return None
+
+
+def tmp_dump_name(path, band):
+    """그 .tmp 가 옮겨 갈 이름 — convert_dump 는 `dump_` 로 시작하는 .json 만 읽는다."""
+    ts = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y%m%d%H%M%S")
+    return f"dump_{ts}t_{band}.json"
+
+
 def plan_moves():
     """무엇을 어디로 옮길지 계산만 한다(이동은 apply 에서)."""
     import source_dirs as S
@@ -93,6 +128,15 @@ def plan_moves():
             if _recent(p):
                 moves.append((p, os.path.join(S.BAND_DIR, "브라우저덤프",
                                               datetime.now().strftime("%Y-%m-%d")), "밴드 덤프"))
+        # 2-1) 이름을 못 받은 밴드 덤프(<uuid>.tmp) — 내용으로 판별하고 제 이름을 붙인다([451])
+        for p in glob.glob(os.path.join(src_dir, "*.tmp")):
+            if not _recent(p):
+                continue
+            band = tmp_band_dump(p)
+            if band:
+                moves.append((p, os.path.join(S.BAND_DIR, "브라우저덤프",
+                                              datetime.now().strftime("%Y-%m-%d")),
+                              "밴드 덤프(이름 없는 .tmp)", tmp_dump_name(p, band)))
         # 3) 엑셀 — 내용으로 판별한다. 업무 파일로 판별된 것만 가져간다.
         for p in glob.glob(os.path.join(src_dir, "*.xlsx")):
             if not _recent(p) or os.path.basename(p).startswith("~$"):
@@ -134,8 +178,10 @@ def plan_moves():
 
 def apply(moves, dry=False):
     done, failed = [], []
-    for src, dst_dir, why in moves or []:
-        name = os.path.basename(src)
+    for mv in moves or []:
+        src, dst_dir, why = mv[:3]
+        # 넷째 칸은 옮겨 갈 이름이다 — 이름 없는 .tmp 덤프만 쓴다([451])
+        name = mv[3] if len(mv) > 3 and mv[3] else os.path.basename(src)
         try:
             os.makedirs(dst_dir, exist_ok=True)
             dst = os.path.join(dst_dir, name)

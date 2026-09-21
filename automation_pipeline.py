@@ -499,6 +499,22 @@ def _desktop_download_files(pattern: str) -> List[Path]:
     return list(found.values())
 
 
+def _desktop_band_dumps() -> List[Path]:
+    """다운로드의 밴드 덤프 — 제 이름(`dump_*.json`)과 이름 없는 `.tmp` 둘 다([451]).
+
+    앱 내장 브라우저는 덤프를 `<uuid>.tmp` 로 남긴다(2026-09-21 실측). 신호가 이름만
+    보면 그 회차는 깨어나지도 않고 **조용히** 넘어간다([165]). 내용 판정은
+    `download_intake.tmp_band_dump` 한 곳에서 빌린다([162]) — 못 빌리면 옛 동작 그대로다.
+    """
+    files = _desktop_download_files("dump_*.json")
+    try:
+        from download_intake import tmp_band_dump
+    except Exception:  # noqa: BLE001 - 빌리지 못하면 이름으로 찾던 옛 동작만 남긴다
+        return files
+    files.extend(p for p in _desktop_download_files("*.tmp") if tmp_band_dump(p))
+    return files
+
+
 def _user_drop_enabled(root: Path = ROOT) -> bool:
     """사람이 브라우저로 내려받는 폴더(바탕화면·다운로드)를 볼 것인가.
 
@@ -532,7 +548,7 @@ def source_signals(root: Path = ROOT) -> Dict[str, Dict[str, Any]]:
     # input.  Only raw browser/API dumps belong to the change signal.
     band_files = _band_input_files(root)
     if include_user_drop:
-        band_files.extend(_desktop_download_files("dump_*.json"))
+        band_files.extend(_desktop_band_dumps())
     band_sig, band_latest, band_count = _metadata_signature(band_files)
     # Intake status JSON and reconciliation CSV are pipeline outputs and carry
     # a fresh timestamp on every run.  They must never be used as input clocks.
@@ -922,7 +938,7 @@ class AutomationPipeline:
             #   그만큼 회차가 길어진다([168]).
             # ⚠ **맨 앞이어야 한다** — 뒤에 두면 `밴드 덤프 흡수` 가 옮기기 **전의**
             #   Z: 를 읽어 이번 회차도 '0개' 로 끝난다(그러면 고친 뜻이 없다).
-            if _user_drop_enabled(root) and _desktop_download_files("dump_*.json"):
+            if _user_drop_enabled(root) and _desktop_band_dumps():
                 commands.append(
                     ("다운로드 원본 흡수",
                      [str(root / "download_intake.py"), "--apply"], 900))
