@@ -128,28 +128,37 @@ def export_docx(path, ids=None, 부위=None, 작업종류=None, store=None, 묶�
     for i, r in enumerate(rows):
         if i:
             doc.add_page_break()                 # 한 절차서 = 한 장(현장에서 뜯어 쓴다)
-        doc.add_heading("%s  %s" % (r.get("id") or "", r.get("제목") or ""), level=1)
-
-        # ★ 빈 칸을 '없음'이라 적지 않는다([169]) — '아직 안 적었다'와 '없다'는 다르다
-        meta = [("부위", r.get("부위") or "(아직 안 적음)"),
-                ("작업 종류", r.get("작업종류") or "(아직 안 적음)"),
-                ("출처", r.get("출처") or "(아직 안 적음)"),
-                ("작성자", r.get("작성자") or "(아직 안 적음)"),
-                ("수정일", r.get("수정일") or "")]
-        t = doc.add_table(rows=0, cols=2)
-        t.style = "Table Grid"
-        for k, v in meta:
-            c = t.add_row().cells
-            c[0].text = k
-            c[1].text = str(v)
-
         공구 = r.get("공구") or []
-        doc.add_heading("준비 공구", level=2)
-        if 공구:
-            for x in 공구:
-                doc.add_paragraph(str(x), style="List Bullet")
+        if 묶음:
+            # 책은 현장에 나가는 문서다 — 관리용 칸(번호·출처·작성자)은 빼고 장 번호로 부른다
+            # (2026-09-22 형님 지시: "절차서 답게 … 쓸데 없는 내용은 빼고")
+            doc.add_heading("%d. %s" % (i + 1, r.get("제목") or ""), level=1)
+            if 공구:
+                doc.add_heading("준비물", level=2)
+                for x in 공구:
+                    doc.add_paragraph(str(x), style="List Bullet")
         else:
-            doc.add_paragraph("(아직 안 적음)")
+            doc.add_heading("%s  %s" % (r.get("id") or "", r.get("제목") or ""), level=1)
+
+            # ★ 빈 칸을 '없음'이라 적지 않는다([169]) — '아직 안 적었다'와 '없다'는 다르다
+            meta = [("부위", r.get("부위") or "(아직 안 적음)"),
+                    ("작업 종류", r.get("작업종류") or "(아직 안 적음)"),
+                    ("출처", r.get("출처") or "(아직 안 적음)"),
+                    ("작성자", r.get("작성자") or "(아직 안 적음)"),
+                    ("수정일", r.get("수정일") or "")]
+            t = doc.add_table(rows=0, cols=2)
+            t.style = "Table Grid"
+            for k, v in meta:
+                c = t.add_row().cells
+                c[0].text = k
+                c[1].text = str(v)
+
+            doc.add_heading("준비 공구", level=2)
+            if 공구:
+                for x in 공구:
+                    doc.add_paragraph(str(x), style="List Bullet")
+            else:
+                doc.add_paragraph("(아직 안 적음)")
 
         단계 = r.get("단계") or []
         doc.add_heading("작업 순서", level=2)
@@ -194,23 +203,26 @@ def export_pptx(path, ids=None, 부위=None, 작업종류=None, store=None, 묶�
 
     title = prs.slides.add_slide(prs.slide_layouts[0])
     title.shapes.title.text = 묶음 or "쿠팡 표준 업무 절차서"
-    title.placeholders[1].text = "전 %d건 · 만든 때 %s" % (len(rows), S._now())
+    title.placeholders[1].text = "전 %d장 · 만든 때 %s" % (len(rows), S._now())
 
     body_layout = prs.slide_layouts[1]
-    for r in rows:
+    for n, r in enumerate(rows, 1):
         sl = prs.slides.add_slide(body_layout)
-        sl.shapes.title.text = "%s  %s" % (r.get("id") or "", r.get("제목") or "")
         tf = sl.placeholders[1].text_frame
         tf.word_wrap = True
-
-        머리 = "%s · %s" % (r.get("부위") or "부위 미기입",
-                            r.get("작업종류") or "종류 미기입")
-        tf.text = 머리
-
         공구 = r.get("공구") or []
-        p = tf.add_paragraph()
-        p.text = "공구: " + (", ".join(공구) if 공구 else "(아직 안 적음)")
-        p.level = 1
+        if 묶음:
+            # 책은 현장 문서다 — 관리용 칸(번호·부위·종류)은 빼고 장 번호로 부른다
+            sl.shapes.title.text = "%d. %s" % (n, r.get("제목") or "")
+            tf.text = ("준비물: " + ", ".join(공구)) if 공구 else ""
+        else:
+            sl.shapes.title.text = "%s  %s" % (r.get("id") or "", r.get("제목") or "")
+            머리 = "%s · %s" % (r.get("부위") or "부위 미기입",
+                                r.get("작업종류") or "종류 미기입")
+            tf.text = 머리
+            p = tf.add_paragraph()
+            p.text = "공구: " + (", ".join(공구) if 공구 else "(아직 안 적음)")
+            p.level = 1
 
         단계 = r.get("단계") or []
         if 단계:
