@@ -37063,6 +37063,82 @@ def t538_sop_book_and_pictures():
           "없는 번호 거절 · 그림 실제 삽입/못 넣음 표시 · 빈 책 안 만듦 · 자기시험")
 
 
+def t539_ollama_is_a_hint_not_a_source():
+    """이 PC 안 동네 AI(Ollama) 연동 — 실행으로 잰다([295] · 2026-09-25 형님 지시).
+
+    "이 pc에 설치된 올라마 ai 무료로 활용 가능하게 연동할 수 있어? 클라우드 로그인은 안할거야"
+
+    계약: ① 규칙이 답한 질문에는 **안 부른다**(비싼 길은 뒤에 온다 · [168])
+    ② 규칙이 못 답하면 부르고, 답을 **참고**로 표시한다 ③ **클로드문구를 지우지
+    않는다**([169] — 참고를 근거로 바꾸지 않는다) ④ 꺼 두거나 안 떠 있으면 예전과
+    같다([172]) ⑤ 동네 AI 가 터져도 답변기는 산다 ⑥ 밖으로 안 나간다 — 부르는
+    주소가 127.0.0.1 뿐이다 ⑦ 계기 자기시험([272]).
+    **진짜 Ollama 는 한 번도 안 부른다**([211]·[247] — 전부 목이고 finally 로 되돌린다 · [371]).
+    """
+    import io
+    import re
+    import local_ai as L
+    import ollama_ai as O
+
+    src = io.open(os.path.join(ROOT, "ollama_ai.py"), encoding="utf-8").read()
+    body = _t370_code_only(src) if "_t370_code_only" in globals() else src
+    hosts = re.findall(r"https?://([A-Za-z0-9_.:-]+)", body)
+    assert hosts, "부르는 주소가 하나도 없다 — 목록을 잘못 셌다"
+    for h in hosts:
+        assert h.startswith("127.0.0.1") or h.startswith("localhost"), \
+            "이 PC 밖으로 나가는 주소가 섞였다: " + h          # ⑥
+
+    old_ready, old_ask = O.ready, O.ask
+    called = []
+    try:
+        # ① 규칙이 답하는 질문 — 부르면 안 된다
+        O.ready = lambda: (_ for _ in ()).throw(AssertionError("규칙이 답했는데 동네 AI 를 불렀다"))
+        r = L.ask("지금 반영 대기 몇 건이야", log=False)
+        assert r.get("답함") in (True, False)
+        if r.get("답함"):
+            assert "동네AI" not in r, r.get("동네AI")
+
+        # ② 규칙이 못 답하는 질문 — 부르고 '참고'로 적는다
+        O.ready = lambda: True
+        def fake(q, facts="", **kw):
+            called.append((q, facts))
+            return {"모델": "목모델", "답": "참고 답입니다", "못함": ""}
+        O.ask = fake
+        r = L.ask("오늘 점심 뭐 먹지", log=False)
+        assert r.get("답함") is False, "규칙이 답해 버려 이 검사가 아무것도 안 잰다([309])"
+        assert called, "동네 AI 를 안 불렀다"
+        assert r.get("동네AI", {}).get("모델") == "목모델", r.get("동네AI")
+        assert "참고 답입니다" in r.get("답", ""), r.get("답")
+        assert r.get("확신") == "참고", r.get("확신")                      # ②
+        assert r.get("클로드문구"), "클로드문구를 지웠다 — 참고가 근거를 덮었다"  # ③
+        assert called[0][1] == r["클로드문구"], "앱이 확인한 사실을 안 넘겼다"
+
+        # ④ 꺼 두면 예전 그대로
+        O.ready = lambda: False
+        r2 = L.ask("오늘 점심 뭐 먹지", log=False)
+        assert "동네AI" not in r2, r2.get("동네AI")
+        assert r2.get("확신") == "없음" and r2.get("클로드문구")
+
+        # ⑤ 터져도 답변기는 산다
+        O.ready = lambda: True
+        O.ask = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("불"))
+        r3 = L.ask("오늘 점심 뭐 먹지", log=False)
+        assert r3.get("클로드문구"), "동네 AI 가 터지자 답변기가 같이 죽었다"
+        assert "못함" in (r3.get("동네AI") or {}), r3.get("동네AI")
+    finally:
+        O.ready, O.ask = old_ready, old_ask                                # [371]
+
+    # ⑦ 계기 자기시험 — '참고' 표시를 빼면 잡히는가
+    lsrc = io.open(os.path.join(ROOT, "local_ai.py"), encoding="utf-8").read()
+    assert 'out["확신"] = "참고"' in lsrc, \
+        "참고 표시가 사라졌다 — 동네 AI 답이 규칙 답과 같은 얼굴이 된다([169])"
+    ui = io.open(os.path.join(ROOT, "webapp", "index.html"), encoding="utf-8").read()
+    assert "동네AI" in ui and "참고" in ui, "화면이 '참고'라고 안 적는다"
+
+    print("  ✔ [539] 동네 AI(Ollama) — 규칙 먼저 · 못 답할 때만 · 참고 표시 · "
+          "클로드문구 유지 · 꺼두면 예전대로 · 터져도 삼 · 이 PC 안에서만 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52179,6 +52255,7 @@ if __name__ == "__main__":
     t536_skipped_erp_collection_is_not_called_done()
     t537_nameless_tmp_band_dump_is_absorbed()
     t538_sop_book_and_pictures()
+    t539_ollama_is_a_hint_not_a_source()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
