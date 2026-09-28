@@ -1164,8 +1164,19 @@ def t16_status():
     derive_status(r, "pm"); assert r["점검상태"] == "완료", r          # 완료일 있으면 완료
     r = {"점검상태": "", "실제점검일": "", "돌발AS전환여부": "Y", "점검예정일": past}
     derive_status(r, "pm"); assert r["점검상태"] == "AS전환", r
-    r = {"점검상태": "", "실제점검일": "", "점검예정일": past}
-    derive_status(r, "pm"); assert r["점검상태"] == "미점검", r        # 예정일 경과
+    # ★ 기한은 날짜가 아니라 **분기**다 (2026-09-28 형님 지시 · [540]).
+    #   예전에는 "예정일이 지났으면 미점검" 이라 재고 있었는데, 그러면 분기 안에
+    #   도는 멀쩡한 건이 매일 '미점검'으로 보인다([170] 거짓 경보).
+    #   날짜를 오늘에서 빼서 만들면 분기 경계에 걸려 **어떤 날은 초록 어떤 날은
+    #   빨강**이 된다([211]) — 그래서 지난해 같은 날로 못 박는다.
+    지난분기 = (_d.today() - _td(days=365)).isoformat()
+    r = {"점검상태": "", "실제점검일": "", "점검예정일": 지난분기}
+    derive_status(r, "pm"); assert r["점검상태"] == "미점검", r        # 분기 기한 경과
+    # 이번 분기 첫날은 **언제 돌려도** 오늘 이전이면서 같은 분기다.
+    _오늘 = _d.today()
+    분기첫날 = _d(_오늘.year, (_오늘.month - 1) // 3 * 3 + 1, 1).isoformat()
+    r = {"점검상태": "", "실제점검일": "", "점검예정일": 분기첫날}
+    derive_status(r, "pm"); assert r["점검상태"] == "예정", r          # 예정일은 지났어도 분기 안
     r = {"점검상태": "", "실제점검일": "", "점검예정일": future}
     derive_status(r, "pm"); assert r["점검상태"] == "예정", r          # 아직 안 지남
     r = {"점검상태": "완료", "실제점검일": ""}
@@ -37139,6 +37150,89 @@ def t539_ollama_is_a_hint_not_a_source():
           "클로드문구 유지 · 꺼두면 예전대로 · 터져도 삼 · 이 PC 안에서만 · 자기시험")
 
 
+def t540_pm_deadline_is_a_quarter_not_a_day():
+    """정기점검 기한은 **분기**다 — 실행으로 잰다([295] · 2026-09-28 형님 지시).
+
+    근거: 전상희 매니저 "쿠팡 정기점검 예정일 경과 현황 분석 보고서"(2026-09-23).
+    예정일 하루가 지났다고 '미점검'이라 적으면 분기 안에 도는 멀쩡한 건이 매일
+    빨갛게 보이고, 거짓 경보가 대부분이면 진짜 경보가 묻힌다([170]).
+
+    계약: ① 분기 안이면 '분기내'(경보 아님) ② 분기가 끝나면 '경과'
+    ③ 예정일이 안 왔으면 '예정' ④ 실제점검일이 있으면 '완료'
+    ⑤ **판정하는 자리는 하나다**([162]) — 앱 세 곳이 work_flow 를 부른다
+    ⑥ 못 읽거나 꺼 두면 예전처럼 날짜로 본다([172] · [126] 보호장치)
+    ⑦ 낱말을 늘리지 않는다([166]) — 분기 안은 예전부터 쓰던 '예정' 그대로다
+    ⑧ 계기 자기시험([272]).
+    진짜 DB·엑셀은 한 글자도 안 건드린다([247]) — 전부 값으로만 잰다([211]).
+    """
+    import io
+    import os
+    import work_flow as W
+
+    # ①~④ 갈래 — 2분기(4~6월) 예정 건을 시점만 바꿔 가며 본다
+    표 = [
+        ("2026-04-01", "2026-03-20", "예정"),     # 예정일이 아직 안 왔다
+        ("2026-04-01", "2026-05-10", "분기내"),   # 예정일은 지났지만 2분기 안
+        ("2026-04-01", "2026-06-30", "분기내"),   # 분기 마지막 날도 기한 안이다
+        ("2026-04-01", "2026-07-01", "경과"),     # 2분기가 끝났다
+        ("2026-01-01", "2026-04-01", "경과"),     # 1분기 건은 4월이면 경과
+        ("2026-12-20", "2026-09-28", "예정"),
+    ]
+    for plan, today, want in 표:
+        got = W.pm_due(plan, today)["갈래"]
+        assert got == want, "%s / %s → %s (바란 것 %s)" % (plan, today, got, want)
+        assert W.pm_due(plan, today)["근거"], "왜 그렇게 판정했는지가 비어 있다([169])"
+
+    assert W.pm_due("2026-04-01", "2026-07-01", real="2026-05-02")["갈래"] == "완료"  # ④
+    assert W.pm_due("", "2026-07-01")["갈래"] == "날짜없음"
+    assert W.pm_is_overdue("2026-04-01", "2026-07-01") is True
+    assert W.pm_is_overdue("2026-04-01", "2026-05-10") is False
+
+    # 분기 끝을 지어내지 않는다
+    for d, end in (("2026-02-09", "2026-03-31"), ("2026-05-05", "2026-06-30"),
+                   ("2026-08-31", "2026-09-30"), ("2026-11-01", "2026-12-31")):
+        assert W.quarter_end(d) == end, (d, W.quarter_end(d))
+    assert W.quarter_end("엉망") is None                      # ⑥ 모르면 None([169])
+
+    # ⑥ 사람이 꺼 두면 예전 그대로 — 환경변수는 프로세스 전체의 것이라 되돌린다([371])
+    old = os.environ.get("COUPANG_PM_QUARTER")
+    try:
+        os.environ["COUPANG_PM_QUARTER"] = "0"
+        r = W.pm_due("2026-04-01", "2026-05-10")
+        assert r["갈래"] == "경과", "꺼 뒀는데 분기 기준이 그대로 돈다([126]): %s" % r
+        assert "COUPANG_PM_QUARTER" in r["근거"], r["근거"]
+    finally:
+        if old is None:
+            os.environ.pop("COUPANG_PM_QUARTER", None)
+        else:
+            os.environ["COUPANG_PM_QUARTER"] = old
+    assert W.pm_due("2026-04-01", "2026-05-10")["갈래"] == "분기내", "되돌리기가 안 됐다"
+
+    # ⑤ 판정하는 자리가 하나인가 — 앱이 제 손으로 날짜를 비교하면 사본이 둘이 된다
+    src = io.open(os.path.join(ROOT, "webapp", "app_server.py"), encoding="utf-8").read()
+    for 표식 in ('work_flow.pm_due(', '_wf.pm_is_overdue('):
+        assert 표식 in src, "앱이 %s 를 안 부른다 — 판정이 갈린다([162])" % 표식
+    # ⑦ 낱말을 늘리지 않았다 — 분기 안은 '예정'이고 새 상태 낱말이 없다
+    assert '"미점검" if _wf.pm_is_overdue(' in src, "상태 판정이 분기 기준을 안 탄다"
+
+    # ⑧ 계기 자기시험 — 옛 동작(날짜 비교)을 주입하면 이 검사가 정말 잡는가([272])
+    잡힘 = 0
+    실제 = W.pm_quarter_rule
+    try:
+        W.pm_quarter_rule = lambda: False          # 분기 문을 없앤 것과 같은 상태
+        try:
+            assert W.pm_due("2026-04-01", "2026-05-10")["갈래"] == "분기내"
+        except AssertionError:
+            잡힘 += 1
+    finally:
+        W.pm_quarter_rule = 실제                    # [371]
+    assert 잡힘 == 1, "분기 문을 없애도 이 검사가 통과한다 — 아무것도 안 재고 있다"
+    assert W.pm_due("2026-04-01", "2026-05-10")["갈래"] == "분기내", "복원이 안 됐다"
+
+    print("  ✔ [540] 정기점검 기한은 분기 — 분기내는 경보 아님 · 분기 끝나야 경과 · "
+          "판정 한 곳 · 낱말 안 늘림 · 꺼두면 예전대로 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52256,6 +52350,7 @@ if __name__ == "__main__":
     t537_nameless_tmp_band_dump_is_absorbed()
     t538_sop_book_and_pictures()
     t539_ollama_is_a_hint_not_a_source()
+    t540_pm_deadline_is_a_quarter_not_a_day()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

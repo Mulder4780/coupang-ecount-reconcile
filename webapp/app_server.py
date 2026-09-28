@@ -4722,7 +4722,13 @@ def derive_status(rec, kind):
         elif not str(rec.get("점검예정일") or "").strip():
             rec["점검상태"] = ""
         else:
-            rec["점검상태"] = "미점검" if str(rec["점검예정일"])[:10] < today else "예정"
+            # ★ 기한은 날짜가 아니라 **분기**다 (2026-09-28 형님 지시 · 전상희 매니저
+            #   보고서). 예정일 하루가 지났다고 '미점검'이라 적으면 분기 안에 도는
+            #   멀쩡한 건이 매일 빨갛게 보인다 — 판정은 work_flow 한 곳에서 온다([162]).
+            #   낱말은 늘리지 않는다([166]) — 분기 안은 예전부터 쓰던 '예정' 그대로다.
+            import work_flow as _wf
+            rec["점검상태"] = ("미점검" if _wf.pm_is_overdue(rec["점검예정일"], today)
+                           else "예정")
     else:
         state = str(rec.get("진행상태") or "").strip()
         if str(rec.get("작업완료일") or "").strip():
@@ -8525,6 +8531,9 @@ def _calendar_work_events():
         plan = norm_date(r.get("점검예정일"))
         key = str(r.get("프로젝트NO") or r.get("점검ID") or "").strip()
         served = any(d >= plan for d in pm_done_days.get(key, ())) if plan else False
+        # ★ 기한 갈래는 work_flow 한 곳이 정한다([162]) — 예정 · 분기내 · 경과.
+        #   **숨기지 않는다**([172]): 분기 안도 목록에 그대로 남고 라벨만 달라진다.
+        due = work_flow.pm_due(plan, today, r.get("실제점검일"))
         if plan and not norm_date(r.get("실제점검일")) and plan < today and not served:
             days = (datetime.strptime(today, "%Y-%m-%d")
                     - datetime.strptime(plan, "%Y-%m-%d")).days
@@ -8537,8 +8546,15 @@ def _calendar_work_events():
                      "원장미기입": True, "점검예정일": plan,
                      "점검상태": r.get("점검상태") or ""})
                 continue
-            add(plan, "pm_overdue", f"정기점검 미처리 · {camp}", r,
-                {"연결근거": "04_정기점검 — 예정일이 지났는데 실제점검일이 비어 있음",
+            안넘김 = due["갈래"] == "분기내"
+            add(plan, "pm_overdue",
+                (f"정기점검 예정일 경과(분기 내) · {camp}" if 안넘김
+                 else f"정기점검 미처리 · {camp}"), r,
+                {"연결근거": ("04_정기점검 — 예정일은 지났으나 해당 분기 안이라 "
+                          "기한은 아직 남았음" if 안넘김 else
+                          "04_정기점검 — 분기 기한이 지났는데 실제점검일이 비어 있음"),
+                 "기한갈래": due["갈래"], "기한": due["기한"], "분기": due["분기"],
+                 "기한근거": due["근거"], "기한경과일": due["경과일"],
                  "경과일": days, "점검상태": r.get("점검상태") or "",
                  "미처리사유": _why_still_open(r, bidx, plan),
                  "근거갈래": _open_evidence_class(r, bidx, plan),
@@ -9160,8 +9176,14 @@ def project_history(camp="", pj="", limit=400):
             이력.append(item("pm_done", real, "정기점검 완료", r, "점검ID",
                              점검예정일=plan, **common))
         elif plan and plan < today:
-            현황.append(item("pm_overdue", plan, "정기점검 완료 확인 대기", r, "점검ID",
-                             경과일=_daydiff(plan, today), **common))
+            # 기한 갈래는 work_flow 한 곳에서 온다([162]) — 분기 안이면 경고가 아니다.
+            due = work_flow.pm_due(plan, today, real)
+            현황.append(item("pm_overdue", plan,
+                            ("정기점검 예정일 경과(분기 내)" if due["갈래"] == "분기내"
+                             else "정기점검 완료 확인 대기"), r, "점검ID",
+                             경과일=_daydiff(plan, today), 기한갈래=due["갈래"],
+                             기한=due["기한"], 분기=due["분기"], 기한근거=due["근거"],
+                             **common))
         elif plan:
             예정.append(item("pm_plan", plan, "정기점검 예정", r, "점검ID", **common))
         else:

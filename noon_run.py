@@ -227,6 +227,10 @@ def steps():
         ("합성검증", [os.path.join(ROOT, "tests", "synthetic_check.py")], 900),
         ("정기점검 내용 조사", [os.path.join(ROOT, "pm_content.py")], 600),
         ("캠프명 표준 대조(조사만)", [os.path.join(ROOT, "camp_standardize.py")], 900),
+        # 적기 수행·매출 연결 점검 (2026-09-28 김형래 이사 지시 — "지속적으로 관리").
+        # 읽기 전용이고 앱 DB(로컬 SQLite)만 본다 — 실측 0.7초라 Z: 를 안 훑는다.
+        # ★ 대화에 남긴 것은 사라지고 회차에 넣은 것만 산다 — 그래서 여기 넣는다.
+        ("월말 점검(적기·매출)", [os.path.join(ROOT, "month_end_check.py"), "--md"], 300),
     ]
 
 

@@ -90,6 +90,114 @@ def says_done(row, kind):
     col = (KINDS.get(kind) or {}).get("칸")
     return bool(col) and DONE_HINT in _norm((row or {}).get(col))
 
+# ───────────────────── 정기점검 기한은 '날짜'가 아니라 '분기'다 ─────────────────
+# 2026-09-28 형님 지시 — 근거는 전상희 매니저 보고서 "쿠팡 정기점검 예정일 경과 현황
+# 분석"(2026-09-23, 김형래 이사 요청)이다.
+#
+# ★ 무엇이 틀렸던가 — 유니웍스도 우리 앱도 **예정일 하루**를 박아 놓고 그날이 지나면
+#   '미점검'이라 적었다. 그런데 쿠팡 정기점검의 실제 기한은 **분기**다. 1월에 한
+#   장비를 6월 30일에 점검해도 2분기 안이므로 **기한을 지킨 것**이다. 곧 예전 판정은
+#   멀쩡한 건을 매일 빨갛게 칠했고, 거짓 경보가 대부분이면 진짜 경보가 묻힌다([170]).
+#
+# ★ 갈래는 셋이고 '모름'을 '경과'로 치지 않는다([169]):
+#   · 예정   — 예정일이 아직 안 왔다
+#   · 분기내 — 예정일은 지났지만 **그 분기가 안 끝났다**(기한 준수 중, 경보 아님)
+#   · 경과   — 그 분기가 끝났는데 실제점검일이 없다(이때만 진짜 경고다)
+#
+# ★ 숨기지 않는다([172] — 좁히는 것도 고장이다). '분기내'도 목록에는 그대로 남고
+#   라벨만 달라진다. 목록에서 빼면 그 현장은 아무도 안 가는데 아무 화면에도 안 뜬다.
+#
+# 되돌리기 한 줄: COUPANG_PM_QUARTER=0  → 예전처럼 **날짜**로 판정한다([126] 보호장치).
+
+_Q_END = {1: "03-31", 2: "06-30", 3: "09-30", 4: "12-31"}
+
+
+def pm_quarter_rule():
+    """분기 기준을 쓰는가. 사람이 껐으면 False — 그때는 예전처럼 날짜로 본다."""
+    return (os.environ.get("COUPANG_PM_QUARTER") or "1").strip() not in ("0", "false", "off")
+
+
+def _ymd(v):
+    """'2026-04-01' 같은 값에서 (연,월,일). 못 읽으면 None — 지어내지 않는다([169])."""
+    t = str(v or "").strip()[:10].replace("/", "-").replace(".", "-")
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", t)
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not (1 <= mo <= 12 and 1 <= d <= 31):
+        return None
+    return y, mo, d
+
+
+def quarter_of(v):
+    """그 날짜가 몇 분기인가 — (연, 분기). 못 읽으면 None."""
+    t = _ymd(v)
+    return (t[0], (t[1] - 1) // 3 + 1) if t else None
+
+
+def quarter_end(v):
+    """그 날짜가 속한 분기의 **마지막 날**. 이것이 실제 기한이다. 못 읽으면 None."""
+    q = quarter_of(v)
+    return "%04d-%s" % (q[0], _Q_END[q[1]]) if q else None
+
+
+def pm_due(plan, today=None, real=None):
+    """정기점검 한 건의 기한 갈래를 판정한다 — **판정하는 자리는 여기 하나다**([162]).
+
+    plan  = 점검예정일 · real = 실제점검일(있으면 끝난 건이다) · today 는 시험용.
+    돌려주는 것:
+      갈래   '완료' | '예정' | '분기내' | '경과' | '날짜없음'
+      기한   그 분기의 마지막 날(분기 기준일 때) — 못 읽으면 ''
+      경과일 기한을 넘긴 날수(경과일 때만 0 초과)
+      분기   '2026 2분기' 처럼 사람이 읽는 말
+      근거   왜 그렇게 판정했나 — 화면·보고서가 그대로 적을 수 있는 한 줄
+    """
+    today = str(today or datetime.now().date().isoformat())[:10]
+    if str(real or "").strip():
+        return {"갈래": "완료", "기한": "", "경과일": 0, "분기": "", "근거": "실제점검일이 있다"}
+    plan = str(plan or "").strip()[:10]
+    if not plan:
+        return {"갈래": "날짜없음", "기한": "", "경과일": 0, "분기": "",
+                "근거": "점검예정일이 비어 있다"}
+
+    q = quarter_of(plan)
+    qend = quarter_end(plan)
+    qname = "%d년 %d분기" % q if q else ""
+
+    # 날짜를 못 읽거나 사람이 꺼 두었으면 **예전 그대로** 날짜로 본다([172]).
+    if not qend or not pm_quarter_rule():
+        why = ("점검예정일을 날짜로 못 읽어 예전처럼 날짜로 판정" if not qend
+               else "COUPANG_PM_QUARTER=0 — 사람이 날짜 기준으로 되돌려 두었다")
+        if plan < today:
+            return {"갈래": "경과", "기한": "", "경과일": _days(plan, today),
+                    "분기": qname, "근거": why}
+        return {"갈래": "예정", "기한": "", "경과일": 0, "분기": qname, "근거": why}
+
+    if today <= qend:
+        if plan >= today:
+            return {"갈래": "예정", "기한": qend, "경과일": 0, "분기": qname,
+                    "근거": "예정일이 아직 안 왔다 (기한은 %s 까지)" % qend}
+        return {"갈래": "분기내", "기한": qend, "경과일": 0, "분기": qname,
+                "근거": "예정일(%s)은 지났지만 %s 안이라 기한 준수 중 — 기한은 %s 까지"
+                        % (plan, qname, qend)}
+    return {"갈래": "경과", "기한": qend, "경과일": _days(qend, today), "분기": qname,
+            "근거": "%s 기한(%s)이 지났는데 실제점검일이 없다" % (qname, qend)}
+
+
+def _days(a, b):
+    """두 날짜 사이 날수. 못 읽으면 0 — 없는 숫자를 지어내지 않는다([169])."""
+    try:
+        return (datetime.strptime(b[:10], "%Y-%m-%d")
+                - datetime.strptime(a[:10], "%Y-%m-%d")).days
+    except Exception:
+        return 0
+
+
+def pm_is_overdue(plan, today=None, real=None):
+    """진짜 기한을 넘겼나 — 경보를 올릴지 정하는 한 줄."""
+    return pm_due(plan, today, real)["갈래"] == "경과"
+
+
 _MEM = {"at": 0.0, "def": None}
 
 
