@@ -23125,8 +23125,8 @@ def t314_camp_unknown_is_filled_only_with_proof():
     #   그날 대조가 전부 안 돈다. 파일에서 재서 지으면 어느 줄끝이든 맞는다.
     _CRLF = chr(13) + chr(10)
     _NL = _CRLF if _CRLF in src else chr(10)
-    _old = "        if len(cand) == 1:" + _NL + "            return next(iter(cand)), 라벨"
-    _new = "        if cand:" + _NL + "            return sorted(cand)[0], 라벨"
+    _old = "        if len(cand) == 1:" + _NL + "            v = next(iter(cand))"
+    _new = "        if cand:" + _NL + "            v = sorted(cand)[0]"
     broken = src.replace(_old, _new)
     assert broken != src, "[314] 고장 주입 지점을 못 찾았다 — 이 검사는 아무것도 안 재고 있다"
     ns = {"__name__": "camp_contacts_broken",
@@ -23137,6 +23137,32 @@ def t314_camp_unknown_is_filled_only_with_proof():
               "안전관리": {}, "담당자": {}}]
     ns["fill_gaps"](rows5, ns["person_directory"](recs), {})
     assert (rows5[0]["현장책임"].get("메일") or ""),         "[314] 유일 후보 문을 뺐는데도 안 채워졌다 — ③은 다른 것을 재고 있다"
+
+    # ⑧ [133] 번호 주인이 둘이면 그 번호의 메일은 **누구 것인지 모른다** — 지우지 않고 경고한다.
+    #    실측: 원본 글이 안전관리 줄에 현장책임 번호를 잘못 적고 제 메일을 붙였다
+    #    (김두원 ← dokim498 · 번호는 김대겸 것). 그 메일이 김대겸에게 붙은 27칸.
+    recs8 = [
+        {"캠프명": "가상1MB(시험동)", "현장책임": {"이름": "김현장", "전화": "010-7777-7777", "메일": ""},
+         "안전관리": {"이름": "박안전", "전화": "010-7777-7777", "메일": "park@x.com"}},
+        {"캠프명": "가상2MB(시험동)", "안전관리": {"이름": "박안전", "전화": "010-8888-8888",
+                                                "메일": "park@x.com"}},
+    ]
+    D8 = CC.person_directory(recs8)
+    rows8 = [{"캠프명": "가상3MB(시험동)", "거래처코드": "",
+              "현장책임": {"이름": "김현장(Kim)", "전화": "010-7777-7777", "메일": ""},
+              "안전관리": {"이름": "박안전", "전화": "010-7777-7777", "메일": ""}, "담당자": {}}]
+    CC.fill_gaps(rows8, D8, {})
+    sup8 = rows8[0].get("보완") or {}
+    assert rows8[0]["현장책임"].get("메일") == "park@x.com",         "[133] 값을 지웠다 — 같은 모양 중에는 제 메일도 있어 사람이 가른다([172])"
+    assert "⚠" in sup8.get("현장책임 메일", ""),         "[133] 남의 이름 옆에 적힌 메일을 경고 없이 붙였다 — 연락이 남에게 간다"
+    assert "⚠" not in sup8.get("안전관리 메일", "x"),         "[133] 제 이름 옆에 적힌 메일까지 경고한다 — 경보가 진짜를 덮는다([170])"
+    assert CC._owners(D8, "010-8888-8888") == {"박안전"}, "[133] 주인 하나인 번호를 여럿이라 한다"
+    CC.fill_gaps(rows8, CC.person_directory([{"캠프명": "가", "안전관리": {"이름": "이바울(Paul)",
+        "전화": "010-6666-6666", "메일": ""}}, {"캠프명": "나", "현장책임": {"이름": "Paul",
+        "전화": "010-6666-6666", "메일": ""}}]), {})
+    assert CC._owners(CC.person_directory([{"캠프명": "가", "안전관리": {"이름": "이바울(Paul)",
+        "전화": "010-6666-6666"}}, {"캠프명": "나", "현장책임": {"이름": "Paul",
+        "전화": "010-6666-6666"}}]), "010-6666-6666") == {"이바울"},         "[133] 영문 별명을 다른 사람으로 센다 — 한 사람이 둘이 된다"
 
     print("[314] 캠프 모름 보완 — 유일 후보만 · 안 덮음 · 연쇄 금지 · "
           "ERP 담당자는 직책 미상 칸 · 출처를 적는다")
@@ -47791,8 +47817,46 @@ def t309_camp_code_guess_never_names_a_wrong_customer():
     assert code.index("ERP_CACHE") < code.index("load_customers"), \
         "캐시 검사보다 Z: 재귀 탐색이 먼저다 — 회차마다 몇 분을 쓴다"
 
+    # ⑦ [136] 정기점검 원본이 말한 개명은 짐작(G)이 아니라 근거(R)다 — 실행으로 잰다.
+    #   진짜 워크북은 안 읽는다(목 · `[211]`·`[247]`) · 모듈 속성은 finally 로 되돌린다(`[371]`).
+    import camp_contacts as _CC
+    _orig = _CC.pm_schedule_camps
+    def _row(name, kind, guess=""):
+        return {"갈래": kind, "캠프명": name, "추정코드": guess, "추정근거": "", "확인할 것": ""}
+    custs = [{"code": "CU106", "name": "M_사천1"}, {"code": "CU200", "name": "중복캠프"},
+             {"code": "CU201", "name": "중복캠프"}, {"code": "CU131", "name": "대전3MB(대화동)"}]
+    try:
+        _CC.pm_schedule_camps = lambda force=False: ({
+            "a": {"캠프명": "MC04(사천)", "옛이름": ["M_사천1"]},
+            "b": {"캠프명": "새이름캠프", "옛이름": ["중복캠프"]},
+            "c": {"캠프명": "대전2캠프(대화동)", "옛이름": ["대전3MB(대화동)"]},
+            "d": {"캠프명": "없는개명", "옛이름": ["ERP에없는이름"]},
+        }, {"길": "읽음"})
+        rows = [_row("MC04(사천)", "E"), _row("새이름캠프", "E"),
+                _row("대전2캠프(대화동)", "G", "CU999"), _row("없는개명", "E"),
+                _row("M_사천1", "A")]
+        miss = []
+        info = M._renames(rows, custs, miss)
+        k = {r["캠프명"]: r for r in rows}
+        assert k["MC04(사천)"]["갈래"] == "R" and k["MC04(사천)"]["추정코드"] == "CU106",             "원본이 말한 개명이 ERP 이름과 글자 그대로 맞는데 R 로 안 간다"
+        assert k["새이름캠프"]["갈래"] == "E", "코드가 둘인 개명을 하나로 골랐다 — 짐작이다"
+        assert k["대전2캠프(대화동)"]["갈래"] == "H" and not k["대전2캠프(대화동)"]["추정코드"],             "원본과 짐작이 다른 코드를 말하는데 한쪽을 골랐다 — 사람이 골라야 한다"
+        assert k["없는개명"]["갈래"] == "E", "ERP 에 없는 개명으로 R 을 지어냈다"
+        assert k["M_사천1"]["갈래"] == "A", "이미 확정(A)인 행을 건드렸다 — E·G·H 만 본다"
+        assert info["R"] == 1 and info["어긋남"] == 1 and not miss, info
+        # 못 읽으면 '개명 없음'이 아니라 '못 읽음'이다(`[169]`)
+        _CC.pm_schedule_camps = lambda force=False: ({}, {"길": "못 읽음: 폴더 없음"})
+        miss = []
+        rows = [_row("MC04(사천)", "E")]
+        M._renames(rows, custs, miss)
+        assert rows[0]["갈래"] == "E" and miss and "못 읽음" in miss[0][1],             "원본을 못 읽었는데 조용히 넘어간다"
+    finally:
+        _CC.pm_schedule_camps = _orig
+    kinds = [k for k, _t, _d in M.KINDS]
+    assert kinds.index("R") < kinds.index("G"), "근거(R)가 짐작(G)보다 뒤에 온다"
+
     print("[309] 캠프 이름 불일치 지목 — 번호·지역·박힌 지명 오탐 거절 · 유일할 때만 지목 "
-          "· 읽기 전용 ✅")
+          "· 원본 개명은 R · 읽기 전용 ✅")
 
 
 

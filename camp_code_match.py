@@ -47,6 +47,10 @@ KINDS = [
     ("E", "이름으로 못 찾음", "밴드에서만 보이는 캠프다 — ERP 마스터에도, ERP 거래처 원본"
      "(ESA001M) 에도 **댈 후보가 없다**. 없는 캠프인지 아직 못 본 것인지는 사람이 확인한다"),
     ("F", "코드만 비었음", "ERP·원장에도 있는 캠프인데 거래처코드 칸이 비었다 — 코드를 채우면 된다"),
+    ("R", "개명 근거 있음 — 정기점검 원본이 말해 줌",
+     "정기점검 스케줄 원본의 '기존 캠프명 → 변경 캠프명' 이 **옛 이름을 직접 말해 주고**, 그 "
+     "옛(또는 새) 이름이 ERP 거래처명과 **글자 그대로** 맞는 코드가 하나뿐이다. 짐작(G)이 "
+     "아니라 원본 근거다 — 그래도 아무것도 안 고쳤다. 사람이 확인하고 등록한다"),
     ("G", "이름이 다른 것으로 보임 ★요청 2번",
      "ERP 거래처 원본에서 **후보가 정확히 하나** 나왔다 — `US직구 허브넷` ↔ `인천7캠프(허브넷)` "
      "가 그 모양이다. **지목일 뿐 확정이 아니다**(아무것도 안 고친다) — 근거를 보고 사람이 정한다"),
@@ -263,6 +267,69 @@ def guess_codes(camps, custs):
     return out
 
 
+def _renames(rows, custs, 못읽음):
+    """정기점검 스케줄 원본의 개명으로 E·G·H 를 다시 본다([136]) — **아무것도 안 고친다**.
+
+    ★ 지목(G)은 괄호 지명·주소·이름 일부로 **짐작**한 것이다. 원본 워크북의
+      '기존 캠프명 → 변경 캠프명' 은 **사람이 적어 둔 사실**이라 근거가 세다.
+      그래서 갈래를 따로 둔다(R) — 섞으면 사람이 어느 것이 짐작인지 못 가른다.
+    ★ 짝은 **글자 그대로**(`_norm`)만 짓는다. 개명 이름이 ERP 에 없으면 R 이 아니다 —
+      거기서 다시 짐작하면 그것은 G 다.
+    ★ 짐작과 원본이 **다른 코드**를 말하면 H 로 내린다 — 어느 쪽인지 사람이 고른다(`[172]`).
+    ★ 원본을 못 읽으면 **못 읽었다고 적는다**(`[169]`) — '개명 없음'으로 세지 않는다.
+    """
+    try:
+        import camp_contacts
+        camps, why = camp_contacts.pm_schedule_camps()
+    except Exception as e:                        # noqa: BLE001
+        camps, why = {}, {"길": "못 읽음: %s" % str(e)[:80]}
+    if not camps:
+        못읽음.append(("정기점검 스케줄 원본(개명)", (why or {}).get("길") or "읽지 못했다 — "
+                    "R 은 **못 잰 것**이지 0건이 아니다"))
+        return {"길": (why or {}).get("길") or "못 읽음", "개명캠프": 0, "R": 0, "어긋남": 0}
+    alias = {}
+    for c in camps.values():
+        group = [c.get("캠프명")] + list(c.get("옛이름") or [])
+        for n in group:
+            if n:
+                alias.setdefault(_norm(n), set()).update(g for g in group if g)
+    byname = {}
+    for c in custs or []:
+        code = str(c.get("code") or "")
+        if code:
+            byname.setdefault(_norm(c.get("name")), {})[code] = str(c.get("name") or "")
+    n_r = n_clash = 0
+    for r in rows:
+        if r["갈래"] not in ("E", "G", "H"):
+            continue
+        other = [n for n in alias.get(_norm(r["캠프명"]), ()) if _norm(n) != _norm(r["캠프명"])]
+        hits = {}
+        for n in other:
+            for code, en in byname.get(_norm(n), {}).items():
+                hits[code] = (n, en)
+        if len(hits) != 1:
+            continue
+        code, (n, en) = next(iter(hits.items()))
+        basis = "정기점검 원본 개명 `%s` ↔ `%s` = ERP `%s`" % (n, r["캠프명"], en)
+        if r["갈래"] == "G" and r["추정코드"] and r["추정코드"] != code:
+            n_clash += 1
+            r["갈래"] = "H"
+            r["추정근거"] = "%s(원본 개명) / %s(짐작)" % (code, r["추정코드"])
+            r["확인할 것"] = ("원본 개명은 %s, 짐작은 %s — **서로 다르다**. 사람이 고른다"
+                            " · %s" % (code, r["추정코드"], basis))
+            r["추정코드"] = ""
+            r["_개명"] = True
+            continue
+        n_r += 1
+        r["갈래"], r["추정코드"], r["_개명"] = "R", code, True
+        r["추정근거"] = "%s — %s" % (en, basis)
+        r["확인할 것"] = ("ERP `%s` (%s) — %s. 원본 근거이지만 아무것도 안 고쳤다"
+                        % (en, code, basis))
+    return {"길": why.get("길"), "파일": why.get("파일", ""),
+            "개명캠프": sum(1 for c in camps.values() if c.get("옛이름")),
+            "R": n_r, "어긋남": n_clash}
+
+
 def build():
     master, e1 = _load(os.path.join(REPORT, "캠프마스터.json"))
     contacts, e2 = _load(os.path.join(REPORT, "캠프_담당자.json"))
@@ -368,7 +435,9 @@ def build():
     #   ★ 여기서 처음으로 '이름이 다른 캠프'를 잰다. 위 갈래 나누기는 캠프마스터를
     #     근거로 하는데 그 표는 `캠프명 == ERP거래처명` 인 것만 담아 구조상 못 잰다.
     custs, erp원본 = _erp_customers()
-    Es = [r for r in rows if r["갈래"] == "E"]
+    # ── 정기점검 원본이 말한 개명부터 본다([136]) — 짐작(G·H)보다 근거가 세다 ──
+    renamed = _renames(rows, custs, 못읽음)
+    Es = [r for r in rows if r["갈래"] == "E" and not r.get("_개명")]
     guess = guess_codes(Es, custs) if custs else {}
     for r in Es:
         cs = guess.get(_norm(r["캠프명"])) or []
@@ -392,8 +461,11 @@ def build():
         못읽음.append(("ERP 거래처 원본(ESA001M)", erp원본["길"] or "읽지 못했다 — "
                     "G·H 는 **못 잰 것**이지 0건이 아니다"))
 
-    rows.sort(key=lambda r: (r["갈래"], -r["건수"], r["캠프명"]))
-    return {"만든때": datetime.now().isoformat(timespec="seconds"),
+    order = {k: i for i, (k, _t, _d) in enumerate(KINDS)}
+    for r in rows:
+        r.pop("_개명", None)
+    rows.sort(key=lambda r: (order.get(r["갈래"], 99), -r["건수"], r["캠프명"]))
+    return {"개명근거": renamed,"만든때": datetime.now().isoformat(timespec="seconds"),
             "rows": rows, "못읽음": 못읽음, "버린쓰레기": 버린쓰레기,
             "ERP원본": erp원본,
             "원천": {"ERP 거래처 마스터": len((master or {}).get("rows") or []),
@@ -438,14 +510,14 @@ def to_md(d):
         if not sel:
             continue
         L += ["## %s. %s (%d건)" % (k, title, len(sel)), "", desc, ""]
-        if k in ("G", "H"):
+        if k in ("R", "G", "H"):
             L += ["| 캠프명 | 캠프 주소 | 정기점검 | ERP 후보(추정) | 근거 |",
                   "|---|---|:-:|---|---|"]
         else:
             L += ["| 캠프명 | 거래처코드 | ERP 거래처명 | 정기점검 | 건수 | 출처 | 확인할 것 |",
                   "|---|---|---|:-:|---:|---|---|"]
         for r in sel[:80 if k != "A" else 40]:
-            if k == "G":
+            if k in ("R", "G"):
                 L.append("| %s | %s | %s | **%s** %s | %s |" % (
                     r["캠프명"], r["주소"][:30], r["정기점검"], r["추정코드"],
                     r["추정근거"].split(" — ")[0], r["추정근거"].split(" — ")[-1]))

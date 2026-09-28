@@ -250,6 +250,25 @@ def person_directory(recs, erp_rows=()):
     return {"전화": tel, "이름": name}
 
 
+def _bare(name):
+    """괄호 별명을 뗀 이름 — `김영준(One)` → `김영준`."""
+    return re.sub(r"[(（].*$", "", _first_name(name) or "").strip()
+
+
+def _owners(directory, tel):
+    """이 번호에 적힌 **한글 이름**들 — 괄호 속 영문 별명은 떼고 센다.
+
+    `이바울(Paul)` 과 `Paul` 은 한 사람이다(영문만 있는 토막은 안 센다).
+    """
+    names = (directory.get("전화", {}).get(tel) or {}).get("이름") or ()
+    out = set()
+    for n in names:
+        k = re.sub(r"[(（].*$", "", str(n or "")).strip()
+        if any("가" <= ch <= "힣" for ch in k):
+            out.add(k)
+    return out
+
+
 def _lookup(directory, person, field):
     """이 칸을 채울 값 → (값, 근거) 또는 (None, 사유). 번호가 이름보다 세다."""
     t = (person.get("전화") or "").strip()
@@ -261,7 +280,23 @@ def _lookup(directory, person, field):
         if not cand:
             continue
         if len(cand) == 1:
-            return next(iter(cand)), 라벨
+            v = next(iter(cand))
+            if 열쇠 == "전화" and field == "메일" and len(_owners(directory, 값)) > 1:
+                mine = set()
+                me = _bare(person.get("이름"))
+                for nm, box in (directory.get("이름") or {}).items():
+                    if me and _bare(nm) == me:
+                        mine |= (box.get("메일") or set())
+                if v not in mine:
+                    # ★ 번호 주인이 둘인데 이 메일은 **남의 이름 옆에** 적혔다([133] 실측).
+                    #   원본 글이 안전관리 줄에 현장책임 번호를 잘못 적고 제 메일을 붙이면
+                    #   (밴드 2579 · 4310 · 4794) 그 메일이 현장책임에게도 붙는다 —
+                    #   김대겸 ← 김두원 메일 · 이광희 ← 최원국 메일 27칸.
+                    #   ★ **지우지 않는다** — 같은 모양 중에는 제 메일도 있다(이재승 ·
+                    #     김영준 등 9칸). 누구 것인지는 사람이 안다([169]·[172]).
+                    #     출처 칸에 경고를 달아 화면·엑셀이 원문과 구별해 보여 준다.
+                    return v, 라벨 + " · ⚠번호 주인 여럿 — 누구 메일인지 확인"
+            return v, 라벨
         return None, "후보 여럿"          # 여럿이면 이름으로도 다시 묻지 않는다
     return None, ""
 

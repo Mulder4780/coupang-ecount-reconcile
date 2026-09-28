@@ -21113,6 +21113,9 @@ async function campCodeCopy(v){
    ★ 판정은 서버가 준 `보완` 그대로다([162]) — 여기서 다시 고르지 않는다. */
 function campSupTag(src){
   if(!src) return '';
+  /* ★ 서버가 '번호 주인 여럿'이라 달아 준 값은 **남의 메일일 수 있다**([133]) — 노랗게 따로 말한다.
+     판정은 서버 것 그대로다([162]) — 여기서는 그 글자만 본다. */
+  if(String(src).indexOf('⚠')>=0) return ' <span class="badge warn" title="' + esc2(src + ' — 원본 글이 같은 번호에 두 사람을 적었습니다. 이 메일이 이 사람 것인지 확인해 주세요') + '">누구 메일?</span>';
   return ' <span class="badge" title="' + esc2('원문에 없어 ' + src + ' 에서 채운 값입니다 — 밴드 접수 글에 적힌 값이 아닙니다') + '">보완</span>';
 }
 function campCell(p, label, sup){ p = p || {}; sup = sup || {};
