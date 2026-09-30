@@ -37259,6 +37259,77 @@ def t540_pm_deadline_is_a_quarter_not_a_day():
           "판정 한 곳 · 낱말 안 늘림 · 꺼두면 예전대로 · 자기시험")
 
 
+def t541_revenue_gap_asks_erp_not_the_ledger_sheet():
+    """매출 누락은 **ERP 에 잡혔나**로 묻는다 — 실행으로 잰다([295] · 2026-09-30).
+
+    2026-09-30 실측: 같은 8·9월을 '정산 기록(관리대장 이관분)' 으로 세면 누락 89건인데
+    ERP 판매 색인으로 세면 **22건**이었다. 관리대장 06·14·15 시트가 7~8월에 멈춰
+    있어서 생긴 차이다 — 기록이 없는 것을 매출이 없는 것으로 읽으면 **CFO 께 없는
+    구멍을 보고**하게 된다([172] 틀린 지목은 못 잡는 것보다 나쁘다).
+
+    계약: ① ERP 색인에 있으면 누락이 아니다 ② 없으면 누락 후보다
+    ③ **색인을 못 읽으면 예전 근거로 물러나고 그 사실을 말한다**([169])
+    ④ 무상·보험은 애초에 매출이 아니라 안 센다([170] 거짓 경보)
+    ⑤ 화면이 **어느 근거로 판정했는지** 적는다 ⑥ 계기 자기시험([272]).
+    진짜 DB·색인은 한 글자도 안 건드린다([247]) — 전부 목이고 finally 로 되돌린다([371]).
+    """
+    import io
+    import month_end_check as M
+
+    real_rows, real_erp = M._rows, M.erp_projects
+    끝 = "2026-09-30"
+
+    def rows(kind):
+        if kind == "정산":
+            return []                       # 정산 기록이 통째로 비어 있는 상황을 만든다
+        if kind == "돌발AS":
+            return [
+                {"프로젝트NO": "UJ2600001", "캠프명": "있는캠프", "작업완료일": "2026-09-01",
+                 "유상·무상·보험": "유상"},
+                {"프로젝트NO": "UJ2600002", "캠프명": "없는캠프", "작업완료일": "2026-09-01",
+                 "유상·무상·보험": "유상"},
+                {"프로젝트NO": "UJ2600003", "캠프명": "무상캠프", "작업완료일": "2026-09-01",
+                 "유상·무상·보험": "무상"},
+            ]
+        return []
+
+    try:
+        M._rows = rows
+        # ①② ERP 색인이 판정한다
+        M.erp_projects = lambda: {"UJ2600001"}
+        r = M.revenue_link("2026-09", 끝)
+        빠진 = {x["프로젝트NO"] for x in r["누락후보"]}
+        assert 빠진 == {"UJ2600002"}, 빠진                       # ①②④
+        assert (r.get("ERP색인") or {}).get("쓴근거", "").startswith("ERP"), r.get("ERP색인")
+        assert not r.get("확인못함"), r["확인못함"]
+
+        # ③ 색인을 못 읽으면 물러나고 **말한다**
+        M.erp_projects = lambda: None
+        r2 = M.revenue_link("2026-09", 끝)
+        assert not (r2.get("ERP색인") or {}).get("쓴근거", "").startswith("ERP"), r2.get("ERP색인")
+        assert any("ERP" in w for w in (r2.get("확인못함") or [])), r2.get("확인못함")
+        assert r2.get("누락후보") is not None                     # 답변기는 죽지 않는다
+
+        # ⑥ 계기 자기시험 — ERP 근거를 무시하게 만들면 이 검사가 잡는가([272])
+        잡힘 = 0
+        M.erp_projects = lambda: set()      # 색인은 읽혔으나 비어 있다 = 둘 다 누락이어야
+        r3 = M.revenue_link("2026-09", 끝)
+        if {x["프로젝트NO"] for x in r3["누락후보"]} != {"UJ2600001", "UJ2600002"}:
+            잡힘 += 1
+        assert 잡힘 == 0, "빈 색인인데 두 건을 다 안 셌다 — 근거를 안 보고 있다"
+    finally:
+        M._rows, M.erp_projects = real_rows, real_erp            # [371]
+
+    # ⑤ 화면이 근거를 적는가 — 글자가 아니라 만들어진 글로 잰다([295])
+    src = io.open(os.path.join(ROOT, "month_end_check.py"), encoding="utf-8").read()
+    assert "ERP 판매 색인" in src, "어느 근거로 판정했는지 화면이 안 적는다([169])"
+    assert "'매출이 없다'가 아니라" in src or "매출이 없다" in src, \
+        "'안 보인다'를 '없다'로 읽지 말라는 안내가 사라졌다"
+
+    print("  ✔ [541] 매출 누락은 ERP 에 물음 — 있으면 안 셈 · 없으면 후보 · "
+          "못 읽으면 물러나고 말함 · 무상 제외 · 근거 표시 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52415,6 +52486,7 @@ if __name__ == "__main__":
     t538_sop_book_and_pictures()
     t539_ollama_is_a_hint_not_a_source()
     t540_pm_deadline_is_a_quarter_not_a_day()
+    t541_revenue_gap_asks_erp_not_the_ledger_sheet()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

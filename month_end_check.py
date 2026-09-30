@@ -128,6 +128,24 @@ def _in_month(v, month):
     return _d(v)[:7] == month
 
 
+def erp_projects():
+    """ERP 판매 자료에 실제로 찍힌 프로젝트번호 집합. **못 읽으면 None**([169]).
+
+    판정을 새로 만들지 않는다([162]) — `erp_sales_index` 가 만든 정본 색인을 읽기만 한다.
+    빈 집합과 None 은 다른 사실이다: 빈 집합은 '한 건도 없다', None 은 '안 봤다'이고
+    부르는 쪽이 물러날지 말지를 그것으로 정한다.
+    """
+    try:
+        import erp_sales_index as E
+        d = json.load(io.open(E.canon_index_path(), encoding="utf-8"))
+        idx = d.get("index") or {}
+        if not isinstance(idx, dict):
+            return None
+        return set(idx)
+    except Exception:
+        return None
+
+
 def _skip_pm(r):
     st = str(r.get("점검상태") or "").strip()
     return st in PM_SKIP or work_flow.is_cancelled(r, "pm")
@@ -215,6 +233,20 @@ def revenue_link(month, today):
     newest = max(step) if step else ""
     out["정산자료끝"] = newest
 
+    # ★★ 2026-09-30 실측으로 **더 나은 근거**를 찾았다 — 정산 기록(관리대장에서 옮겨온
+    #    것)은 7~8월에 멈췄지만 **ERP 판매 색인은 오늘까지 산다.** 물어야 할 것은
+    #    '관리대장에 적혔나'가 아니라 **'ERP 에 매출로 잡혔나'** 다.
+    #    그날 실측: 같은 8·9월을 정산 기준으로 세면 누락 89건인데 ERP 기준으로는 22건이었다.
+    #    ⚠ 색인을 **못 읽으면 예전 근거로 물러난다**([169]) — 못 읽었다고 '매출 없음'이라
+    #      말하지 않는다. 어느 근거로 판정했는지는 화면이 그대로 적는다.
+    erp = erp_projects()
+    out["ERP색인"] = {"건수": len(erp) if erp is not None else None,
+                    "쓴근거": "ERP 판매 색인" if erp else "정산 기록(관리대장 이관분)"}
+    if erp is None:
+        out["확인못함"].append(
+            "ERP 판매 색인을 못 읽어 정산 기록으로만 판정했습니다 "
+            "(python erp_sales_index.py 로 다시 만듭니다)")
+
     finished = []
     for kind, dk in (("돌발AS", "작업완료일"), ("정기점검", "실제점검일")):
         rs = _rows(kind)
@@ -236,6 +268,15 @@ def revenue_link(month, today):
         common = {"업무": kind, "프로젝트NO": k, "캠프명": r.get("캠프명"),
                   "완료일": fin, "유상무상": paid or "(미기입)", "경과일": n}
         if not s:
+            # ERP 색인을 읽을 수 있으면 그것이 더 센 근거다 — 거기에 있으면 매출은 잡혔다.
+            if erp is not None:
+                if k in erp:
+                    continue                      # ERP 에 있다 = 누락이 아니다
+                if n > BILL_DELAY_DAYS or True:   # ERP 근거는 갓 끝난 건도 바로 말할 수 있다
+                    out["누락후보"].append(dict(
+                        common, 왜="ERP 판매 자료에 이 프로젝트가 안 보입니다(완료 %d일째)" % n,
+                        근거="ERP 판매 색인"))
+                continue
             # 정산 자료가 아직 안 닿은 번호대다 — '없다'가 아니라 '모른다'([169]).
             if newest and k > newest:
                 out["정산자료밖"].append(dict(
@@ -329,8 +370,15 @@ def render(d):
     L.append("## 2. 지연 없이 매출로 이어지고 있나")
     L.append("")
     miss = B.get("누락후보") or []
-    L.append("**매출 누락 후보 %d건** — 완료 %d일이 넘었는데 정산 기록이 없습니다."
-             % (len(miss), BILL_DELAY_DAYS))
+    근거 = (B.get("ERP색인") or {}).get("쓴근거") or "정산 기록"
+    if 근거.startswith("ERP"):
+        L.append("**매출 누락 후보 %d건** — 완료했는데 **ERP 판매 자료에 안 보입니다**." % len(miss))
+        L.append("  (근거: %s · %s건) — 'ERP에 안 보인다'는 '매출이 없다'가 아니라 "
+                 "받아 둔 화면에 안 찍혔다는 뜻입니다. 확정은 담당자 확인 뒤에 합니다."
+                 % (근거, (B.get("ERP색인") or {}).get("건수")))
+    else:
+        L.append("**매출 누락 후보 %d건** — 완료 %d일이 넘었는데 정산 기록이 없습니다."
+                 % (len(miss), BILL_DELAY_DAYS))
     if not miss:
         L.append("  (갓 끝난 건은 정산이 아직 안 만들어진 것이라 여기 안 셉니다.)")
     for x in miss[:15]:

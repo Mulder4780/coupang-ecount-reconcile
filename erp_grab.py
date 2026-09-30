@@ -314,8 +314,29 @@ _PRESET_LIST_JS = r"""
 """
 
 _EXCEL_PICK_JS = r"""
+  // ★★ 엑셀 단추는 **평소에 숨어 있다** — 격자의 행을 골라야 바닥 도구모음에
+  //    나타난다(2026-09-30 실측). 이것을 모르면 화면이 멀쩡히 조회됐는데도
+  //    '엑셀 단추를 못 찾았다'로 끝난다 — 그 문구는 "그 화면엔 엑셀이 없다"로
+  //    잘못 읽히고, 실제로 ERP 내보내기 여러 종이 그렇게 몇 주씩 밀려 있었다.
+  //    ⚠ 고르기 전에 눌러 보고 없다고 적지 않는다([169] — 안 본 것을 '없음'이라 하지 않는다).
+  const __excelReveal = async () => {
+    const vis = e => { try { return e.getClientRects().length > 0; } catch (_) { return false; } };
+    const already = [...document.querySelectorAll('button,a')].some(e => {
+      const t = (e.textContent || '').trim();
+      return /^(excel|엑셀)/i.test(t) && !/업로드|양식|등록|불러오기/.test(t) && vis(e);
+    });
+    if (already) return '이미 보임';
+    const boxes = [...document.querySelectorAll('input[type=checkbox]')].filter(vis);
+    if (!boxes.length) return '체크박스 없음';
+    if (!boxes[0].checked) boxes[0].click();          // 머리글 = 전체 선택
+    await new Promise(r => setTimeout(r, 1500));
+    return '행 선택함(' + document.querySelectorAll('input[type=checkbox]:checked').length + ')';
+  };
+
   const __excelPick = () => {
     const bad = /업로드|양식|등록|불러오기|가져오기|import|upload/i;
+    // ★ 이름이 화면마다 다르다 — 'Excel' 인 곳도 있고 'Excel(표시형식)' 인 곳도 있다.
+    //   그래서 **시작 글자**로만 가른다(2026-09-30 실측 · 둘 다 실제로 있었다).
     const ok  = t => /^(excel|엑셀)/i.test(t) && !bad.test(t);
     const vis = e => { try { return e.getClientRects().length > 0; } catch (_) { return true; } };
     const byCid = [...document.querySelectorAll('[data-cid="outputExcel"]')];
@@ -465,6 +486,8 @@ window.__ERPGRAB = {단계: '시작', 조회전: null, 조회후: null, 완료: 
 
   // ④ 엑셀 — 찾는 규칙은 _EXCEL_PICK_JS 한 곳이다([162])
   //__EXCEL_PICK__
+  const __reveal = await __excelReveal();          // 행을 골라야 엑셀이 나온다(2026-09-30)
+  say({엑셀꺼내기: __reveal});
   const __ex = __excelPick();
   const x = __ex.btn;
   if (!x) { say({오류:'엑셀 단추를 못 찾았다 — 화면에 있는 비슷한 글자: ' +
@@ -865,6 +888,7 @@ window.__ERPALL = {지금: null, 끝난것: [], 남은것: %(keys)s, 완료: fal
       // ⑥ 엑셀
       // ★ 여기서만 **한 번** 누른다. 진행단계 화면처럼 Excel 단추가 둘인 곳에서
       //   후보를 모두 누르면 같은 파일이 두 벌 떨어진다(2026-08-08 실측 289KB ×2).
+      const __reveal2 = await __excelReveal();      // 행을 골라야 엑셀이 나온다(2026-09-30)
       const __ex = __excelPick();
       const x = __ex.btn;
       if (!x) { done({결과: '실패', 왜: '엑셀 단추를 못 찾았다 — 화면에 있는 비슷한 글자: ' +
