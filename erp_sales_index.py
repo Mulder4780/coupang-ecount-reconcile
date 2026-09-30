@@ -48,7 +48,7 @@ ORDER = {"1.미확인": 1, "확인": 2, "2.메일발송": 3, "3.오더처리": 4
          "4.세금계산서발행대기": 5, "5.": 6, "6.세금계산서발행": 7, "7.수금완료": 8,
          "8.무상납품완료": 9}
 ISSUED = ("6.세금계산서발행", "7.수금완료")
-INDEX_RULES_VERSION = 1
+INDEX_RULES_VERSION = 2   # 2: 구매 내보내기 제외(2026-09-30)
 
 
 def rank(state):
@@ -151,6 +151,22 @@ def sales_candidate_paths(limit=60):
     return prioritize_sales_candidates(cands, cached_sales, limit)
 
 
+def is_sales_head(head):
+    """이 머리글이 **판매** 내보내기인가.
+
+    ★ 2026-09-30 실측: 예전 판정(프로젝트코드 + 진행상태)은 **구매요청·발주 내보내기**
+      (`진행상태 · 신청일 · 구매처(상호)명 · 프로젝트코드…`)도 통과시켰다. 그 파일 7개가
+      판매 색인에 섞여 **99개 프로젝트**가 날짜 자리에 '완료'·'진행중'을 달고 들어왔다
+      (첫 칸을 날짜로 읽으므로). 매입 기록이 판매 근거로 읽히면 월별 매출이 조용히
+      빠지고, 진행상태가 판매 완료처럼 보인다([165]).
+    ★ 가르는 근거는 **구매처 칸**이다 — 판매 내보내기 넷 모양은 전부 `거래처명` 을 쓰고
+      `구매처` 를 안 쓴다(실측). 판매 쪽 칸 요구를 늘리면 멀쩡한 판매 모양이 떨어진다([172]).
+    """
+    joined = "|".join(str(h or "") for h in head)
+    return ("프로젝트코드코드" in joined and "진행상태" in joined
+            and "구매처" not in joined)
+
+
 def sales_exports(limit=60, cands=None):
     """판매조회 엑셀을 **전부** 찾는다(새 것부터). 파일명이 무작위라 머리글로 판정한다.
 
@@ -169,7 +185,7 @@ def sales_exports(limit=60, cands=None):
             wb = openpyxl.load_workbook(p, read_only=False, data_only=True)
             ws = wb.active
             head = [str(c or "") for c in next(ws.iter_rows(min_row=2, max_row=2, values_only=True))]
-            if "프로젝트코드코드" in "|".join(head) and "진행상태" in "|".join(head):
+            if is_sales_head(head):
                 found.append((p, ws, head, wb))
             else:
                 wb.close()
