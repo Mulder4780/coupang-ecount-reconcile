@@ -37150,6 +37150,38 @@ def t538_sop_book_and_pictures():
             pass
         assert not os.path.exists(miss)
 
+        # ⑦ 공유 폴더 게시(2026-10-02 지시) — 진짜 Z:·표지는 안 건드린다([247] · 임시로만).
+        import sop_publish as P
+        root = os.path.join(tmp, "11. 표준 업무 절차서")
+        os.makedirs(os.path.join(root, "4. 아직 못 채운 칸"))
+        _mark = P.MARK
+        try:
+            P.MARK = os.path.join(tmp, "mark.json")
+            m1 = P.publish(root=root, store=store, today="20261001")
+            bdir = os.path.join(root, "5. 책")              # 1~4 는 뜻이 정해진 자리다
+            assert os.path.isfile(os.path.join(bdir, "책_20261001.docx")), (m1, os.listdir(root))
+            assert os.path.isfile(os.path.join(root, P.JSON_DIR, "책_20261001.json"))
+            # 바뀐 게 없으면 아무것도 안 한다 — 폴더가 없어도 안 묻는다([168])
+            assert P.publish(root=os.path.join(tmp, "없는폴더"), store=store) == "", "안 바뀌었는데 게시한다"
+            # 내용이 바뀌면 새 판을 놓고 옛 판은 old 로(지우지 않는다)
+            S.put({"제목": "라 장", "단계": ["하나"]}, store)
+            S.set_book("책", [c, a, b, "SOP-%03d" % 4], store)
+            P.publish(root=root, store=store, today="20261002")
+            assert sorted(os.listdir(bdir)) == ["책_20261002.docx", "책_20261002.pptx"], os.listdir(bdir)
+            olds = sorted(os.listdir(os.path.join(root, P.OLD_DIR)))
+            assert olds == ["책_20261001.docx", "책_20261001.json", "책_20261001.pptx"], olds
+            # 표지가 없어도 이미 같은 판이 있으면 다시 올리지 않는다(첫 회차)
+            os.remove(P.MARK)
+            assert "표지만" in P.publish(root=root, store=store, today="20261003")
+            assert not os.path.exists(os.path.join(bdir, "책_20261003.docx")), "같은 내용을 날짜만 바꿔 또 올렸다"
+            # 폴더에 못 닿으면 만들지 않고 말한다([169])
+            S.put({"제목": "마 장", "단계": ["하나"]}, store)
+            S.set_book("책", [c, a, b, "SOP-%03d" % 5], store)
+            far = os.path.join(tmp, "없는폴더")
+            assert "못 닿았다" in P.publish(root=far, store=store) and not os.path.exists(far)
+        finally:
+            P.MARK = _mark
+
     print("  ✔ [538] 업무별 절차서 책·사진/도면 — 그림 칸 · 옛 판 지문 그대로 · 적힌 차례 · "
           "없는 번호 거절 · 그림 실제 삽입/못 넣음 표시 · 빈 책 안 만듦 · 자기시험")
 

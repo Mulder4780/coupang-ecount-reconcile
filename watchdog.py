@@ -739,6 +739,24 @@ def lock_ledger_archive(dry):
     return "보관본 v%s 를 안 잠갔다: %s" % (ver, why)
 
 
+def publish_sop(dry):
+    """표준 업무 절차서를 공유 폴더에 번호 순서대로 게시한다(2026-10-02 형님 지시 "자동으로 해둬").
+
+    ★ 판단은 `sop_publish` 한 곳이다([162]) — 여기서는 부르기만 한다.
+    ★ 바뀐 묶음이 없으면 Z: 를 한 번도 안 만진다([168]) — 30분마다 불려도 값이 0 이다.
+    ★ 못 해도 회차를 안 죽인다 — 그러나 못 했다고 말한다([169])."""
+    try:
+        import sop_publish
+    except Exception as exc:
+        return "절차서 게시: 못 불렀다(%s)" % exc
+    if dry:
+        return ""
+    try:
+        return sop_publish.publish()
+    except Exception as exc:
+        return "절차서 게시 실패: %s" % str(exc)[:80]
+
+
 def sweep_files(dry):
     """쓸데없는 파일을 지운다 — **되돌릴 수 있는 갈래만**(2026-08-27 지시).
 
@@ -1546,6 +1564,8 @@ def main():
              # ★ 엑셀은 저장용이다 — 어느 도구가 만든 새 보관본이든
              #   여기서 잠근다(2026-08-28 지시 · `[477]`).
              lock_ledger_archive,
+             # ★ 절차서 공유 폴더 게시 — 바뀐 묶음만, 옛 판은 old 로(2026-10-02 지시).
+             publish_sop,
              # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
              #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
              mirror_originals,

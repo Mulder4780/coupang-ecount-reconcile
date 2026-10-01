@@ -42,6 +42,8 @@ ORIGIN_ROOT = os.path.join(LEDGER_DIR, "0. 원본 자료")
 #   `ORIGIN_ROOT` 를 이 값으로 바꾸고 ④ 옛 자리는 **읽기로 남긴다**
 #   (형님이 "복사" 라 하셨다 — 지우는 것은 되돌릴 수 없다).
 CSOS_DATA_ROOT = r"Z:\25. AI_RND_Data\2000. ULH APPS DATA\2. CSOS DATA"
+# 표준 업무 절차서 게시 자리(2026-10-02 형님 지시 — 번호 순서 · old 보관). 쓰는 곳은 sop_publish 하나.
+SOP_DIR = os.path.join(CSOS_DATA_ROOT, "11. 표준 업무 절차서")
 # 주소를 바꾼 뒤 **읽기 호환**으로 남길 옛 자리 — `PO_DIRS` 가 쓰는 그 방식이다.
 LEGACY_ORIGIN_ROOT = os.path.join(LEDGER_DIR, "0. 원본 자료")
 
