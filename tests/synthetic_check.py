@@ -36489,6 +36489,35 @@ def t530_canonical_erp_index_path_is_one_place():
         assert (_one["supply"], _one["vat"], _one["total"]) == (1000, 100, 1100), (
             "금액 칸 이름을 못 읽어 0 으로 센다: %r → %r" % (_h, _one))
     assert ESI.INDEX_RULES_VERSION >= 3, "금액 판정을 바꾸고 판본을 안 올렸다"
+    # ⑧ 원본에 못 닿은 회차는 빈 색인으로 **덮지 않는다** · 빈 색인은 지름길로 안 믿는다
+    #    (2026-09-30 실사고: Z: 끊긴 회차가 2,040개를 0개로 덮고, 지문 지름길이 그것을 계속 믿었다).
+    #    진짜 색인은 안 건드린다([247]) — 임시 경로·목으로만, finally 로 되돌린다([371]).
+    import tempfile as _tf
+    _tmp = os.path.join(_tf.mkdtemp(), "idx.json")
+    _old = (ESI.OUT, ESI.sales_candidate_paths, ESI.sales_exports, ESI._candidate_stamp)
+    try:
+        ESI.OUT = _tmp
+        with open(_tmp, "w", encoding="utf-8") as _fh:
+            json.dump({"src": ["a.xlsx"], "count": 1, "fingerprint": "F", "rules": 3,
+                       "index": {"UJ2600001": {"total": 1100}}}, _fh)
+        ESI.sales_candidate_paths = lambda *a, **k: ["Z:/없는/a.xlsx"]
+        ESI.sales_exports = lambda *a, **k: []          # 하나도 못 열었다
+        ESI._candidate_stamp = lambda paths: "F"
+        _ix, _src = ESI.build()
+        assert _ix == {"UJ2600001": {"total": 1100}}, "옛 색인을 돌려주지 않는다: %r" % (_ix,)
+        ESI._candidate_stamp = lambda paths: "G"
+        _ix, _src = ESI.build()
+        with open(_tmp, encoding="utf-8") as _fh:
+            assert json.load(_fh)["count"] == 1, "원본을 못 읽었는데 빈 색인으로 덮었다"
+        with open(_tmp, "w", encoding="utf-8") as _fh:
+            json.dump({"src": [], "count": 0, "fingerprint": "F", "rules": 3, "index": {}}, _fh)
+        _seen = []
+        ESI._candidate_stamp = lambda paths: "F"
+        ESI.sales_exports = lambda *a, **k: _seen.append(1) or []
+        ESI.build()
+        assert _seen, "빈 색인을 지름길로 믿어 다시 안 읽는다 — 원본이 돌아와도 영영 비어 있다"
+    finally:
+        ESI.OUT, ESI.sales_candidate_paths, ESI.sales_exports, ESI._candidate_stamp = _old
 
     print("  ✔ [530] ERP 정본 색인 경로 한 곳 — 읽는 곳 4 + 이름 1 · API 색인과 분리")
 

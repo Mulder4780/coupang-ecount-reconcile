@@ -276,8 +276,10 @@ def build():
         try:
             with open(OUT, encoding="utf-8") as fh:
                 old = json.load(fh)
+            # ★ 빈 색인은 지름길로 믿지 않는다(2026-09-30 실사고) — 지문은 분류표에서
+            #   오므로 **파일을 못 열었던 회차**의 빈 결과도 같은 지문을 단다.
             if (old.get("fingerprint") == stamp and isinstance(old.get("index"), dict)
-                    and isinstance(old.get("src"), list)):
+                    and isinstance(old.get("src"), list) and old.get("index")):
                 return old["index"], old["src"]
         except Exception:
             pass
@@ -294,6 +296,18 @@ def build():
         srcs.append(os.path.basename(path))
         for uj, v in one.items():
             merged.setdefault(uj, v)                 # 이미 있으면(=더 새 파일) 그대로 둔다
+    if not merged and paths:
+        # ★ 후보는 있는데 하나도 못 읽었다 = 원본에 못 닿은 것이다(Z: 끊김 등).
+        #   빈 색인으로 덮으면 앱·정산·대조가 **오류 없이 '판매 0건'** 을 본다([169]).
+        #   옛 색인을 그대로 두고, 못 읽었다는 사실만 말한다.
+        print("ERP 판매 색인: 후보 %d개를 하나도 못 읽었다 — 옛 색인을 그대로 둔다"
+              "(원본 드라이브 연결부터 확인)" % len(paths), file=sys.stderr)
+        try:
+            with open(OUT, encoding="utf-8") as fh:
+                old = json.load(fh)
+            return old.get("index") or {}, old.get("src") or []
+        except Exception:
+            return {}, []
     _save_index({"src": srcs, "count": len(merged), "index": merged,
                  "fingerprint": stamp, "rules": INDEX_RULES_VERSION})
     return merged, srcs
