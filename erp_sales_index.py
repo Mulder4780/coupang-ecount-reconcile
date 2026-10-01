@@ -48,7 +48,7 @@ ORDER = {"1.미확인": 1, "확인": 2, "2.메일발송": 3, "3.오더처리": 4
          "4.세금계산서발행대기": 5, "5.": 6, "6.세금계산서발행": 7, "7.수금완료": 8,
          "8.무상납품완료": 9}
 ISSUED = ("6.세금계산서발행", "7.수금완료")
-INDEX_RULES_VERSION = 2   # 2: 구매 내보내기 제외(2026-09-30)
+INDEX_RULES_VERSION = 3   # 2: 구매 내보내기 제외 · 3: 금액 칸 이름 셋(2026-09-30)
 
 
 def rank(state):
@@ -194,12 +194,26 @@ def sales_exports(limit=60, cands=None):
     return found
 
 
+#: 금액 칸 이름 — 판매 내보내기 **모양마다 다르다**(2026-09-30 실측 셋).
+#:   판매조회 요약 `공급가액합계·부가세합계·금액합계` · 품목별 `공급가액·부가세·합계` ·
+#:   출고 기준 `판매공급가액합계·판매부가세합계·판매금액합계`. 앞의 하나만 읽던 때는
+#:   뒤의 두 모양이 **오류 없이 금액 0** 으로 들어왔다([165]). 앞에 있는 이름이 이긴다.
+SUPPLY_COLS = ("공급가액합계", "판매공급가액합계", "공급가액")
+VAT_COLS = ("부가세합계", "판매부가세합계", "부가세")
+TOTAL_COLS = ("금액합계", "판매금액합계", "합계")
+
+
+def _pick(idx, names):
+    """머리글에 있는 첫 이름 — 없으면 None(그 칸은 0 으로 센다 · 지어내지 않는다)."""
+    return next((n for n in names if n in idx), None)
+
+
 def build_one(ws, head):
     """엑셀 한 개 → {UJ: 집계}. 한 파일 안에서만 합산한다(파일 간 합산은 중복이다)."""
     idx = {h: i for i, h in enumerate(head)}
 
     def num(r, key):
-        s = (r[idx[key]] if key in idx and len(r) > idx[key] else "").replace(",", "")
+        s = (r[idx[key]] if key and key in idx and len(r) > idx[key] else "").replace(",", "")
         return int(float(s)) if re.fullmatch(r"-?\d+(\.\d+)?", s) else 0
 
     out = {}
@@ -211,9 +225,9 @@ def build_one(ws, head):
         uj = m.group(0)
         cur = out.setdefault(uj, {"supply": 0, "vat": 0, "total": 0, "state": "",
                                   "date": "", "po": "", "cust": "", "rows": 0})
-        cur["supply"] += num(r, "공급가액합계")
-        cur["vat"] += num(r, "부가세합계")
-        cur["total"] += num(r, "금액합계")
+        cur["supply"] += num(r, _pick(idx, SUPPLY_COLS))
+        cur["vat"] += num(r, _pick(idx, VAT_COLS))
+        cur["total"] += num(r, _pick(idx, TOTAL_COLS))
         cur["rows"] += 1
         st = r[idx["진행상태"]] if "진행상태" in idx else ""
         if not cur["state"] or rank(st) < rank(cur["state"]):
