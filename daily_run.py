@@ -1343,6 +1343,18 @@ def _run_pipeline():
     steps.append(run("복구용 보관(서버)", [os.path.join(ROOT, "archive_keep.py")],
                      timeout=1800, retry=0))
 
+    # 9.95 DB 백업 — **모든 DB를 형님이 지정한 폴더에** (2026-10-02 형님 지시).
+    # ★ 바로 위 `archive_keep` 와 겹치지 않는다. 그쪽은 git bundle 중심이고
+    #   DB 는 `ledger_queue.db` 하나만 뜬다 — 업무 정본 `app_store.db`(2.4GB)와
+    #   `datalake.db` 는 **어디에도 백업되지 않고 있었다**(실측 2026-10-02).
+    # ★ 자리가 여기인 이유: 실측 13분 30초다. 30분 워치독에 달면 매 회차가 예산을
+    #   먹는다 — 이 회차는 예산이 150분이라 들어간다. 워치독은 **올리기만** 한다.
+    # ★ `--once` 는 하루 한 번이다. 이미 떴으면 한 줄로 바로 끝난다.
+    # ★ 재시도하지 않는다 — 실패가 결정적(디스크·권한)이면 두 배로 태울 뿐이다.
+    steps.append(run("DB 백업(지정 폴더)",
+                     [os.path.join(ROOT, "ops_backup.py"), "--once"],
+                     timeout=1800, retry=0))
+
     steps.append(run("관리대장 버전 정리", [os.path.join(ROOT, "ledger_versions.py"), "--prune"]))
 
     finish(steps)

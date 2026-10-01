@@ -71,6 +71,34 @@ ERR_SUB = "03_오류"
 SKIP_SUFFIX = ("-wal", "-shm", ".tmp", ".part")
 
 
+MARK = os.path.join(BASE, "reports", ".DB백업_도장.json")
+
+
+def 오늘했나(today=None):
+    """오늘 이미 떴나 — **도장은 이 PC 에 찍는다**(Z: 가 끊겨도 읽힌다).
+
+    ★ 못 읽으면 '안 했다'로 친다([169] 를 이 자리에 맞게 정한 것).
+      한 번 더 뜨는 값은 13분이고, 안 떠서 그날 백업이 없는 값은 **되돌릴 수 없다.**
+    """
+    today = today or datetime.date.today().isoformat()
+    try:
+        d = json.load(io.open(MARK, encoding="utf-8"))
+        return d.get("마지막") == today, d
+    except Exception:
+        return False, {}
+
+
+def 도장찍기(today, 말, 대기):
+    try:
+        os.makedirs(os.path.dirname(MARK), exist_ok=True)
+        with io.open(MARK, "w", encoding="utf-8") as fh:
+            json.dump({"마지막": today, "적은때": datetime.datetime.now().isoformat(
+                timespec="seconds"), "한말": 말, "대기함에떴나": 대기},
+                fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass            # 도장을 못 찍어도 백업을 무르지 않는다
+
+
 def manual_root():
     """형님이 지정하신 자리. 못 찾으면 None — 지어내지 않는다([169])."""
     try:
@@ -140,32 +168,65 @@ def gz_to(src, dst):
 
 
 def 어제까지의지문(root):
-    """이미 떠 둔 것의 sha256 — 같은 내용을 또 안 뜨기 위해서다([168])."""
+    """이미 떠 둔 것의 sha256 — 같은 내용을 또 안 뜨기 위해서다([168]).
+
+    ★ **대기함도 같이 본다.** 안 보면 Z: 가 끊긴 날마다 2.4GB 를 새로 뜬다 —
+      내용이 어제와 같은데도. 2026-10-02 에 그대로 밟았다.
+    """
     seen = {}
-    base = os.path.join(root, BACKUP_SUB)
-    if not os.path.isdir(base):
-        return seen
-    for day in sorted(os.listdir(base)):
-        p = os.path.join(base, day, "요약.json")
-        try:
-            d = json.load(io.open(p, encoding="utf-8"))
-        except Exception:
+    bases = [os.path.join(root, BACKUP_SUB)] if root else []
+    bases.append(WAIT_DIR)                       # 대기함이 **나중**이다 = 더 최신
+    for base in bases:
+        if not os.path.isdir(base):
             continue
-        for name, info in (d.get("DB") or {}).items():
-            k = info.get("sha256")
-            if k:
-                seen[name] = (k, day)
+        for day in sorted(os.listdir(base)):
+            p = os.path.join(base, day, "요약.json")
+            try:
+                d = json.load(io.open(p, encoding="utf-8"))
+            except Exception:
+                continue
+            for name, info in (d.get("DB") or {}).items():
+                k = info.get("sha256")
+                if k:
+                    seen[name] = (k, day, info.get("겉모습"))
     return seen
+
+
+def 겉모습(src):
+    """**뜨지 않고** 바뀌었는지 가늠할 값 — 본체와 `-wal` 의 크기·수정시각.
+
+    ★ 지문(sha256)은 2.4GB 를 통째로 떠야 나온다(실측 13분 30초). 그러니 그 전에
+      싸게 한 번 거른다([168]). 이것은 **같다는 증거이지 다르다는 증거가 아니다** —
+      어긋나면 그때 진짜로 떠서 지문으로 판정한다.
+    """
+    out = {}
+    for suf in ("", "-wal"):
+        p = src + suf
+        try:
+            st = os.stat(p)
+            out[suf or "본체"] = [st.st_size, int(st.st_mtime)]
+        except OSError:
+            out[suf or "본체"] = None
+    return out
 
 
 def one_backup(src, out_dir, 이미, dry=False):
     """DB 하나를 뜬다. 돌려주는 것: 사람이 읽을 한 줄 + 기록."""
     name = os.path.basename(src)
+    겉 = 겉모습(src)
+    before = 이미.get(name)
+    # ★ 겉모습이 그대로면 **뜨지도 않는다** — 2.4GB 를 복사·압축하는 13분을 아낀다.
+    if before and before[2] and before[2] == 겉 and not dry:
+        return ("그대로", {"이름": name, "sha256": before[0], "건너뜀": True,
+                         "같은날": before[1], "겉모습": 겉, "표": None,
+                         "어떻게": "겉모습(크기·수정시각)이 그대로라 뜨지 않았다",
+                         "원본바이트": os.path.getsize(src)})
     # ★ 미리보기는 **뜨지 않는다**([168]). 2.4GB 를 떠서 지문까지 내면 미리보기가
     #   진짜 백업만큼 걸린다 — 실측 2026-10-02 에 `--dry` 가 2분을 넘겼다.
     #   그래서 지문을 못 내는데, **그것을 '바뀌었다'로 적지 않는다**([169]).
     if dry:
         return ("뜰것", {"이름": name, "sha256": None, "표": table_rows(src),
+                        "겉모습": 겉,
                         "원본바이트": os.path.getsize(src),
                         "왜모르나": "미리보기라 지문을 안 냈다 — 같은 내용인지는 모른다"})
     tmpd = tempfile.mkdtemp(prefix="ops_bak_")
@@ -174,16 +235,16 @@ def one_backup(src, out_dir, 이미, dry=False):
         consistent_copy(src, raw)
         key = sha256_of(raw)
         rows = table_rows(raw)
-        before = 이미.get(name)
         if before and before[0] == key:
             return ("그대로", {"이름": name, "sha256": key, "건너뜀": True,
-                             "같은날": before[1], "표": rows,
+                             "같은날": before[1], "표": rows, "겉모습": 겉,
+                             "어떻게": "떠 보니 지문이 같았다",
                              "원본바이트": os.path.getsize(src)})
         os.makedirs(out_dir, exist_ok=True)
         dst = os.path.join(out_dir, name + ".gz")
         gz_to(raw, dst + ".part")
         os.replace(dst + ".part", dst)
-        return ("떴다", {"이름": name, "sha256": key, "표": rows,
+        return ("떴다", {"이름": name, "sha256": key, "표": rows, "겉모습": 겉,
                         "원본바이트": os.path.getsize(src),
                         "압축바이트": os.path.getsize(dst),
                         "파일": os.path.basename(dst)})
@@ -191,9 +252,19 @@ def one_backup(src, out_dir, 이미, dry=False):
         shutil.rmtree(tmpd, ignore_errors=True)
 
 
-def run(root=None, today=None, dry=False):
-    """오늘치 백업. 돌려주는 것: 사람이 읽을 한 줄."""
+def run(root=None, today=None, dry=False, once=False):
+    """오늘치 백업. 돌려주는 것: 사람이 읽을 한 줄.
+
+    ★ `once=True` 면 **하루 한 번**이다. 실측 2026-10-02 에 2,739MB 를 뜨는 데
+      13분 30초가 걸렸다 — 30분 회차에 그냥 달면 매번 예산을 먹는다.
+      그래서 회차는 이 깃발로 부르고, 이미 떴으면 **한 줄로 바로 끝난다.**
+    """
     today = today or datetime.date.today().isoformat()
+    if once:
+        했나, d = 오늘했나(today)
+        if 했나:
+            꼬리 = " (그때 공유 폴더에 못 닿아 대기함에 떴다)" if d.get("대기함에떴나") else ""
+            return "DB 백업: 오늘 이미 떴다%s" % 꼬리, {"건너뜀": True, "도장": d}
     root = root if root is not None else manual_root()
     닿음 = bool(root) and os.path.isdir(os.path.dirname(root or "") or ".")
     if root and not os.path.isdir(root):
@@ -208,7 +279,7 @@ def run(root=None, today=None, dry=False):
     목적 = (WAIT_DIR if 대기 else os.path.join(root, BACKUP_SUB))
     out_dir = os.path.join(목적, today)
 
-    이미 = 어제까지의지문(root) if (root and not 대기) else {}
+    이미 = 어제까지의지문(root if not 대기 else None)
     기록 = {"만든시각": datetime.datetime.now().isoformat(timespec="seconds"),
            "자리": out_dir, "대기함": 대기, "DB": {}}
     말 = []
@@ -231,7 +302,10 @@ def run(root=None, today=None, dry=False):
     머리 = "DB 백업"
     if 대기:
         머리 += " — **공유 폴더에 못 닿아 이 PC 대기함에 떴다**(다음 회차가 올린다)"
-    return "%s: %s" % (머리, " · ".join(말) or "뜰 DB가 없다"), 기록
+    한줄 = "%s: %s" % (머리, " · ".join(말) or "뜰 DB가 없다")
+    if not dry and 기록["DB"]:
+        도장찍기(today, 한줄, 대기)
+    return 한줄, 기록
 
 
 def 밀린것올리기(root=None, dry=False):
@@ -334,6 +408,8 @@ def main(argv=None):
     ap.add_argument("--dry", action="store_true", help="할 일만 말하고 안 쓴다")
     ap.add_argument("--root", help="지정 폴더를 손으로 준다(시험용)")
     ap.add_argument("--today", help="날짜를 손으로 준다(시험용)")
+    ap.add_argument("--once", action="store_true",
+                    help="하루 한 번만 — 오늘 이미 떴으면 바로 끝낸다(회차가 쓴다)")
     ap.add_argument("--restore", nargs=2, metavar=("날짜", "이름"), help="되살린다")
     ap.add_argument("--out", help="되살릴 자리")
     a = ap.parse_args(argv)
@@ -348,7 +424,7 @@ def main(argv=None):
         print(restore(a.restore[0], a.restore[1], a.out, root=a.root))
         return 0
 
-    말, _ = run(root=a.root, today=a.today, dry=a.dry)
+    말, _ = run(root=a.root, today=a.today, dry=a.dry, once=a.once)
     print(말)
     for 한줄 in (밀린것올리기(root=a.root, dry=a.dry),
                세대정리(root=a.root, today=a.today, dry=a.dry)):

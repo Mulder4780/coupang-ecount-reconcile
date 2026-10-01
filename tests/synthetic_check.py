@@ -37416,6 +37416,222 @@ def t541_revenue_gap_asks_erp_not_the_ledger_sheet():
           "못 읽으면 물러나고 말함 · 무상 제외 · 근거 표시 · 자기시험")
 
 
+def t542_db_backup_says_what_it_really_did():
+    """모든 DB 백업 — **한 것과 못 한 것을 가려 말한다**(2026-10-02 형님 지시 · [295]).
+
+    형님 지시: "모든 db도 과거 기록도 다 남기고 내가 지정한 폴더에 백업하도록해"
+
+    실측 2026-10-02: 업무 정본 `app_store.db`(2,387MB)가 **어디에도 백업되지 않고
+    있었다** — `archive_keep` 는 `ledger_queue.db` 하나만 뜬다. 그래서 새로 만들었다.
+
+    계약: ① 대상은 손으로 안 적고 `db/` 를 훑는다([340])
+    ② **공유 폴더에 못 닿으면 '백업했다'고 안 하고 대기함에 뜬다**([169])
+    ③ 겉모습(크기·수정시각)이 그대로면 **뜨지도 않는다**([168] — 2.4GB 를 13분 동안
+       복사·압축하는 일을 아낀다)
+    ④ 떠 보니 지문이 같아도 건너뛰되 **그 사실을 적는다**(백업이 없는 것과 다르다)
+    ⑤ `--once` 는 하루 한 번 — 회차가 30분마다 불러도 값이 싸다
+    ⑥ 세대 판정은 `archive_keep` 에서 **빌린다**([162])
+    ⑦ 계기 자기시험([272]) — 겉모습 문을 없애면 이 검사가 잡는가.
+
+    진짜 DB·진짜 공유 폴더는 **한 글자도 안 건드린다**([247]) — 임시 폴더로만.
+    """
+    import datetime as _dt
+    import io as _io
+    import json as _json
+    import os as _os
+    import shutil as _sh
+    import sqlite3 as _sq
+    import tempfile as _tf
+    import ops_backup as B
+
+    tmp = _tf.mkdtemp(prefix="t542_")
+    진짜db, 진짜대기 = B.DB_DIR, B.WAIT_DIR
+    try:
+        # 임시 DB 두 개를 만든다 — 진짜 db/ 는 안 본다([247]).
+        가짜db = _os.path.join(tmp, "db")
+        _os.makedirs(가짜db)
+        for 이름, 줄 in (("하나.db", 3), ("둘.db", 1)):
+            c = _sq.connect(_os.path.join(가짜db, 이름))
+            c.execute("create table 표(a integer)")
+            c.executemany("insert into 표 values (?)", [(i,) for i in range(줄)])
+            c.commit()
+            c.close()
+        # 백업 대상이 아닌 찌꺼기도 둔다 — 딸려 들어가면 안 된다.
+        _io.open(_os.path.join(가짜db, "하나.db-wal"), "w").write("x")
+        B.DB_DIR = 가짜db
+        B.WAIT_DIR = _os.path.join(tmp, "대기함")
+
+        # ① 대상 고르기 — 손으로 적은 목록이 아니다
+        고른것 = sorted(_os.path.basename(x) for x in B.db_files())
+        assert 고른것 == ["둘.db", "하나.db"], 고른것
+
+        # ② 공유 폴더가 없으면 대기함 + **그 사실을 말한다**
+        말, 기록 = B.run(root=_os.path.join(tmp, "없는폴더", "더없음"), today="2026-10-02")
+        assert 기록["대기함"] is True, 기록
+        assert "못 닿" in 말, 말
+        assert "백업했다" not in 말
+        떴다 = _os.path.join(B.WAIT_DIR, "2026-10-02")
+        assert _os.path.isfile(_os.path.join(떴다, "하나.db.gz")), _os.listdir(떴다)
+        assert _os.path.isfile(_os.path.join(떴다, "요약.json"))
+        d = _json.load(_io.open(_os.path.join(떴다, "요약.json"), encoding="utf-8"))
+        assert d["DB"]["하나.db"]["표"]["표"] == 3, d["DB"]["하나.db"]["표"]
+
+        # ③ 아무것도 안 바뀌었으면 **뜨지도 않는다**
+        말2, 기록2 = B.run(root=_os.path.join(tmp, "없는폴더", "더없음"), today="2026-10-03")
+        정보 = 기록2["DB"]["하나.db"]
+        assert 정보.get("건너뜀") is True, 정보
+        assert "겉모습" in (정보.get("어떻게") or ""), 정보
+        assert 정보.get("표") is None, "안 떴는데 표를 세었다 — 그러면 아낀 것이 없다"
+
+        # ④ 값이 바뀌면 다시 뜬다
+        c = _sq.connect(_os.path.join(가짜db, "하나.db"))
+        c.execute("insert into 표 values (99)")
+        c.commit()
+        c.close()
+        말3, 기록3 = B.run(root=_os.path.join(tmp, "없는폴더", "더없음"), today="2026-10-04")
+        assert not 기록3["DB"]["하나.db"].get("건너뜀"), 기록3["DB"]["하나.db"]
+
+        # ⑤ --once 는 하루 한 번 — 도장이 찍혔으면 바로 끝난다
+        진짜마크 = B.MARK
+        try:
+            B.MARK = _os.path.join(tmp, "도장.json")
+            B.도장찍기("2026-10-05", "시험", False)
+            말4, 기록4 = B.run(root=None, today="2026-10-05", once=True)
+            assert 기록4.get("건너뜀") is True, 기록4
+            assert "이미 떴다" in 말4, 말4
+        finally:
+            B.MARK = 진짜마크                                   # [371]
+
+        # ⑥ 세대 판정을 빌리는가 — 제 사본을 만들지 않았다([162])
+        src = _io.open(_os.path.join(ROOT, "ops_backup.py"), encoding="utf-8").read()
+        몸통 = src.split("def 세대정리", 1)[1].split("\ndef ", 1)[0]
+        assert "archive_keep" in 몸통 and "keep_days" in 몸통, "세대 판정을 따로 만들었다"
+
+        # ⑦ 자기시험 — 겉모습 문을 없애면 ③ 이 잡히는가([272])
+        잡힘 = 0
+        원래 = B.겉모습
+        try:
+            B.겉모습 = lambda src_: {}          # 늘 비면 문이 안 걸린다
+            _, 기록5 = B.run(root=_os.path.join(tmp, "없는폴더", "더없음"), today="2026-10-06")
+            정보5 = 기록5["DB"]["둘.db"]
+            if "겉모습" in (정보5.get("어떻게") or ""):
+                잡힘 += 0
+            else:
+                잡힘 += 1                       # 문이 안 걸렸다 = 검사가 잡아야 한다
+        finally:
+            B.겉모습 = 원래                                      # [371]
+        assert 잡힘 == 1, "겉모습 문을 없앴는데 ③ 이 그대로 통과했다 — 아무것도 안 재고 있다"
+    finally:
+        B.DB_DIR, B.WAIT_DIR = 진짜db, 진짜대기                  # [371]
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print("  \u2714 [542] DB 백업 — db/ 를 훑어 고름 · 못 닿으면 대기함이라 말함 · "
+          "겉모습 그대로면 안 뜸 · --once 하루 한 번 · 세대 판정 빌림 · 자기시험")
+
+
+def t543_ops_manual_counts_errors_it_really_read():
+    """운영 문서 게시 — **읽은 것만 세고, 못 읽었으면 그렇게 적는다**([169] · [295]).
+
+    ⚠ 만들면서 그대로 밟았다(2026-10-02): `error_book.rollup()` 의 칸 이름을
+      '목록'·'items' 로 짐작했더니 **921건이 있는데 "0건"** 이라 적혔다.
+      오류도 안 나고 그럴듯했다([165] — 안 읽은 칸은 빈칸과 구별되지 않는다).
+      실제 칸은 `회귀`·`새오류`·`아는것`·`못본것` 이다.
+
+    계약: ① 합계를 그대로 싣는다 ② 갈래별 목록을 싣는다
+    ③ **기대한 칸이 없으면 '덜 세었을 수 있다'를 적는다**([169])
+    ④ 공유 폴더에 못 닿으면 '못 닿았다'라 하고 아무것도 안 쓴다
+    ⑤ 하루 로그는 **못 읽은 로그를 '문제 없음'이 아니라 '모름'으로** 적는다
+    ⑥ 계기 자기시험([272]).
+    진짜 공유 폴더·진짜 오류 기록은 한 글자도 안 건드린다([247]).
+    """
+    import io as _io
+    import os as _os
+    import shutil as _sh
+    import sys as _sys
+    import tempfile as _tf
+    import ops_manual as M
+
+    tmp = _tf.mkdtemp(prefix="t543_")
+    진짜 = _sys.modules.get("error_book")
+
+    class _가짜:
+        def __init__(self, res):
+            self.res = res
+
+        def rollup(self, days=30):
+            return self.res
+
+    try:
+        root = _os.path.join(tmp, "12. 운영 매뉴얼")
+        _os.makedirs(root)
+
+        # ①② 진짜 모양 그대로 — 갈래 칸으로 준다
+        _sys.modules["error_book"] = _가짜({
+            "합계": 921, "갈래": 35, "회귀": [], "새오류": [],
+            "아는것": [{"지문": "/api/live-state · NETWORK_ERROR", "건수": 349,
+                     "사전": "서버가 잠깐 끊김", "마지막": "2026-09-21T13:23:40"}],
+            "못본것": []})
+        말 = M.publish_errors(root=root)
+        assert "최근기록" in 말, 말
+        글 = ""
+        for n in _os.listdir(_os.path.join(root, "03_오류")):
+            if n.startswith("최근오류"):
+                글 = _io.open(_os.path.join(root, "03_오류", n), encoding="utf-8").read()
+        assert "921" in 글, "합계를 안 실었다"
+        assert "NETWORK_ERROR" in 글, "갈래별 목록을 안 실었다 — 0건으로 보인다"
+        assert "서버가 잠깐 끊김" in 글, "사전 설명을 안 실었다"
+        assert "덜 세었을" not in 글, "칸이 다 있는데 모름이라 적었다([172])"
+
+        # ③ 칸 이름이 어긋나면 **모름이라 적는다**
+        _sh.rmtree(_os.path.join(root, "03_오류"), ignore_errors=True)
+        _sys.modules["error_book"] = _가짜({"합계": 921, "갈래": 35, "목록": []})
+        M.publish_errors(root=root)
+        글2 = ""
+        for n in _os.listdir(_os.path.join(root, "03_오류")):
+            if n.startswith("최근오류"):
+                글2 = _io.open(_os.path.join(root, "03_오류", n), encoding="utf-8").read()
+        assert "덜 세었을" in 글2, "기대한 칸이 없는데 아무 말도 안 했다([169])"
+
+        # ④ 못 닿으면 아무것도 안 쓴다
+        없는 = _os.path.join(tmp, "없는곳", "더없음", "12. 운영 매뉴얼")
+        말3 = M.publish_errors(root=없는)
+        assert "못 닿" in 말3, 말3
+        assert not _os.path.isdir(_os.path.dirname(없는)), "못 닿는다면서 폴더를 만들었다"
+
+        # ⑤ 하루 로그 — 못 읽은 로그를 '모름'으로
+        진짜로그 = dict(M.LOG_SRC)
+        try:
+            M.LOG_SRC = {"없는로그": _os.path.join(tmp, "없는파일.txt")}
+            말4, 글4 = M.day_log("2026-10-01", root=root)
+            assert "못 읽은 것" in 글4 and "모름" in 글4, 글4[:300]
+            assert "특별한 것 없음" not in 글4, "못 읽은 것을 '이상 없음'으로 적었다([169])"
+        finally:
+            M.LOG_SRC = 진짜로그                                 # [371]
+
+        # ⑥ 자기시험 — 갈래 칸을 안 보게 만들면 ② 가 잡히는가([272])
+        잡힘 = 0
+        _sh.rmtree(_os.path.join(root, "03_오류"), ignore_errors=True)
+        _sys.modules["error_book"] = _가짜({"합계": 921, "갈래": 35,
+                                         "아는것": [{"지문": "ZZZ", "건수": 1}]})
+        M.publish_errors(root=root)
+        글5 = ""
+        for n in _os.listdir(_os.path.join(root, "03_오류")):
+            if n.startswith("최근오류"):
+                글5 = _io.open(_os.path.join(root, "03_오류", n), encoding="utf-8").read()
+        if "ZZZ" not in 글5:
+            잡힘 += 1
+        assert 잡힘 == 0, "갈래 칸에 있는 항목을 안 실었다 — 0건으로 보인다"
+    finally:
+        if 진짜 is not None:
+            _sys.modules["error_book"] = 진짜                    # [371]
+        else:
+            _sys.modules.pop("error_book", None)
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print("  \u2714 [543] 운영 문서 게시 — 읽은 것만 셈 · 칸이 어긋나면 모름이라 적음 · "
+          "못 닿으면 안 씀 · 못 읽은 로그는 '모름' · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52573,6 +52789,8 @@ if __name__ == "__main__":
     t539_ollama_is_a_hint_not_a_source()
     t540_pm_deadline_is_a_quarter_not_a_day()
     t541_revenue_gap_asks_erp_not_the_ledger_sheet()
+    t542_db_backup_says_what_it_really_did()
+    t543_ops_manual_counts_errors_it_really_read()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

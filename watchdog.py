@@ -757,6 +757,41 @@ def publish_sop(dry):
         return "절차서 게시 실패: %s" % str(exc)[:80]
 
 
+def publish_ops(dry):
+    """운영 매뉴얼·하루 로그·오류를 공유 폴더에 올리고, **밀린 백업을 올린다**
+    (2026-10-02 형님 지시 — 매뉴얼·로그·오류·백업을 지정 폴더에서 관리).
+
+    ★ **DB 백업 자체는 여기서 안 뜬다.** 실측 2026-10-02 에 2,739MB 를 뜨는 데
+      13분 30초가 걸렸다 — 30분 회차에 달면 매 회차가 예산을 먹는다.
+      뜨는 일은 09:50 일일 회차(예산 150분) 몫이고, 여기서는 **이미 뜬 것을
+      공유 폴더로 올리기만** 한다(Z: 가 끊겨 대기함에 쌓인 것).
+    ★ 판단은 `ops_manual`·`ops_backup` 에 있다([162]) — 여기서는 부르기만 한다.
+    ★ 못 해도 회차를 안 죽인다 — 그러나 못 했다고 말한다([169])."""
+    if dry:
+        return ""
+    말 = []
+    try:
+        import ops_manual
+        말.append(ops_manual.publish_manual())
+        어제 = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        말.append(ops_manual.day_log(어제)[0])
+        말.append(ops_manual.publish_errors())
+    except Exception as exc:
+        말.append("운영 문서 게시 실패: %s" % str(exc)[:70])
+    try:
+        import ops_backup
+        한 = ops_backup.밀린것올리기()
+        if 한:
+            말.append(한)
+        # ★ 세대 정리는 **올린 뒤**다 — 먼저 솎으면 오늘 올릴 것을 지울 수 있다.
+        한 = ops_backup.세대정리()
+        if 한:
+            말.append(한)
+    except Exception as exc:
+        말.append("밀린 백업 올리기 실패: %s" % str(exc)[:70])
+    return " | ".join(x for x in 말 if x)
+
+
 def sweep_files(dry):
     """쓸데없는 파일을 지운다 — **되돌릴 수 있는 갈래만**(2026-08-27 지시).
 
@@ -1566,6 +1601,10 @@ def main():
              lock_ledger_archive,
              # ★ 절차서 공유 폴더 게시 — 바뀐 묶음만, 옛 판은 old 로(2026-10-02 지시).
              publish_sop,
+             # ★ 운영 매뉴얼·하루 로그·오류 게시 + **밀린 DB 백업 올리기**
+             #   (2026-10-02 형님 지시). 뜨는 일은 09:50 회차 몫이다 —
+             #   13분 30초라 30분 회차 예산을 먹는다.
+             publish_ops,
              # ★ 원본을 새 정본 자리로 복사 — 예산 안에서 조금씩,
              #   도는 회차에는 양보한다(2026-08-27 지시 · `[464]`).
              mirror_originals,
