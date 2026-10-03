@@ -495,6 +495,15 @@ def pm_schedule_camps(force=False):
     """정기점검 스케줄 원본 -> ({정규화이름: {…}}, 왜). 실패도 말로 돌려준다."""
     files = _sched_files()
     if not files:
+        # ★ '없다'와 '못 닿았다'를 가른다([169] · 2026-10-02 실측) — Z: 가 끊긴 날
+        #   "워크북이 없다"고 적으면 사람이 멀쩡한 파일을 찾으러 간다.
+        try:
+            import source_dirs as SD
+            닿음 = os.path.isdir(SD.PM_SCHEDULE_DIR)
+        except Exception:
+            닿음 = False
+        if not 닿음:
+            return {}, {"길": "못 읽음: 정기점검 스케줄 원본 폴더에 못 닿았다(공유 드라이브 연결 확인)"}
         return {}, {"길": "못 읽음: 정기점검 스케줄 원본 폴더에 워크북이 없다"}
     # ★ 지문에 **파일 전부**를 담는다 — 하나만 담으면 옆 파일이 바뀌어도 옛 답이 이긴다.
     sig = "|".join("%s:%s:%s" % (os.path.basename(p_), int(m_), z_)
@@ -1367,7 +1376,13 @@ def sched_stale():
         return out
     if not f:
         # 폴더는 열렸는데 워크북이 없다. '없다'와 '못 읽었다'를 가른다([169]).
-        out["말"] = "정기점검 스케줄 원본 폴더에 워크북이 없다 - 최신인지 확인 못 함"
+        try:
+            import source_dirs as SD
+            닿음 = os.path.isdir(SD.PM_SCHEDULE_DIR)
+        except Exception:
+            닿음 = False
+        out["말"] = ("정기점검 스케줄 원본 폴더에 워크북이 없다 - 최신인지 확인 못 함" if 닿음 else
+                    "정기점검 스케줄 원본 폴더에 못 닿았다(공유 드라이브 연결 확인) - 최신인지 확인 못 함")
         return out
     path, mt, _sz = f
     out["원본"] = os.path.basename(path)
