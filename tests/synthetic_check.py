@@ -37673,7 +37673,7 @@ def t544_artis_stays_out_of_company_outputs():
     try:
         # ④ 못 읽은 파일 = '깨끗'이 아니다
         이진 = _os.path.join(tmp, "그림.xlsx")
-        _io.open(이진, "wb").write(b"PKÿþ ")
+        _io.open(이진, "wb").write(bytes([80, 75, 3, 4, 255, 254, 0, 129, 130]))
         갈래, _why = G.scan_file(이진)
         assert 갈래 == "못읽음", 갈래
         assert 갈래 != "깨끗", "안을 못 봤는데 깨끗이라 했다([169])"
