@@ -357,6 +357,8 @@ def collect(day_dir, dry=False, deadline=None, out=None):
       (통과 못 했으면 앞 회차 폴더에 아예 없으므로 링크 대상이 되지 않는다).
     """
     n = size = skipped = linked = 0
+    #: ARTIS 가 섞여 Z: 로 **안 보낸** 파일 — 조용히 빼지 않는다([273]).
+    artis_skipped = []
     prev = prev_day_dir(day_dir) if not dry else None
     prev_index = load_index(prev) if prev else None
     index = {}
@@ -406,9 +408,28 @@ def collect(day_dir, dry=False, deadline=None, out=None):
         same = bool(prev_path) and unchanged(st, prev_path, prev_index, rel)
         if not same and rel.endswith((".md", ".json", ".txt", ".csv")) and st.st_size < 2_000_000:
             try:
-                if has_secret(open(path, encoding="utf-8", errors="replace").read(200_000)):
+                _글 = open(path, encoding="utf-8", errors="replace").read(200_000)
+                if has_secret(_글):
                     skipped += 1
                     continue                  # 비밀키 형태가 보이면 담지 않는다
+                # ★ ARTIS 는 형님 **개인 사업**이다 — 회사 NAS(Z:)에 올리지 않는다
+                #   (2026-10-03 형님 직접 지시). 비밀키와 **같은 자리**에 둔다:
+                #   둘 다 '담으면 되돌릴 수 없는 것'이고, Z: 는 모든 PC·사람이
+                #   같이 보는 자리라 한 번 올라가면 지워도 본 사람이 남는다.
+                # ★ 판정은 `artis_guard` 한 곳에서 빌린다([162]) — 금지어 목록을
+                #   여기 또 적으면 늘어나는 날 한쪽만 조용히 샌다([165]).
+                # ★ **조용히 빼지 않는다**([273]) — 뺀 파일을 이름으로 남겨
+                #   사람이 "왜 이 기록이 보관본에 없나"를 물을 근거를 준다.
+                #   못 빌리면 **예전처럼 담는다**([169]) — 보관이 통째로 비는 것이
+                #   섞인 기록 한 줄보다 나쁘다.
+                try:
+                    import artis_guard as _AG
+                    if _AG.scan_text(_글):
+                        skipped += 1
+                        artis_skipped.append(rel)
+                        continue
+                except ImportError:
+                    pass
             except OSError:
                 pass
         n += 1
@@ -429,6 +450,12 @@ def collect(day_dir, dry=False, deadline=None, out=None):
         shutil.copy2(path, dst)
         _index_touch()
     _index_touch(force=True)              # 다음 회차가 이걸 읽어 Z: 를 안 찌른다
+    if artis_skipped and out is not None:
+        # ★ 반환 모양은 넷 그대로다([172]) — 읽는 쪽이 여럿이라 늘리면 같이 깨진다.
+        #   그래서 곁칸(out)에 적는다. 사람이 "왜 이 기록이 보관본에 없나"를
+        #   물을 근거가 여기 남는다.
+        out["ARTIS로뺌"] = artis_skipped[:20]
+        out["ARTIS로뺀수"] = len(artis_skipped)
     return n, size, skipped, linked
 
 

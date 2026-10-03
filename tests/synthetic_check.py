@@ -37638,6 +37638,88 @@ def t543_ops_manual_counts_errors_it_really_read():
           "못 닿으면 안 씀 · 못 읽은 로그는 '모름' · 자기시험")
 
 
+def t544_artis_stays_out_of_company_outputs():
+    """ARTIS 는 회사 산출물에 안 들어간다 — **지우지 않고 알린다**(2026-10-03 형님 지시).
+
+    형님 직접 지시: "이 세션의 모든 산출물에 ARTIS 이름·홈페이지·문의·고객·자료를
+    절대 넣지 마라. 나가는 산출물에 들어가면 걸러내는 검사를 만들어라."
+
+    계약: ① 금지어를 잡는다 ② **멀쩡한 쿠팡 글은 안 잡는다**([172] 틀린 지목)
+    ③ 지시문·기억 사본은 안 잰다([170] — 그 글들은 '넣지 마라'를 적느라 그 낱말을 쓴다)
+    ④ **못 읽은 파일을 '깨끗'이라 하지 않는다**([169])
+    ⑤ 보관(archive_keep)이 섞인 파일을 **Z: 로 안 보내고 그 사실을 적는다**([273])
+    ⑥ 계기 자기시험([272]).
+    진짜 Z:·진짜 보관본은 한 글자도 안 건드린다([247] — 임시 폴더로만).
+    """
+    import io as _io
+    import os as _os
+    import shutil as _sh
+    import tempfile as _tf
+    import artis_guard as G
+
+    # ① 잡는다
+    assert G.scan_text("ARTIS 홈페이지"), "금지어를 못 잡았다"
+    assert G.scan_text("아티스 고객"), "한글 금지어를 못 잡았다"
+    assert G.scan_text("https://artis-elevator.com"), "주소를 못 잡았다"
+    # ② 멀쩡한 쿠팡 글은 안 잡는다
+    깨끗 = "정기점검 9건 판매전표 발행 · 부산5Sub-hub 16기 · cartridge 교체 · 아티팩트"
+    assert not G.scan_text(깨끗), G.scan_text(깨끗)
+    # ③ 지시문·기억 사본은 안 잰다
+    assert G.skip_path("x/CLAUDE.md") and G.skip_path("x/INCIDENTS.md")
+    assert G.skip_path("x/memory/no-artis-in-universal-work.md")
+    assert not G.skip_path("reports/보고서.md"), "멀쩡한 산출물까지 건너뛴다([172])"
+
+    tmp = _tf.mkdtemp(prefix="t544_")
+    try:
+        # ④ 못 읽은 파일 = '깨끗'이 아니다
+        이진 = _os.path.join(tmp, "그림.xlsx")
+        _io.open(이진, "wb").write(b"PKÿþ ")
+        갈래, _why = G.scan_file(이진)
+        assert 갈래 == "못읽음", 갈래
+        assert 갈래 != "깨끗", "안을 못 봤는데 깨끗이라 했다([169])"
+
+        # ⑤ 보관이 섞인 파일을 Z: 로 안 보내고 **그 사실을 적는다**
+        import archive_keep as A
+        진짜 = A.ROOT
+        try:
+            A.ROOT = tmp
+            _os.makedirs(_os.path.join(tmp, "reports"), exist_ok=True)
+            _io.open(_os.path.join(tmp, "reports", "깨끗.json"), "w",
+                     encoding="utf-8").write('{"정기점검": 9}')
+            _io.open(_os.path.join(tmp, "reports", "섞임.json"), "w",
+                     encoding="utf-8").write('{"메모": "ARTIS 문의"}')
+            out = {}
+            A.collect(_os.path.join(tmp, "담은곳"), dry=False, out=out)
+            담긴 = _os.path.join(tmp, "담은곳", "reports")
+            목록 = sorted(_os.listdir(담긴)) if _os.path.isdir(담긴) else []
+            assert "깨끗.json" in 목록, "멀쩡한 기록까지 뺐다([172] 좁히는 것도 고장이다)"
+            assert "섞임.json" not in 목록, "ARTIS 가 섞인 기록이 Z: 로 갔다"
+            assert out.get("ARTIS로뺀수") == 1, "조용히 뺐다([273]) — 왜 없는지 물을 근거가 없다"
+
+            # ⑥ 자기시험 — 금지어 판정을 무디게 하면 ⑤ 가 잡히는가([272])
+            잡힘 = 0
+            원래 = G.scan_text
+            try:
+                G.scan_text = lambda t: []          # 아무것도 못 잡게 만든다
+                out2 = {}
+                _sh.rmtree(_os.path.join(tmp, "담은곳"), ignore_errors=True)
+                A.collect(_os.path.join(tmp, "담은곳2"), dry=False, out=out2)
+                담긴2 = _os.path.join(tmp, "담은곳2", "reports")
+                목록2 = sorted(_os.listdir(담긴2)) if _os.path.isdir(담긴2) else []
+                if "섞임.json" in 목록2:
+                    잡힘 += 1                      # 문이 없으면 섞인 것이 들어간다
+            finally:
+                G.scan_text = 원래                                   # [371]
+            assert 잡힘 == 1, "판정을 무디게 했는데도 안 들어갔다 — 이 검사가 문을 안 재고 있다"
+        finally:
+            A.ROOT = 진짜                                            # [371]
+    finally:
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    print("  ✔ [544] ARTIS 가 회사 산출물에 안 들어감 — 잡음 · 멀쩡한 글은 안 잡음 · "
+          "지시문 사본 제외 · 못읽음을 깨끗이라 안 함 · 보관에서 뺀 사실을 적음 · 자기시험")
+
+
 def t192_synthetic_check_is_harmless():
     """[192] 합성검증 전후 공유·추적 산출물의 바이트가 그대로다.
 
@@ -52797,6 +52879,7 @@ if __name__ == "__main__":
     t541_revenue_gap_asks_erp_not_the_ledger_sheet()
     t542_db_backup_says_what_it_really_did()
     t543_ops_manual_counts_errors_it_really_read()
+    t544_artis_stays_out_of_company_outputs()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
