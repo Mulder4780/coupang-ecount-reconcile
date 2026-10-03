@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-artis_guard.py — 나가는 산출물에 **ARTIS 가 섞였는지** 본다
+outbound_guard.py — 나가는 산출물에 **ARTIS 가 섞였는지** 본다
 ===============================================================================
 형님 지시(2026-10-03): *"나가는 산출물에 'ARTIS·아티스·artis-elevator'가 들어가면
 걸러내는 검사를 만들 수 있으면 만들어라."*
@@ -24,14 +24,14 @@ ARTIS 는 형님 **개인 사업자**이고 유니버셜리프트와 다른 사�
   '못 본 것'을 '이상 없음'으로 세면 그때가 바로 새는 순간이다.
 
 ## 사람이 쓰는 법
-  python artis_guard.py --check <파일…>        # 파일을 본다
-  python artis_guard.py --check <폴더> -r      # 폴더를 훑는다
-  python artis_guard.py --text "보낼 글"        # 글자를 바로 본다
+  python outbound_guard.py --check <파일…>        # 파일을 본다
+  python outbound_guard.py --check <폴더> -r      # 폴더를 훑는다
+  python outbound_guard.py --text "보낼 글"        # 글자를 바로 본다
 종료코드: **0 깨끗 · 3 걸림 · 2 쓸 파일을 못 받음**
 
 ## 코드에서 부를 때
-  import artis_guard
-  걸림 = artis_guard.scan_text(글)       # [(줄번호, 걸린말, 그 줄), …]
+  import outbound_guard
+  걸림 = outbound_guard.scan_text(글)       # [(줄번호, 걸린말, 그 줄), …]
   if 걸림: ...                           # 지우지 말고 사람에게 알린다
 """
 import argparse
@@ -47,7 +47,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 WORDS = ("ARTIS", "아티스", "artis-elevator", "artis_elevator", "artis.co", "artiselevator")
 
 # ★ 재지 않는 글 — 이것들은 '넣지 마라'를 적느라 그 낱말을 쓴다([170]).
-SKIP_NAMES = ("CLAUDE.md", "AGENTS.md", "INCIDENTS.md", "artis_guard.py",
+SKIP_NAMES = ("CLAUDE.md", "AGENTS.md", "INCIDENTS.md", "outbound_guard.py",
               "no-artis-in-universal-work.md", "MEMORY.md", "session_scope.py")
 SKIP_DIRS = (".git", "__pycache__", "node_modules", ".claude")
 
@@ -128,8 +128,8 @@ def main(argv=None):
 
     if not a.check:
         print("쓸 파일이나 --text 를 주십시오. 보기:")
-        print('  python artis_guard.py --check reports/보고서.md')
-        print('  python artis_guard.py --text "보낼 글"')
+        print('  python outbound_guard.py --check reports/보고서.md')
+        print('  python outbound_guard.py --text "보낼 글"')
         return 2
 
     셈 = {"깨끗": 0, "걸림": 0, "못읽음": 0, "건너뜀": 0}

@@ -76,10 +76,22 @@ def publish_manual(root=None, dry=False, today=None):
     if not os.path.isdir(초안):
         return "매뉴얼 게시: 올릴 초안이 없다(%s)" % 초안
     today = today or datetime.date.today().isoformat()
-    올림, 그대로 = [], 0
+    올림, 그대로, 막힘 = [], 0, []
     for src in sorted(glob.glob(os.path.join(초안, "**", "*.md"), recursive=True)):
         rel = os.path.relpath(src, 초안)
         dst = os.path.join(root, rel)
+        # ★ 금지어가 든 문서는 **공유 폴더에 안 올린다**(2026-10-03 형님 지시).
+        #   Z: 는 모든 PC·사람이 같이 보는 자리라 한 번 올라가면 되돌릴 수 없다.
+        #   ⚠ 옛 판 보관(05_과거기록)보다 **이 규칙이 세다** — 2026-10-04 에
+        #   실제로 부딪혔다: 새 판은 깨끗한데 옛 판 사본이 Z: 에 남았다.
+        #   ★ 조용히 거르지 않는다([273]) — 막힌 파일을 이름으로 돌려준다.
+        try:
+            import outbound_guard as _AG
+            if _AG.scan_text(io.open(src, encoding="utf-8").read()):
+                막힘.append(rel)
+                continue
+        except ImportError:
+            pass            # 못 빌리면 예전처럼 올린다([169])
         if os.path.isfile(dst) and _sha(dst) == _sha(src):
             그대로 += 1
             continue
@@ -96,11 +108,13 @@ def publish_manual(root=None, dry=False, today=None):
         shutil.copy2(src, dst + ".part")
         os.replace(dst + ".part", dst)
         올림.append(rel)
+    꼬리 = ("  ※ **금지어가 있어 안 올린 문서 %d장**: %s"
+            % (len(막힘), ", ".join(os.path.basename(x) for x in 막힘))) if 막힘 else ""
     if not 올림:
-        return "매뉴얼 게시: 바뀐 문서 없음(%d장 그대로)" % 그대로
-    return "매뉴얼 게시: %d장 %s(그대로 %d장) — %s" % (
+        return "매뉴얼 게시: 바뀐 문서 없음(%d장 그대로)%s" % (그대로, 꼬리)
+    return "매뉴얼 게시: %d장 %s(그대로 %d장) — %s%s" % (
         len(올림), "올릴 것" if dry else "올림", 그대로,
-        ", ".join(os.path.basename(x) for x in 올림[:4]))
+        ", ".join(os.path.basename(x) for x in 올림[:4]), 꼬리)
 
 
 # ── ② 하루 한 장 로그 ──────────────────────────────────────────

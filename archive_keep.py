@@ -416,14 +416,14 @@ def collect(day_dir, dry=False, deadline=None, out=None):
                 #   (2026-10-03 형님 직접 지시). 비밀키와 **같은 자리**에 둔다:
                 #   둘 다 '담으면 되돌릴 수 없는 것'이고, Z: 는 모든 PC·사람이
                 #   같이 보는 자리라 한 번 올라가면 지워도 본 사람이 남는다.
-                # ★ 판정은 `artis_guard` 한 곳에서 빌린다([162]) — 금지어 목록을
+                # ★ 판정은 `outbound_guard` 한 곳에서 빌린다([162]) — 금지어 목록을
                 #   여기 또 적으면 늘어나는 날 한쪽만 조용히 샌다([165]).
                 # ★ **조용히 빼지 않는다**([273]) — 뺀 파일을 이름으로 남겨
                 #   사람이 "왜 이 기록이 보관본에 없나"를 물을 근거를 준다.
                 #   못 빌리면 **예전처럼 담는다**([169]) — 보관이 통째로 비는 것이
                 #   섞인 기록 한 줄보다 나쁘다.
                 try:
-                    import artis_guard as _AG
+                    import outbound_guard as _AG
                     if _AG.scan_text(_글):
                         skipped += 1
                         artis_skipped.append(rel)

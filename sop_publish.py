@@ -166,10 +166,10 @@ def publish(root=None, force=False, today=None, store=None):
                                  묶음=book, store=store)
                 made.append((p, dst_dir))
             # ★ 회사 공유 폴더로 나가기 **전에** 개인 사업 이름이 섞였는지 거른다
-            #   (2026-10-03 형님 지시 · 판정은 artis_guard 한 곳).  걸리면 그 묶음은
+            #   (2026-10-03 형님 지시 · 판정은 outbound_guard 한 곳).  걸리면 그 묶음은
             #   안 올리고 표지도 안 올린다 — 고친 뒤 다음 회차가 다시 본다.
-            import artis_guard
-            걸림 = [os.path.basename(p) for p, _d in made if _has_banned(p, artis_guard)]
+            import outbound_guard
+            걸림 = [os.path.basename(p) for p, _d in made if _has_banned(p, outbound_guard)]
             if 걸림:
                 blocked.append("%s(%s)" % (book, ", ".join(걸림)))
                 continue
@@ -202,7 +202,7 @@ def publish(root=None, force=False, today=None, store=None):
 
 
 def _has_banned(path, guard):
-    """나가는 파일에 금지어가 있나 — 낱말 판정은 `artis_guard.scan_text` 한 곳이다([162]).
+    """나가는 파일에 금지어가 있나 — 낱말 판정은 `outbound_guard.scan_text` 한 곳이다([162]).
 
     ★ 워드·PPT 는 zip 이라 글자로 열면 '못읽음'이 된다 — 그것을 '깨끗'으로 치면
       검사가 있으나 마나다([169]). 그래서 zip 안 xml 을 열어 같은 판정에 넘긴다.

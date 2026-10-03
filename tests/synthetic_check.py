@@ -37180,7 +37180,7 @@ def t538_sop_book_and_pictures():
             far = os.path.join(tmp, "없는폴더")
             assert "못 닿았다" in P.publish(root=far, store=store) and not os.path.exists(far)
             # 개인 사업 이름이 든 판은 회사 공유 폴더로 안 나간다(2026-10-03 지시) — 워드는 zip 이라 안까지 본다
-            import artis_guard as _G
+            import outbound_guard as _G
             _bad = os.path.join(tmp, "bad.docx")
             with zipfile.ZipFile(_bad, "w") as _z:
                 _z.writestr("word/document.xml", "<w>" + "AR" + "TIS</w>")
@@ -37638,7 +37638,7 @@ def t543_ops_manual_counts_errors_it_really_read():
           "못 닿으면 안 씀 · 못 읽은 로그는 '모름' · 자기시험")
 
 
-def t544_artis_stays_out_of_company_outputs():
+def t544_private_business_stays_out_of_company_outputs():
     """ARTIS 는 회사 산출물에 안 들어간다 — **지우지 않고 알린다**(2026-10-03 형님 지시).
 
     형님 직접 지시: "이 세션의 모든 산출물에 ARTIS 이름·홈페이지·문의·고객·자료를
@@ -37655,7 +37655,7 @@ def t544_artis_stays_out_of_company_outputs():
     import os as _os
     import shutil as _sh
     import tempfile as _tf
-    import artis_guard as G
+    import outbound_guard as G
 
     # ① 잡는다
     assert G.scan_text("ARTIS 홈페이지"), "금지어를 못 잡았다"
@@ -52879,7 +52879,7 @@ if __name__ == "__main__":
     t541_revenue_gap_asks_erp_not_the_ledger_sheet()
     t542_db_backup_says_what_it_really_did()
     t543_ops_manual_counts_errors_it_really_read()
-    t544_artis_stays_out_of_company_outputs()
+    t544_private_business_stays_out_of_company_outputs()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
