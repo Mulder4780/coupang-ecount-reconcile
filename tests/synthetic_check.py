@@ -37179,6 +37179,12 @@ def t538_sop_book_and_pictures():
             S.set_book("책", [c, a, b, "SOP-%03d" % 5], store)
             far = os.path.join(tmp, "없는폴더")
             assert "못 닿았다" in P.publish(root=far, store=store) and not os.path.exists(far)
+            # 개인 사업 이름이 든 판은 회사 공유 폴더로 안 나간다(2026-10-03 지시) — 워드는 zip 이라 안까지 본다
+            import artis_guard as _G
+            _bad = os.path.join(tmp, "bad.docx")
+            with zipfile.ZipFile(_bad, "w") as _z:
+                _z.writestr("word/document.xml", "<w>" + "AR" + "TIS</w>")
+            assert P._has_banned(_bad, _G) and not P._has_banned(out, _G), "워드 안의 금지어를 못 본다"
         finally:
             P.MARK = _mark
 
