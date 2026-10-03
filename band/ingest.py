@@ -84,7 +84,8 @@ def cache_months():
     out = {}
     for p in sorted(glob.glob(os.path.join(CACHE, "*.json"))):
         b = os.path.basename(p)
-        if b.startswith("raw_") or b.startswith("dump_"):
+        # 격리된 유령 캐시(_유령_*)는 안 센다 — 같은 밴드 이름의 빈 파일이 진짜 캐시를 덮었다(2026-10-04)
+        if b.startswith("raw_") or b.startswith("dump_") or b.startswith("_"):
             continue
         try:
             d = json.load(open(p, encoding="utf-8"))
@@ -96,7 +97,8 @@ def cache_months():
             ts = v.get("created_at")
             if ts:
                 c[datetime.fromtimestamp(ts / 1000).strftime("%Y-%m")] += 1
-        out[d.get("band_name") or b] = c
+        # 이름이 같은 밴드가 둘이라 이름만 열쇠로 쓰면 뒤 파일이 앞 파일을 덮는다 — 파일 이름을 붙인다
+        out["%s (%s)" % (d.get("band_name") or "", os.path.splitext(b)[0])] = c
     return out
 
 
