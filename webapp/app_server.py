@@ -10380,12 +10380,29 @@ IMPROVEMENT_QUEUE = os.path.join(ROOT, "reports", "workcenter_improvements.jsonl
 
 def _atomic_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + f".{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(value, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    # 서버는 스레드로 요청을 받는다 — pid 만 붙이면 동시에 온 두 요청이 같은 임시파일을
+    # 쓴다. 그리고 윈도우는 누가 그 파일을 읽는 순간 os.replace 를 WinError 32 로 막는다
+    # (2026-10-02 실측: 담당자 화면에 그 오류가 그대로 떴다). 이름을 겹치지 않게 하고 잠깐 다시 해 본다.
+    tmp = path + f".{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        for i in range(6):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if i == 5:
+                    raise
+                time.sleep(0.05 * (i + 1))
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def record_workcenter_activity(slug, event="view"):
