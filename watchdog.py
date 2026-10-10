@@ -699,6 +699,44 @@ def clean_reports(dry):
     return f"오래된 리포트 {len(targets)}개 정리{'(dry)' if dry else ''}"
 
 
+def share_to_cashflow(dry):
+    """UNI-CashFlow 와 나눌 자료를 공유 DB 에 내보낸다 (2026-10-10 형님 지시).
+
+    형님 지시: "UNI-CashFlow 센션과 공유할 수 있는 데이터는 db로 공유해 앞으로 쭉"
+    — "앞으로 쭉" 이므로 **대화가 아니라 이 회차**가 진다(상시 원칙:
+    파일과 작업 스케줄러에 넣은 것만 산다).
+
+    ★ **읽기만 하고 가운데 파일에만 쓴다** — 우리 정본(`app_store.db`)은 읽기
+      전용으로 열고, 저쪽 정본(`treasury.db`)은 **아예 열지 않는다**([162]).
+    ★ 못 하면 **회차를 안 죽인다**([169]) — 왜인지만 한 줄 남긴다.
+    ★ **안 바뀌었으면 조용하다**([170]) — 30분마다 같은 줄이 뜨면 아무도 안 읽는다."""
+    try:
+        import share_bridge
+    except Exception as exc:
+        return "공유 DB: 못 불렀다(%s)" % exc
+    if dry:
+        return "공유 DB: dry — 안 보냄"
+    try:
+        out = share_bridge.push()
+    except Exception as exc:
+        return "공유 DB 내보내기 실패: %s" % str(exc)[:80]
+    총 = sum(out.values())
+    global _SHARE_LAST
+    try:
+        전 = _SHARE_LAST
+    except NameError:                  # 첫 회차
+        전 = None
+    _SHARE_LAST = 총
+    if 전 == 총:
+        return ""                      # 안 바뀌었다 — 조용히([170])
+    return "공유 DB(UNI-CashFlow) 내보냄: %s" % ", ".join(
+        "%s %s건" % (k, v) for k, v in out.items()
+    )
+
+
+_SHARE_LAST = None
+
+
 def lock_ledger_archive(dry):
     """관리대장 보관본이 안 잠겨 있으면 잠근다 — **엑셀은 저장용이다**(2026-08-28 지시).
 
@@ -1599,6 +1637,9 @@ def main():
              # ★ 엑셀은 저장용이다 — 어느 도구가 만든 새 보관본이든
              #   여기서 잠근다(2026-08-28 지시 · `[477]`).
              lock_ledger_archive,
+             # ★ UNI-CashFlow 와 나눌 자료를 공유 DB 에 내보낸다
+             #   (2026-10-10 형님 지시 "앞으로 쭉"). 읽기 전용 + 가운데 파일만 쓴다.
+             share_to_cashflow,
              # ★ 절차서 공유 폴더 게시 — 바뀐 묶음만, 옛 판은 old 로(2026-10-02 지시).
              publish_sop,
              # ★ 운영 매뉴얼·하루 로그·오류 게시 + **밀린 DB 백업 올리기**
