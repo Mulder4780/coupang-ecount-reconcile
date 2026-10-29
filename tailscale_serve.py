@@ -156,6 +156,44 @@ def public_funnel_alive(host: str | None = None, timeout: int = 8) -> bool:
     return bool(ips) and any(_public_ping_ip(host, ip, timeout) for ip in ips)
 
 
+def backend_state() -> str:
+    """tailscaled 의 BackendState. 못 읽으면 "" (모름)."""
+    code, out, _err = run("status", "--json", timeout=15)
+    if code not in (0, 1) or not out:
+        return ""
+    try:
+        import json
+        return str(json.loads(out).get("BackendState") or "")
+    except Exception:
+        return ""
+
+
+def wake_backend() -> str:
+    """2026-10-22 실측: 서비스는 Running 인데 BackendState 가 NoState 로 멈춰
+    funnel 명령이 전부 'unexpected state: NoState' 로 실패했다. 그때 트레이 앱
+    (tailscale-ipn.exe)을 숨겨 띄우자 20초 만에 Running 으로 돌아왔다.
+    ForceDaemon(--unattended)이 켜져 있으면 평소엔 안 탄다 — 멈췄을 때만 깨운다."""
+    state = backend_state()
+    if state in ("Running", ""):
+        return state
+    for base in (r"C:\Program Files\Tailscale", r"C:\Program Files (x86)\Tailscale"):
+        ipn = os.path.join(base, "tailscale-ipn.exe")
+        if os.path.exists(ipn):
+            try:
+                subprocess.Popen([ipn], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, close_fds=True)
+            except OSError:
+                pass
+            break
+    for _ in range(30):
+        time.sleep(1)
+        state = backend_state()
+        if state == "Running":
+            break
+    return state
+
+
 def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
     """Verify the phone path and re-register the same fixed URL when stale.
 
@@ -198,6 +236,7 @@ def ensure_public_funnel(repair: bool = True) -> tuple[bool, bool]:
     #   않는 까닭은, 이 앱 게이트가 그 글자가 **있는지**로 자동복구를 확인하기
     #   때문이다 — 주석에 남기면 검사가 우연히 통과하고, 그러면 그 검사는
     #   있으나 마나가 된다.
+    wake_backend()
     code, _out, _err = run("funnel", "--bg", str(PORT), timeout=30)
     if code:
         return False, False

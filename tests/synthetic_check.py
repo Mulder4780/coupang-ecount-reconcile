@@ -37369,6 +37369,12 @@ def t541_revenue_gap_asks_erp_not_the_ledger_sheet():
     import month_end_check as M
 
     real_rows, real_erp = M._rows, M.erp_projects
+    # 계산서 미발행 리포트는 실데이터다([211]) — 임시 폴더의 가짜로 못 박는다(2026-10-29: 그 파일이 없는 날 관문이 죽었다).
+    import tempfile, json as _j
+    real_rdir = M.REPORT_DIR
+    _tmp = tempfile.mkdtemp(prefix="t541_")
+    io.open(os.path.join(_tmp, "세금계산서_미발행_경과.json"), "w", encoding="utf-8").write(_j.dumps({"coupang_total": 0, "rows": []}))
+    M.REPORT_DIR = _tmp
     끝 = "2026-09-30"
 
     def rows(kind):
@@ -37411,6 +37417,7 @@ def t541_revenue_gap_asks_erp_not_the_ledger_sheet():
         assert 잡힘 == 0, "빈 색인인데 두 건을 다 안 셌다 — 근거를 안 보고 있다"
     finally:
         M._rows, M.erp_projects = real_rows, real_erp            # [371]
+        M.REPORT_DIR = real_rdir
 
     # ⑤ 화면이 근거를 적는가 — 글자가 아니라 만들어진 글로 잰다([295])
     src = io.open(os.path.join(ROOT, "month_end_check.py"), encoding="utf-8").read()
