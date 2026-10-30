@@ -84,9 +84,14 @@ def main():
     #   MagicDNS 이름은 재부팅해도 바뀌지 않는다 — 무료 터널 주소가 띄울 때마다 새로
     #   발급돼 폰 북마크·창 복원이 매일 죽던 문제가 여기서 끝난다.
     #   터널 주소는 그 다음 차선책으로만 남긴다.
+    # ★ 2026-10-30 형님 결정으로 순서를 뒤집었다 — **살아 있는 무료 터널이 먼저**다.
+    #   실측(바깥 경로): 작은 요청 Cloudflare 0.29~0.53초 / Funnel 1.7~3.2초,
+    #   첫 화면 572KB 는 Funnel 2.1~22초(도쿄 중계 대역이 들쭉날쭉)였다.
+    #   터널이 죽었거나 형식이 틀리면 아래에서 Funnel(고정)로 물러난다.
+    #   되돌리기 한 줄: COUPANG_ENDPOINT_PREFER=tailscale
     ts_url = tailscale_url()
-    if ts_url:
-        publish(ts_url, force, why="Tailscale Funnel(고정)")
+    if os.environ.get("COUPANG_ENDPOINT_PREFER", "").lower() == "tailscale" and ts_url:
+        publish(ts_url, force, why="Tailscale Funnel(고정 · 환경변수로 우선)")
         return
 
     try:
@@ -94,6 +99,9 @@ def main():
     except Exception:
         url = ""
     if not url:
+        if ts_url:
+            publish(ts_url, force, why="Tailscale Funnel(고정 · 터널 미가동)")
+            return
         print("게시할 주소 없음 (터널 미가동)")
         return
 
@@ -103,6 +111,8 @@ def main():
     import re as _re
     if not _re.fullmatch(r"https://[a-z0-9]+(?:-[a-z0-9]+){2,}\.trycloudflare\.com/?", url):
         print(f"게시 취소 — 터널 주소 형식이 아님: {url}")
+        if ts_url:
+            publish(ts_url, force, why="Tailscale Funnel(고정 · 터널 사용 불가)")
         return
     # 정말 살아 있는지 확인하고 올린다(죽은 주소를 게시하면 폰이 그대로 막힌다).
     # ★ 단 **회사 DNS로 판단하면 안 된다** — 사내망은 *.trycloudflare.com 을 풀어 주지 않아
@@ -113,6 +123,8 @@ def main():
     ok, why = probe(url.rstrip("/") + "/api/ping")
     if not ok:
         print(f"게시 취소 — {why}: {url}")
+        if ts_url:
+            publish(ts_url, force, why="Tailscale Funnel(고정 · 터널 사용 불가)")
         return
     print(f"   살아 있음 확인 — {why}")
 
