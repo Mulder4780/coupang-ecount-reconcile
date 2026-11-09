@@ -37645,6 +37645,52 @@ def t543_ops_manual_counts_errors_it_really_read():
           "못 닿으면 안 씀 · 못 읽은 로그는 '모름' · 자기시험")
 
 
+def t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes():
+    """카톡 반영 뒤 바탕화면 원본 정리 — 실행으로 잰다([295] · 2026-11-09 형님 지시).
+
+    계약: ① Z: 정본과 **같은 내용**인 KakaoTalk_*.txt 만 지운다 ② 내용이 다르면 남긴다
+    ③ 카톡이 아닌 파일은 안 건드린다([104]) ④ COUPANG_KAKAO_KEEP_DROP=1 이면 안 지운다
+    ⑤ 계기 자기시험 — 해시 비교를 빼면 잡히는지([272]).
+    진짜 바탕화면은 한 글자도 안 건드린다([247]) — 임시 폴더와 목으로만.
+    """
+    import io, tempfile
+    import kakao_apply as K
+    real_drop = K.drop_dirs
+    old_env = os.environ.pop("COUPANG_KAKAO_KEEP_DROP", None)
+    t = tempfile.mkdtemp(prefix="t545_")
+    drop, can = os.path.join(t, "desk"), os.path.join(t, "z")
+    os.makedirs(drop); os.makedirs(can)
+    def w(d, n, txt):
+        io.open(os.path.join(d, n), "w", encoding="utf-8").write(txt)
+    try:
+        K.drop_dirs = lambda: [drop]
+        w(can, "KakaoTalk_a.txt", "AAA")
+        w(drop, "KakaoTalk_a.txt", "AAA"); w(drop, "KakaoTalk_b.txt", "BBB"); w(drop, "other.txt", "AAA")
+        g = K.tidy_drop([os.path.join(can, "KakaoTalk_a.txt")])
+        assert len(g) == 1 and sorted(os.listdir(drop)) == ["KakaoTalk_b.txt", "other.txt"], os.listdir(drop)
+        w(drop, "KakaoTalk_a.txt", "AAA")
+        os.environ["COUPANG_KAKAO_KEEP_DROP"] = "1"
+        assert K.tidy_drop([os.path.join(can, "KakaoTalk_a.txt")]) == []
+        assert "KakaoTalk_a.txt" in os.listdir(drop)
+        os.environ.pop("COUPANG_KAKAO_KEEP_DROP", None)
+        # ⑤ 해시를 안 보면(같은 이름만 보면) 다른 내용 b 도 지워진다 — 그것을 잡는지
+        real_sha = K.sha
+        try:
+            K.sha = lambda path: "same"
+            w(drop, "KakaoTalk_b.txt", "BBB")
+            g2 = K.tidy_drop([os.path.join(can, "KakaoTalk_a.txt")])
+            assert len(g2) == 2, "자기시험: 해시를 무시하면 다른 내용도 지워져야 계기가 그것을 본다"
+        finally:
+            K.sha = real_sha
+    finally:
+        K.drop_dirs = real_drop                                   # [371]
+        if old_env is None:
+            os.environ.pop("COUPANG_KAKAO_KEEP_DROP", None)
+        else:
+            os.environ["COUPANG_KAKAO_KEEP_DROP"] = old_env
+    print("  ✔ [545] 카톡 반영 뒤 바탕화면 정리 — 같은 내용만 지움 · 다른 내용·남의 파일 남김 · 끄는 스위치 · 자기시험")
+
+
 def t544_private_business_stays_out_of_company_outputs():
     """ARTIS 는 회사 산출물에 안 들어간다 — **지우지 않고 알린다**(2026-10-03 형님 지시).
 
@@ -52887,6 +52933,7 @@ if __name__ == "__main__":
     t542_db_backup_says_what_it_really_did()
     t543_ops_manual_counts_errors_it_really_read()
     t544_private_business_stays_out_of_company_outputs()
+    t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()

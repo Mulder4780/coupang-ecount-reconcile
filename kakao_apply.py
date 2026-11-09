@@ -168,6 +168,48 @@ def absorb(paths, folder):
     return put, dup, fail
 
 
+def tidy_drop(canon_paths):
+    """정본 폴더(Z:)에 **같은 내용으로 들어간 것이 확인된** 카톡 원본만 바탕화면·
+    다운로드에서 지운다. 지운 경로 목록을 돌려준다.
+
+    ★ 지우는 근거는 이름이 아니라 **해시**다 — 정본 사본을 다시 읽어 해시가 맞을
+      때만 지운다. 못 읽거나 다르면 남긴다(지우는 것은 되돌릴 수 없다 · [169]).
+    ★ `KakaoTalk_*.txt` 만 본다 — 바탕화면의 다른 파일은 건드리지 않는다([104]).
+    ★ 되돌리기 한 줄: COUPANG_KAKAO_KEEP_DROP=1
+    """
+    if os.environ.get("COUPANG_KAKAO_KEEP_DROP") == "1":
+        return []
+    want = {}
+    for c in canon_paths:
+        try:
+            want[sha(c)] = c
+        except OSError:
+            continue
+    gone = []
+    if not want:
+        return gone
+    for d in drop_dirs():
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            if not (n.startswith("KakaoTalk_") and n.lower().endswith(".txt")):
+                continue
+            p = os.path.join(d, n)
+            try:
+                if os.path.isfile(p) and sha(p) in want:
+                    os.remove(p)
+                    gone.append(p)
+            except OSError:
+                continue
+    if gone:
+        print("   바탕화면 정리 — Z: 에 같은 내용이 확인된 원본 %d개를 지웠습니다:" % len(gone))
+        for p in gone:
+            print("     -", p)
+    return gone
+
+
 def run(args, minutes=20):
     """자식은 Popen + communicate(timeout=) 로만 돌린다.
     편의 함수 쪽 timeout 은 윈도우에서 영원히 매달릴 수 있다([175])."""
@@ -286,6 +328,12 @@ def main(argv):
               "실패한 채로 반영하면 없는 것이 반영된 것처럼 보입니다.")
         _save(step, given, now_flag)
         return 1
+
+    # ③-1 반영됐으면 바탕화면·다운로드의 원본을 지운다 (2026-11-09 형님 지시:
+    #   "내가 말 안해도 반영 되면 지우게"). 정본은 앱 DB 이고 원본은 Z: 에 있으니
+    #   엑셀 보관본(④) 성패와 상관없이 여기서 지운다.
+    gone = tidy_drop([d for _s, d in put] + [d for _s, d in dup])
+    step.append({"단계": "바탕화면 정리", "지움": [os.path.basename(p) for p in gone]})
 
     # ④ 엑셀 반영
     if not apply_flag:
