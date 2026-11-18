@@ -103,11 +103,15 @@ def judge(inv, dep):
             out.append({"갈래": "짝없는_마이너스", "취소일": m[0], "금액": amt, "품명": m[2]})
             continue
         # 2) 재발행 = 살아 있는 계산서 중 같은 금액 · 취소일 이후(같은 날 포함) · 아직 안 쓴 것
-        j = next((j for j, p in enumerate(live) if j not in taken and p[1] == amt and p[0] >= m[0]), None)
+        #    살아 있는 것만 보지 않는다 : 당일 수정(+A -A +A) 뒤 다시 취소하고 재발행한 사슬은
+        #    가운데 장도 이미 취소돼 있다(2026-11-18 소독기 송파1·북김해 실측, TF 판정).
+        j = next((j for j, p in enumerate(plus) if j != k and j not in taken and p[1] == amt
+                  and p[0] >= m[0] and (p[0], j) > (plus[k][0], k)
+                  and (j not in used or (p[2] == m[2] and p[3] == m[3]))), None)  # 취소된 장은 같은 품명만
         reissue = []
         if j is not None:
             taken.add(j)
-            reissue = [live[j][0] + " " + live[j][2]]
+            reissue = [plus[j][0] + " " + plus[j][2]]
         paid = [d for d in dep if d[1] == amt and d[0].replace("-", "") >= plus[k][0]]
         row = {"발행일": plus[k][0], "취소일": m[0], "금액": amt, "품명": m[2],
                "재발행": reissue, "같은금액입금": [d[0] for d in paid]}
