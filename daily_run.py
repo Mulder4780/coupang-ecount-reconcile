@@ -947,6 +947,10 @@ def _run_pipeline():
     #   읽기 전용 — 아무것도 안 고치고 큐에도 안 넣는다. 결과는 인계 '먼저 처리할 것'.
     steps.append(run("화면 사실대조", [os.path.join(ROOT, "truth_watch.py")]))
 
+    # 2.44a-2 쿠팡 세금계산서 취소 검사 (2026-11-18 지시: "취소 계산서 자동 검사 만들어").
+    #   TF 공유 DB 를 읽기만 한다. 결과 reports/계산서_취소검사.{json,md}.
+    steps.append(run("계산서 취소 검사", [os.path.join(ROOT, "invoice_cancel_watch.py")]))
+
     # 2.44b 대표보고 검증 (2026-08-13 지시: "대표 보고 화면 캡처 정말 중요함 /
     #   잘못된 데이터 들어가지 않게 에이전트 만들어서 검증해 매번").
     #   `truth_watch` 가 화면 전반에 대해 하는 일을 **대표보고 한 장**에 대해 한다.

@@ -561,8 +561,18 @@ def sheet_state(master, sheet):
     return last + 1, cols, cap, orphans
 
 
-def build_queue(rows, master):
-    """등록 대상 → ledger_writer 큐 셀 목록. 02·04 로 유형이 확정된 건만 만든다."""
+def build_queue(rows, master, source="카톡", stamp_field="카톡일시", file_field="출처파일"):
+    """등록 대상 → ledger_writer 큐 셀 목록. 02·04 로 유형이 확정된 건만 만든다.
+
+    ★ 출처를 바꿀 수 있게 열어 둔 이유(2026-11-18 형님 지시 "밴드 넣는 길 만들어"):
+      밴드도 같은 큐를 쓰는데, 예전엔 비고·근거에 **"카톡"이 박혀 있었다.** 그대로
+      빌려 쓰면 밴드에서 온 건이 원장에 *카톡 자동등록* 으로 남아 **출처가 거짓이
+      된다**([169]). 판단을 두 벌로 베끼지 않으려고([162]) 함수는 하나로 두고
+      **출처 글자만** 인자로 받는다. 기본값은 예전 그대로라 카톡 경로는 한 톨도
+      안 바뀐다([172]).
+      · `stamp_field` — 비고에 적을 '언제 올라온 글인가'(카톡=카톡일시 · 밴드=게시일)
+      · `file_field`  — 근거에 적을 출처 이름(카톡=출처파일 · 밴드=밴드이름)
+    """
     from collections import defaultdict
     groups = defaultdict(list)
     for r in rows:
@@ -602,12 +612,12 @@ def build_queue(rows, master):
                 next_row += 1
         for r in recs:
             rn = r["_행"]
-            note = "카톡 자동등록(%s)" % r["카톡일시"]
+            note = "%s 자동등록(%s)" % (source, r.get(stamp_field) or "")
             if r.get("담당원문"):
                 note += " / 담당 원문: %s" % r["담당원문"]
             if r.get("설비"):
                 note += " / 설비: %s" % r["설비"]
-            src = dict(r, _비고=note[:250], _경로="카톡",
+            src = dict(r, _비고=note[:250], _경로=source,
                        _점검내용=(r["작업내용"] or r["신청내용"])[:200],
                        _진행상태=_stage("as"), _점검상태=_stage("pm"))
             for led_col, field in SHEET_MAP[sheet].items():
@@ -621,7 +631,7 @@ def build_queue(rows, master):
                     "key": "%s%d" % (col_letter(cols[led_col]), rn), "key_col": "-",
                     "col": led_col, "value": str(v),
                     "vtype": "date" if led_col in DATE_COLS else "text",
-                    "evidence": "카톡 %s %s" % (r["프로젝트NO"], r["출처파일"]),
+                    "evidence": "%s %s %s" % (source, r["프로젝트NO"], r.get(file_field) or ""),
                     "only_if_empty": True,
                 })
             plan.append({"시트": sheet, "행": rn, "프로젝트NO": r["프로젝트NO"],

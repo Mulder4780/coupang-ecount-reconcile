@@ -37645,6 +37645,26 @@ def t543_ops_manual_counts_errors_it_really_read():
           "못 닿으면 안 씀 · 못 읽은 로그는 '모름' · 자기시험")
 
 
+def t546_invoice_cancel_watch_pairs_before_reissue():
+    """[546] 취소 계산서 검사 : 짝을 먼저 묶고, 다른 취소 건을 재발행으로 세지 않고, 못 읽으면 확인못함."""
+    import importlib, tempfile
+    M = importlib.import_module("invoice_cancel_watch")
+    K = "쿠팡로지스틱스서비스 유한회사"
+    inv = [("20260810", 100, "공임", K), ("20260810", 100, "공임", K), ("20260810", -100, "공임", K),
+           ("20260828", 50, "A", K), ("20260828", -50, "A", K), ("20260828", 50, "B", K), ("20260828", -50, "B", K),
+           ("20260831", 70, "C", K), ("20260831", -70, "C", K), ("20260905", -9, "D", K)]
+    dep = [("2026-10-12", 100)]
+    r = {(x["품명"], x["갈래"]) for x in M.judge(inv, dep)}
+    assert ("공임", "취소_재발행됨") in r, r          # 두 번 발행·한 번 취소 = 살아 있는 계산서 있음
+    assert ("A", "취소_재발행없음") in r and ("B", "취소_재발행없음") in r, r   # 서로를 재발행으로 세지 않음
+    assert ("C", "취소_재발행없음") in r and ("D", "짝없는_마이너스") in r, r
+    r2 = {x["갈래"] for x in M.judge([("20260810", 100, "X", K), ("20260810", -100, "X", K)], [("2026-10-01", 100)])}
+    assert r2 == {"취소됐는데_입금됨"}, r2
+    with tempfile.TemporaryDirectory() as d:
+        res = M.run(write=False, src_dir=d)
+    assert res["확인못함"] and res["건"] == [], res
+    print("  [546] 계산서 취소 검사(짝 먼저·재발행 오인 없음·못 읽으면 확인못함) ✅")
+
 def t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes():
     """카톡 반영 뒤 바탕화면 원본 정리 — 실행으로 잰다([295] · 2026-11-09 형님 지시).
 
@@ -52934,6 +52954,7 @@ if __name__ == "__main__":
     t543_ops_manual_counts_errors_it_really_read()
     t544_private_business_stays_out_of_company_outputs()
     t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes()
+    t546_invoice_cancel_watch_pairs_before_reissue()
     t533_camp_standard_archive_key_falls_back_to_project()
     t192_synthetic_check_is_harmless()
     check_numbers_unique()
