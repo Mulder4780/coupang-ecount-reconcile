@@ -37663,7 +37663,17 @@ def t546_invoice_cancel_watch_pairs_before_reissue():
     with tempfile.TemporaryDirectory() as d:
         res = M.run(write=False, src_dir=d)
     assert res["확인못함"] and res["건"] == [], res
-    print("  [546] 계산서 취소 검사(짝 먼저·재발행 오인 없음·못 읽으면 확인못함) ✅")
+    # 입금 대조 : 취소 짝은 빼고, 입금일 이전 계산서에만, 같은 금액 둘이면 이른 것부터
+    inv2 = [("20260105", 100, "가", "쿠팡"), ("20260105", -100, "가", "쿠팡"),
+            ("20260110", 100, "나", "쿠팡"), ("20260120", 100, "다", "쿠팡"), ("20260301", 50, "라", "쿠팡")]
+    rows, unpaid = M.reconcile(inv2, [("2026-01-15", 100), ("2026-01-12", 70), ("2026-01-08", 100)])
+    got = {r["입금일"]: r["품명"] for r in rows}
+    assert got == {"2026-01-08": "(맞는 계산서 없음)", "2026-01-12": "(맞는 계산서 없음)", "2026-01-15": "나"}, got
+    assert [u[2] for u in unpaid] == ["다", "라"], unpaid
+    import datetime as _dt
+    assert M.stale_days("2026-11-13", _dt.date(2026, 11, 18)) == 5
+    assert M.stale_days("엉망") is None
+    print("  [546] 계산서 취소 검사(짝 먼저·재발행 오인 없음·못 읽으면 확인못함·입금 대조·통장 멈춤) ✅")
 
 def t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes():
     """카톡 반영 뒤 바탕화면 원본 정리 — 실행으로 잰다([295] · 2026-11-09 형님 지시).

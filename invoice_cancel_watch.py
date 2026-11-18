@@ -121,6 +121,82 @@ def judge(inv, dep):
     return out
 
 
+def pair_live(inv):
+    """취소 짝(같은 품명·거래처 +A/-A)을 빼고 살아 있는 계산서만 돌려준다."""
+    plus = [i for i in inv if i[1] > 0]
+    gone = set()
+    for m in (i for i in inv if i[1] < 0):
+        k = next((k for k, p in enumerate(plus) if k not in gone and p[1] == -m[1]
+                  and p[2] == m[2] and p[3] == m[3]), None)
+        if k is not None:
+            gone.add(k)
+    return [p for k, p in enumerate(plus) if k not in gone]
+
+
+def reconcile(inv, dep, dep_since="2026-01-01"):
+    """입금마다 같은 금액 · 입금일 이전 · 아직 안 쓴 살아 있는 계산서 중 가장 이른 것에 맞춘다.
+    금액으로만 맞춘 후보다([169]). 돌려주는 것: (입금행들, 입금 없는 살아 있는 계산서)"""
+    live = pair_live(inv)
+    used, rows = set(), []
+    for d, a in sorted(x for x in dep if x[0] >= dep_since):
+        m = [k for k, i in enumerate(live) if k not in used and i[1] == a and i[0] <= d.replace("-", "")]
+        if m:
+            used.add(m[0])
+            i = live[m[0]]
+            rows.append({"입금일": d, "입금액": a, "계산서일": i[0], "품명": i[2], "후보수": len(m)})
+        else:
+            rows.append({"입금일": d, "입금액": a, "계산서일": "", "품명": "(맞는 계산서 없음)", "후보수": 0})
+    unpaid = [i for k, i in enumerate(live) if k not in used and i[0] >= dep_since.replace("-", "")]
+    return rows, unpaid
+
+
+def stale_days(bank_end, today=None):
+    """통장 자료 끝날이 오늘보다 며칠 뒤처졌나. 못 읽으면 None(모름)."""
+    try:
+        e = datetime.strptime(str(bank_end)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+    return ((today or datetime.now().date()) - e).days
+
+
+STALE_MAX = 3
+OUT_DEP_MD = os.path.join(ROOT, "reports", "쿠팡_입금_대조.md")
+OUT_DEP_CSV = os.path.join(ROOT, "reports", "쿠팡_입금_대조.csv")
+
+
+def write_deposit(rows, unpaid, bank_end, src, note=""):
+    import csv
+    sd = stale_days(bank_end)
+    warn = ("통장 자료 끝날을 못 읽음(모름)" if sd is None else
+            ("통장 자료가 %d일째 멈춤(끝 %s) : 그 뒤 입금은 아직 안 보임" % (sd, bank_end)) if sd > STALE_MAX else "")
+    ok = [r for r in rows if r["계산서일"]]
+    lines = ["# 쿠팡 입금 ↔ 계산서 대조", "",
+             "만든 때 %s · 자료 %s · 통장 끝 %s" % (datetime.now().isoformat(timespec="seconds"), src, bank_end), ""]
+    if note:
+        lines += ["**확인못함** : " + note, ""]
+    if warn:
+        lines += ["**경고** : " + warn, ""]
+    lines += ["- 입금 %d건 %s원 · 맞음 %d · 안 맞음 %d · 후보 여럿 %d" % (
+        len(rows), format(sum(r["입금액"] for r in rows), ","), len(ok), len(rows) - len(ok),
+        sum(1 for r in ok if r["후보수"] > 1)),
+        "- 입금 없는 살아 있는 계산서 %d건 %s원" % (len(unpaid), format(sum(i[1] for i in unpaid), ",")), ""]
+    for i in unpaid:
+        lines.append("  - %s · %s원 · %s" % (i[0], format(i[1], ","), i[2][:50]))
+    lines += ["", "금액으로만 맞춘 후보입니다."]
+    with open(OUT_DEP_MD, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    with open(OUT_DEP_CSV, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["입금일", "입금액", "계산서일", "계산서품명", "같은금액후보수"])
+        for r in rows:
+            w.writerow([r["입금일"], r["입금액"], r["계산서일"], r["품명"], r["후보수"]])
+        w.writerow([])
+        w.writerow(["입금 없는 살아 있는 계산서(취소 짝 제외)"])
+        for i in unpaid:
+            w.writerow(["", i[1], i[0], i[2]])
+    return warn
+
+
 ORDER = ["취소됐는데_입금됨", "취소_재발행없음", "짝없는_마이너스", "취소_재발행됨"]
 WORDS = {"취소됐는데_입금됨": "돈은 받았는데 살아 있는 계산서가 없음(재발행 확인 필요)",
          "취소_재발행없음": "취소 뒤 다시 낸 계산서도 입금도 없음(납품 취소인지 청구 누락인지 확인)",
@@ -140,6 +216,15 @@ def run(write=True, src_dir=None):
         finally:
             con.close()
         res.update({"자료": os.path.basename(p), "계산서끝": ie, "통장끝": be, "건": judge(inv, dep)})
+        if write:
+            con = sqlite3.connect("file:%s?mode=ro" % p.replace("\\", "/"), uri=True)
+            try:
+                inv_all = load(con, since="20250101")[0]
+            finally:
+                con.close()
+            rows, unpaid = reconcile(inv_all, dep)
+            res["입금대조"] = {"입금": len(rows), "안맞음": sum(1 for r in rows if not r["계산서일"]),
+                            "미입금": len(unpaid), "경고": write_deposit(rows, unpaid, be, os.path.basename(p))}
     except Exception as e:  # 못 읽으면 0건이 아니라 확인못함
         res["확인못함"] = "%s: %s" % (type(e).__name__, e)
     cnt = {g: [r for r in res["건"] if r["갈래"] == g] for g in ORDER}
