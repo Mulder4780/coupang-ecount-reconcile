@@ -37682,6 +37682,9 @@ def t546_invoice_cancel_watch_pairs_before_reissue():
     import datetime as _dt
     assert M.stale_days("2026-11-13", _dt.date(2026, 11, 18)) == 5
     assert M.stale_days("엉망") is None
+    assert M.due_info("20260920", "2026-11-17") == ("2026-11-19", 58, False)
+    assert M.due_info("20260901", "2026-11-17")[2] is True
+    assert M.due_info("엉망", "2026-11-17") == ("", None, None)  # 모름을 늦음 아님으로 뭉개지 않는다
     print("  [546] 계산서 취소 검사(짝 먼저·재발행 오인 없음·못 읽으면 확인못함·입금 대조·통장 멈춤) ✅")
 
 def t545_kakao_apply_tidies_desktop_only_when_z_has_same_bytes():

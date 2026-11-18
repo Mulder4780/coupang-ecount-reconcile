@@ -164,6 +164,20 @@ def stale_days(bank_end, today=None):
 
 
 STALE_MAX = 3
+PAY_DAYS = 60   # 실측 2026-11-18: 입금 155건 평균 60일 · 중앙 61 · 최대 63
+LATE_DAYS = 63  # 이것을 넘기면 늦음
+
+
+def due_info(inv_date, bank_end):
+    """(예상 입금일, 통장 끝 기준 경과일, 늦음). 못 읽으면 ("", None, None) : 모름."""
+    try:
+        d = datetime.strptime(str(inv_date)[:8], "%Y%m%d").date()
+        e = datetime.strptime(str(bank_end)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return "", None, None
+    from datetime import timedelta
+    n = (e - d).days
+    return (d + timedelta(days=PAY_DAYS)).isoformat(), n, n > LATE_DAYS
 OUT_DEP_MD = os.path.join(ROOT, "reports", "쿠팡_입금_대조.md")
 OUT_DEP_CSV = os.path.join(ROOT, "reports", "쿠팡_입금_대조.csv")
 
@@ -184,8 +198,14 @@ def write_deposit(rows, unpaid, bank_end, src, note=""):
         len(rows), format(sum(r["입금액"] for r in rows), ","), len(ok), len(rows) - len(ok),
         sum(1 for r in ok if r["후보수"] > 1)),
         "- 입금 없는 살아 있는 계산서 %d건 %s원" % (len(unpaid), format(sum(i[1] for i in unpaid), ",")), ""]
+    late = [i for i in unpaid if due_info(i[0], bank_end)[2]]
+    lines.insert(-1, "- 늦음(계산서 뒤 %d일 넘게 입금 없음) %d건 %s원" % (
+        LATE_DAYS, len(late), format(sum(i[1] for i in late), ",")))
     for i in unpaid:
-        lines.append("  - %s · %s원 · %s" % (i[0], format(i[1], ","), i[2][:50]))
+        due, n, lt = due_info(i[0], bank_end)
+        tag = "★늦음 " if lt else ("" if lt is not None else "(모름) ")
+        lines.append("  - %s%s · %s원 · 예상 입금 %s · %s일째 · %s" % (
+            tag, i[0], format(i[1], ","), due or "?", "?" if n is None else n, i[2][:50]))
     lines += ["", "금액으로만 맞춘 후보입니다."]
     with open(OUT_DEP_MD, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -196,8 +216,11 @@ def write_deposit(rows, unpaid, bank_end, src, note=""):
             w.writerow([r["입금일"], r["입금액"], r["계산서일"], r["품명"], r["후보수"]])
         w.writerow([])
         w.writerow(["입금 없는 살아 있는 계산서(취소 짝 제외)"])
+        w.writerow(["", "금액", "계산서일", "품명", "예상입금일", "경과일", "늦음"])
         for i in unpaid:
-            w.writerow(["", i[1], i[0], i[2]])
+            due, n, lt = due_info(i[0], bank_end)
+            w.writerow(["", i[1], i[0], i[2], due, "" if n is None else n,
+                        "모름" if lt is None else ("늦음" if lt else "")])
     return warn
 
 
