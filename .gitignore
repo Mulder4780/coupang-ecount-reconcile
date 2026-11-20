@@ -81,3 +81,4 @@ db/source_index_cache.json
 #   이름이 '.json' 으로 끝나는 사본과 숨김 파일을 같이 막는다(추적 중인 config 파일은 안 걸린다).
 config/*백업*
 config/.*
+db/usb_snapshot/
